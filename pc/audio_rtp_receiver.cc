@@ -15,35 +15,41 @@
 #include <utility>
 #include <vector>
 
-#include "api/media_stream_proxy.h"
 #include "api/media_stream_track_proxy.h"
+#include "api/sequence_checker.h"
 #include "pc/audio_track.h"
 #include "pc/jitter_buffer_delay.h"
 #include "pc/jitter_buffer_delay_proxy.h"
-#include "pc/media_stream.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/location.h"
 #include "rtc_base/logging.h"
-#include "rtc_base/trace_event.h"
 
 namespace webrtc {
 
 AudioRtpReceiver::AudioRtpReceiver(rtc::Thread* worker_thread,
                                    std::string receiver_id,
-                                   std::vector<std::string> stream_ids)
+                                   std::vector<std::string> stream_ids,
+                                   bool is_unified_plan)
     : AudioRtpReceiver(worker_thread,
                        receiver_id,
-                       CreateStreamsFromIds(std::move(stream_ids))) {}
+                       CreateStreamsFromIds(std::move(stream_ids)),
+                       is_unified_plan) {}
 
 AudioRtpReceiver::AudioRtpReceiver(
     rtc::Thread* worker_thread,
     const std::string& receiver_id,
-    const std::vector<rtc::scoped_refptr<MediaStreamInterface>>& streams)
+    const std::vector<rtc::scoped_refptr<MediaStreamInterface>>& streams,
+    bool is_unified_plan)
     : worker_thread_(worker_thread),
       id_(receiver_id),
-      source_(new rtc::RefCountedObject<RemoteAudioSource>(worker_thread)),
-      track_(AudioTrackProxy::Create(rtc::Thread::Current(),
-                                     AudioTrack::Create(receiver_id, source_))),
+      source_(new rtc::RefCountedObject<RemoteAudioSource>(
+          worker_thread,
+          is_unified_plan
+              ? RemoteAudioSource::OnAudioChannelGoneAction::kSurvive
+              : RemoteAudioSource::OnAudioChannelGoneAction::kEnd)),
+      track_(AudioTrackProxyWithInternal<AudioTrack>::Create(
+          rtc::Thread::Current(),
+          AudioTrack::Create(receiver_id, source_))),
       cached_track_enabled_(track_->enabled()),
       attachment_id_(GenerateUniqueId()),
       delay_(JitterBufferDelayProxy::Create(
@@ -138,12 +144,18 @@ void AudioRtpReceiver::Stop() {
   if (stopped_) {
     return;
   }
+  source_->SetState(MediaSourceInterface::kEnded);
   if (media_channel_) {
     // Allow that SetOutputVolume fail. This is the normal case when the
     // underlying media channel has already been deleted.
     SetOutputVolume(0.0);
   }
   stopped_ = true;
+}
+
+void AudioRtpReceiver::StopAndEndTrack() {
+  Stop();
+  track_->internal()->set_ended();
 }
 
 void AudioRtpReceiver::RestartMediaChannel(absl::optional<uint32_t> ssrc) {

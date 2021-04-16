@@ -29,12 +29,14 @@
 #include <utility>
 
 #include "absl/algorithm/container.h"
+#include "api/sequence_checker.h"
 #include "rtc_base/atomic_ops.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/deprecated/recursive_critical_section.h"
+#include "rtc_base/event.h"
+#include "rtc_base/internal/default_socket_server.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/null_socket_server.h"
-#include "rtc_base/synchronization/sequence_checker.h"
 #include "rtc_base/task_utils/to_queued_task.h"
 #include "rtc_base/time_utils.h"
 #include "rtc_base/trace_event.h"
@@ -69,11 +71,9 @@ class ScopedAutoReleasePool {
 namespace rtc {
 namespace {
 
-const int kSlowDispatchLoggingThreshold = 50;  // 50 ms
-
 class MessageHandlerWithTask final : public MessageHandler {
  public:
-  MessageHandlerWithTask() = default;
+  MessageHandlerWithTask() {}
 
   void OnMessage(Message* msg) override {
     static_cast<rtc_thread_internal::MessageLikeTask*>(msg->pdata)->Run();
@@ -164,6 +164,9 @@ void ThreadManager::RemoveFromSendGraph(Thread* thread) {
 
 void ThreadManager::RegisterSendAndCheckForCycles(Thread* source,
                                                   Thread* target) {
+  RTC_DCHECK(source);
+  RTC_DCHECK(target);
+
   CritScope cs(&crit_);
   std::deque<Thread*> all_targets({target});
   // We check the pre-existing who-sends-to-who graph for any path from target
@@ -253,7 +256,7 @@ Thread* Thread::Current() {
 #ifndef NO_MAIN_THREAD_WRAPPING
   // Only autowrap the thread which instantiated the ThreadManager.
   if (!thread && manager->IsMainThread()) {
-    thread = new Thread(SocketServer::CreateDefault());
+    thread = new Thread(CreateDefaultSocketServer());
     thread->WrapCurrentWithThreadManager(manager, true);
   }
 #endif
@@ -322,7 +325,7 @@ void rtc::ThreadManager::ChangeCurrentThreadForTest(rtc::Thread* thread) {
 Thread* ThreadManager::WrapCurrentThread() {
   Thread* result = CurrentThread();
   if (nullptr == result) {
-    result = new Thread(SocketServer::CreateDefault());
+    result = new Thread(CreateDefaultSocketServer());
     result->WrapCurrentWithThreadManager(this, true);
   }
   return result;
@@ -348,6 +351,35 @@ Thread::ScopedDisallowBlockingCalls::~ScopedDisallowBlockingCalls() {
   RTC_DCHECK(thread_->IsCurrent());
   thread_->SetAllowBlockingCalls(previous_state_);
 }
+
+#if RTC_DCHECK_IS_ON
+Thread::ScopedCountBlockingCalls::ScopedCountBlockingCalls(
+    std::function<void(uint32_t, uint32_t)> callback)
+    : thread_(Thread::Current()),
+      base_blocking_call_count_(thread_->GetBlockingCallCount()),
+      base_could_be_blocking_call_count_(
+          thread_->GetCouldBeBlockingCallCount()),
+      result_callback_(std::move(callback)) {}
+
+Thread::ScopedCountBlockingCalls::~ScopedCountBlockingCalls() {
+  if (GetTotalBlockedCallCount() >= min_blocking_calls_for_callback_) {
+    result_callback_(GetBlockingCallCount(), GetCouldBeBlockingCallCount());
+  }
+}
+
+uint32_t Thread::ScopedCountBlockingCalls::GetBlockingCallCount() const {
+  return thread_->GetBlockingCallCount() - base_blocking_call_count_;
+}
+
+uint32_t Thread::ScopedCountBlockingCalls::GetCouldBeBlockingCallCount() const {
+  return thread_->GetCouldBeBlockingCallCount() -
+         base_could_be_blocking_call_count_;
+}
+
+uint32_t Thread::ScopedCountBlockingCalls::GetTotalBlockedCallCount() const {
+  return GetBlockingCallCount() + GetCouldBeBlockingCallCount();
+}
+#endif
 
 Thread::Thread(SocketServer* ss) : Thread(ss, /*do_init=*/true) {}
 
@@ -676,14 +708,18 @@ void Thread::Dispatch(Message* pmsg) {
   TRACE_EVENT2("webrtc", "Thread::Dispatch", "src_file",
                pmsg->posted_from.file_name(), "src_func",
                pmsg->posted_from.function_name());
+  RTC_DCHECK_RUN_ON(this);
   int64_t start_time = TimeMillis();
   pmsg->phandler->OnMessage(pmsg);
   int64_t end_time = TimeMillis();
   int64_t diff = TimeDiff(end_time, start_time);
-  if (diff >= kSlowDispatchLoggingThreshold) {
-    RTC_LOG(LS_INFO) << "Message took " << diff
+  if (diff >= dispatch_warning_ms_) {
+    RTC_LOG(LS_INFO) << "Message to " << name() << " took " << diff
                      << "ms to dispatch. Posted from: "
                      << pmsg->posted_from.ToString();
+    // To avoid log spew, move the warning limit to only give warning
+    // for delays that are larger than the one observed.
+    dispatch_warning_ms_ = diff + 1;
   }
 }
 
@@ -692,7 +728,7 @@ bool Thread::IsCurrent() const {
 }
 
 std::unique_ptr<Thread> Thread::CreateWithSocketServer() {
-  return std::unique_ptr<Thread>(new Thread(SocketServer::CreateDefault()));
+  return std::unique_ptr<Thread>(new Thread(CreateDefaultSocketServer()));
 }
 
 std::unique_ptr<Thread> Thread::Create() {
@@ -733,6 +769,16 @@ bool Thread::SetName(const std::string& name, const void* obj) {
     name_ += buf;
   }
   return true;
+}
+
+void Thread::SetDispatchWarningMs(int deadline) {
+  if (!IsCurrent()) {
+    PostTask(webrtc::ToQueuedTask(
+        [this, deadline]() { SetDispatchWarningMs(deadline); }));
+    return;
+  }
+  RTC_DCHECK_RUN_ON(this);
+  dispatch_warning_ms_ = deadline;
 }
 
 bool Thread::Start() {
@@ -884,52 +930,74 @@ void Thread::Send(const Location& posted_from,
   msg.message_id = id;
   msg.pdata = pdata;
   if (IsCurrent()) {
+#if RTC_DCHECK_IS_ON
+    RTC_DCHECK_RUN_ON(this);
+    could_be_blocking_call_count_++;
+#endif
     msg.phandler->OnMessage(&msg);
     return;
   }
 
   AssertBlockingIsAllowedOnCurrentThread();
 
-  AutoThread thread;
   Thread* current_thread = Thread::Current();
-  RTC_DCHECK(current_thread != nullptr);  // AutoThread ensures this
-  RTC_DCHECK(current_thread->IsInvokeToThreadAllowed(this));
+
 #if RTC_DCHECK_IS_ON
-  ThreadManager::Instance()->RegisterSendAndCheckForCycles(current_thread,
-                                                           this);
-#endif
-  bool ready = false;
-  PostTask(
-      webrtc::ToQueuedTask([msg]() mutable { msg.phandler->OnMessage(&msg); },
-                           [this, &ready, current_thread] {
-                             CritScope cs(&crit_);
-                             ready = true;
-                             current_thread->socketserver()->WakeUp();
-                           }));
-
-  bool waited = false;
-  crit_.Enter();
-  while (!ready) {
-    crit_.Leave();
-    current_thread->socketserver()->Wait(kForever, false);
-    waited = true;
-    crit_.Enter();
+  if (current_thread) {
+    RTC_DCHECK_RUN_ON(current_thread);
+    current_thread->blocking_call_count_++;
+    RTC_DCHECK(current_thread->IsInvokeToThreadAllowed(this));
+    ThreadManager::Instance()->RegisterSendAndCheckForCycles(current_thread,
+                                                             this);
   }
-  crit_.Leave();
+#endif
 
-  // Our Wait loop above may have consumed some WakeUp events for this
-  // Thread, that weren't relevant to this Send.  Losing these WakeUps can
-  // cause problems for some SocketServers.
-  //
-  // Concrete example:
-  // Win32SocketServer on thread A calls Send on thread B.  While processing the
-  // message, thread B Posts a message to A.  We consume the wakeup for that
-  // Post while waiting for the Send to complete, which means that when we exit
-  // this loop, we need to issue another WakeUp, or else the Posted message
-  // won't be processed in a timely manner.
+  // Perhaps down the line we can get rid of this workaround and always require
+  // current_thread to be valid when Send() is called.
+  std::unique_ptr<rtc::Event> done_event;
+  if (!current_thread)
+    done_event.reset(new rtc::Event());
 
-  if (waited) {
-    current_thread->socketserver()->WakeUp();
+  bool ready = false;
+  PostTask(webrtc::ToQueuedTask(
+      [&msg]() mutable { msg.phandler->OnMessage(&msg); },
+      [this, &ready, current_thread, done = done_event.get()] {
+        if (current_thread) {
+          CritScope cs(&crit_);
+          ready = true;
+          current_thread->socketserver()->WakeUp();
+        } else {
+          done->Set();
+        }
+      }));
+
+  if (current_thread) {
+    bool waited = false;
+    crit_.Enter();
+    while (!ready) {
+      crit_.Leave();
+      current_thread->socketserver()->Wait(kForever, false);
+      waited = true;
+      crit_.Enter();
+    }
+    crit_.Leave();
+
+    // Our Wait loop above may have consumed some WakeUp events for this
+    // Thread, that weren't relevant to this Send.  Losing these WakeUps can
+    // cause problems for some SocketServers.
+    //
+    // Concrete example:
+    // Win32SocketServer on thread A calls Send on thread B.  While processing
+    // the message, thread B Posts a message to A.  We consume the wakeup for
+    // that Post while waiting for the Send to complete, which means that when
+    // we exit this loop, we need to issue another WakeUp, or else the Posted
+    // message won't be processed in a timely manner.
+
+    if (waited) {
+      current_thread->socketserver()->WakeUp();
+    }
+  } else {
+    done_event->Wait(rtc::Event::kForever);
   }
 }
 
@@ -1000,6 +1068,17 @@ void Thread::DisallowAllInvokes() {
   invoke_policy_enabled_ = true;
 #endif
 }
+
+#if RTC_DCHECK_IS_ON
+uint32_t Thread::GetBlockingCallCount() const {
+  RTC_DCHECK_RUN_ON(this);
+  return blocking_call_count_;
+}
+uint32_t Thread::GetCouldBeBlockingCallCount() const {
+  RTC_DCHECK_RUN_ON(this);
+  return could_be_blocking_call_count_;
+}
+#endif
 
 // Returns true if no policies added or if there is at least one policy
 // that permits invocation to |target| thread.
@@ -1117,7 +1196,7 @@ MessageHandler* Thread::GetPostTaskMessageHandler() {
 }
 
 AutoThread::AutoThread()
-    : Thread(SocketServer::CreateDefault(), /*do_init=*/false) {
+    : Thread(CreateDefaultSocketServer(), /*do_init=*/false) {
   if (!ThreadManager::Instance()->CurrentThread()) {
     // DoInit registers with ThreadManager. Do that only if we intend to
     // be rtc::Thread::Current(), otherwise ProcessAllMessageQueuesInternal will

@@ -39,6 +39,11 @@ constexpr TimeDelta kMaxElapsedTime = TimeDelta::Seconds(2);
 // time. Applies only to periodic mode.
 constexpr TimeDelta kMaxProcessingInterval = TimeDelta::Millis(30);
 
+// Allow probes to be processed slightly ahead of inteded send time. Currently
+// set to 1ms as this is intended to allow times be rounded down to the nearest
+// millisecond.
+constexpr TimeDelta kMaxEarlyProbeProcessing = TimeDelta::Millis(1);
+
 constexpr int kFirstPriority = 0;
 
 bool IsDisabled(const WebRtcKeyValueConfig& field_trials,
@@ -79,6 +84,7 @@ int GetPriorityForType(RtpPacketMediaType type) {
       // BWE high.
       return kFirstPriority + 4;
   }
+  RTC_CHECK_NOTREACHED();
 }
 
 }  // namespace
@@ -106,8 +112,6 @@ PacingController::PacingController(Clock* clock,
       send_padding_if_silent_(
           IsEnabled(*field_trials_, "WebRTC-Pacer-PadInSilence")),
       pace_audio_(IsEnabled(*field_trials_, "WebRTC-Pacer-BlockAudio")),
-      small_first_probe_packet_(
-          IsEnabled(*field_trials_, "WebRTC-Pacer-SmallFirstProbePacket")),
       ignore_transport_overhead_(
           IsEnabled(*field_trials_, "WebRTC-Pacer-IgnoreTransportOverhead")),
       padding_target_duration_(GetDynamicPaddingTarget(*field_trials_)),
@@ -291,11 +295,7 @@ void PacingController::EnqueuePacketInternal(
     int priority) {
   prober_.OnIncomingPacket(DataSize::Bytes(packet->payload_size()));
 
-  // TODO(sprang): Make sure tests respect this, replace with DCHECK.
   Timestamp now = CurrentTime();
-  if (packet->capture_time_ms() < 0) {
-    packet->set_capture_time_ms(now.ms());
-  }
 
   if (mode_ == ProcessMode::kDynamic && packet_queue_.Empty() &&
       NextSendTime() <= now) {
@@ -306,7 +306,9 @@ void PacingController::EnqueuePacketInternal(
 }
 
 TimeDelta PacingController::UpdateTimeAndGetElapsed(Timestamp now) {
-  if (last_process_time_.IsMinusInfinity()) {
+  // If no previous processing, or last process was "in the future" because of
+  // early probe processing, then there is no elapsed time to add budget for.
+  if (last_process_time_.IsMinusInfinity() || now < last_process_time_) {
     return TimeDelta::Zero();
   }
   RTC_DCHECK_GE(now, last_process_time_);
@@ -400,10 +402,13 @@ void PacingController::ProcessPackets() {
   Timestamp target_send_time = now;
   if (mode_ == ProcessMode::kDynamic) {
     target_send_time = NextSendTime();
+    TimeDelta early_execute_margin =
+        prober_.is_probing() ? kMaxEarlyProbeProcessing : TimeDelta::Zero();
     if (target_send_time.IsMinusInfinity()) {
       target_send_time = now;
-    } else if (now < target_send_time) {
+    } else if (now < target_send_time - early_execute_margin) {
       // We are too early, but if queue is empty still allow draining some debt.
+      // Probing is allowed to be sent up to kMinSleepTime early.
       TimeDelta elapsed_time = UpdateTimeAndGetElapsed(now);
       UpdateBudgetWithElapsedTime(elapsed_time);
       return;
@@ -508,7 +513,7 @@ void PacingController::ProcessPackets() {
   // The paused state is checked in the loop since it leaves the critical
   // section allowing the paused state to be changed from other code.
   while (!paused_) {
-    if (small_first_probe_packet_ && first_packet_in_probe) {
+    if (first_packet_in_probe) {
       // If first packet in probe, insert a small padding packet so we have a
       // more reliable start window for the rate estimation.
       auto padding = packet_sender_->GeneratePadding(DataSize::Bytes(1));
@@ -582,7 +587,7 @@ void PacingController::ProcessPackets() {
 
     // If we are currently probing, we need to stop the send loop when we have
     // reached the send target.
-    if (is_probing && data_sent > recommended_probe_size) {
+    if (is_probing && data_sent >= recommended_probe_size) {
       break;
     }
 
@@ -703,8 +708,9 @@ void PacingController::OnPaddingSent(DataSize data_sent) {
   if (data_sent > DataSize::Zero()) {
     UpdateBudgetWithSentData(data_sent);
   }
-  last_send_time_ = CurrentTime();
-  last_process_time_ = CurrentTime();
+  Timestamp now = CurrentTime();
+  last_send_time_ = now;
+  last_process_time_ = now;
 }
 
 void PacingController::UpdateBudgetWithElapsedTime(TimeDelta delta) {

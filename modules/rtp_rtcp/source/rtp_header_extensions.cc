@@ -371,7 +371,7 @@ constexpr uint8_t PlayoutDelayLimits::kValueSizeBytes;
 constexpr const char PlayoutDelayLimits::kUri[];
 
 bool PlayoutDelayLimits::Parse(rtc::ArrayView<const uint8_t> data,
-                               PlayoutDelay* playout_delay) {
+                               VideoPlayoutDelay* playout_delay) {
   RTC_DCHECK(playout_delay);
   if (data.size() != 3)
     return false;
@@ -386,7 +386,7 @@ bool PlayoutDelayLimits::Parse(rtc::ArrayView<const uint8_t> data,
 }
 
 bool PlayoutDelayLimits::Write(rtc::ArrayView<uint8_t> data,
-                               const PlayoutDelay& playout_delay) {
+                               const VideoPlayoutDelay& playout_delay) {
   RTC_DCHECK_EQ(data.size(), 3);
   RTC_DCHECK_LE(0, playout_delay.min_ms);
   RTC_DCHECK_LE(playout_delay.min_ms, playout_delay.max_ms);
@@ -820,6 +820,34 @@ bool InbandComfortNoiseExtension::Write(rtc::ArrayView<uint8_t> data,
     }
     data[0] = 0b1000'0000 | *level;
   }
+  return true;
+}
+
+// VideoFrameTrackingIdExtension
+//
+//   0                   1                   2
+//   0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3
+//  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+//  |  ID   | L=1   |    video-frame-tracking-id    |
+//  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+constexpr RTPExtensionType VideoFrameTrackingIdExtension::kId;
+constexpr uint8_t VideoFrameTrackingIdExtension::kValueSizeBytes;
+constexpr const char VideoFrameTrackingIdExtension::kUri[];
+
+bool VideoFrameTrackingIdExtension::Parse(rtc::ArrayView<const uint8_t> data,
+                                          uint16_t* video_frame_tracking_id) {
+  if (data.size() != kValueSizeBytes) {
+    return false;
+  }
+  *video_frame_tracking_id = ByteReader<uint16_t>::ReadBigEndian(data.data());
+  return true;
+}
+
+bool VideoFrameTrackingIdExtension::Write(rtc::ArrayView<uint8_t> data,
+                                          uint16_t video_frame_tracking_id) {
+  RTC_DCHECK_EQ(data.size(), kValueSizeBytes);
+  ByteWriter<uint16_t>::WriteBigEndian(data.data(), video_frame_tracking_id);
   return true;
 }
 

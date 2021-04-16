@@ -20,10 +20,13 @@
 
 namespace webrtc {
 
+// PeerConnection proxy objects will be constructed with two thread pointers,
+// signaling and network. The proxy macros don't have 'network' specific macros
+// and support for a secondary thread is provided via 'SECONDARY' macros.
 // TODO(deadbeef): Move this to .cc file and out of api/. What threads methods
 // are called on is an implementation detail.
-BEGIN_SIGNALING_PROXY_MAP(PeerConnection)
-PROXY_SIGNALING_THREAD_DESTRUCTOR()
+BEGIN_PROXY_MAP(PeerConnection)
+PROXY_PRIMARY_THREAD_DESTRUCTOR()
 PROXY_METHOD0(rtc::scoped_refptr<StreamCollectionInterface>, local_streams)
 PROXY_METHOD0(rtc::scoped_refptr<StreamCollectionInterface>, remote_streams)
 PROXY_METHOD1(bool, AddStream, MediaStreamInterface*)
@@ -98,17 +101,25 @@ PROXY_METHOD2(void,
               const RTCOfferAnswerOptions&)
 PROXY_METHOD2(void,
               SetLocalDescription,
+              std::unique_ptr<SessionDescriptionInterface>,
+              rtc::scoped_refptr<SetLocalDescriptionObserverInterface>)
+PROXY_METHOD1(void,
+              SetLocalDescription,
+              rtc::scoped_refptr<SetLocalDescriptionObserverInterface>)
+PROXY_METHOD2(void,
+              SetLocalDescription,
               SetSessionDescriptionObserver*,
               SessionDescriptionInterface*)
 PROXY_METHOD1(void, SetLocalDescription, SetSessionDescriptionObserver*)
 PROXY_METHOD2(void,
               SetRemoteDescription,
-              SetSessionDescriptionObserver*,
-              SessionDescriptionInterface*)
-PROXY_METHOD2(void,
-              SetRemoteDescription,
               std::unique_ptr<SessionDescriptionInterface>,
               rtc::scoped_refptr<SetRemoteDescriptionObserverInterface>)
+PROXY_METHOD2(void,
+              SetRemoteDescription,
+              SetSessionDescriptionObserver*,
+              SessionDescriptionInterface*)
+PROXY_METHOD1(bool, ShouldFireNegotiationNeededEvent, uint32_t)
 PROXY_METHOD0(PeerConnectionInterface::RTCConfiguration, GetConfiguration)
 PROXY_METHOD1(RTCError,
               SetConfiguration,
@@ -122,10 +133,15 @@ PROXY_METHOD1(bool, RemoveIceCandidates, const std::vector<cricket::Candidate>&)
 PROXY_METHOD1(RTCError, SetBitrate, const BitrateSettings&)
 PROXY_METHOD1(void, SetAudioPlayout, bool)
 PROXY_METHOD1(void, SetAudioRecording, bool)
-PROXY_METHOD1(rtc::scoped_refptr<DtlsTransportInterface>,
-              LookupDtlsTransportByMid,
-              const std::string&)
-PROXY_CONSTMETHOD0(rtc::scoped_refptr<SctpTransportInterface>, GetSctpTransport)
+// This method will be invoked on the network thread. See
+// PeerConnectionFactory::CreatePeerConnectionOrError for more details.
+PROXY_SECONDARY_METHOD1(rtc::scoped_refptr<DtlsTransportInterface>,
+                        LookupDtlsTransportByMid,
+                        const std::string&)
+// This method will be invoked on the network thread. See
+// PeerConnectionFactory::CreatePeerConnectionOrError for more details.
+PROXY_SECONDARY_CONSTMETHOD0(rtc::scoped_refptr<SctpTransportInterface>,
+                             GetSctpTransport)
 PROXY_METHOD0(SignalingState, signaling_state)
 PROXY_METHOD0(IceConnectionState, ice_connection_state)
 PROXY_METHOD0(IceConnectionState, standardized_ice_connection_state)
@@ -140,6 +156,7 @@ PROXY_METHOD2(bool,
 PROXY_METHOD1(bool, StartRtcEventLog, std::unique_ptr<RtcEventLogOutput>)
 PROXY_METHOD0(void, StopRtcEventLog)
 PROXY_METHOD0(void, Close)
+BYPASS_PROXY_CONSTMETHOD0(rtc::Thread*, signaling_thread)
 END_PROXY_MAP()
 
 }  // namespace webrtc

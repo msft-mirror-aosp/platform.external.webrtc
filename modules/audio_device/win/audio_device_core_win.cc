@@ -38,6 +38,7 @@
 
 #include <iomanip>
 
+#include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/platform_thread.h"
 #include "rtc_base/string_utils.h"
@@ -173,7 +174,7 @@ class MediaBufferImpl final : public IMediaBuffer {
 // ----------------------------------------------------------------------------
 
 bool AudioDeviceWindowsCore::CoreAudioIsSupported() {
-  RTC_LOG(LS_VERBOSE) << __FUNCTION__;
+  RTC_DLOG(LS_VERBOSE) << __FUNCTION__;
 
   bool MMDeviceIsAvailable(false);
   bool coreAudioIsSupported(false);
@@ -226,7 +227,7 @@ bool AudioDeviceWindowsCore::CoreAudioIsSupported() {
   // by a corresponding call to CoUninitialize.
   //
   ScopedCOMInitializer comInit(ScopedCOMInitializer::kMTA);
-  if (!comInit.succeeded()) {
+  if (!comInit.Succeeded()) {
     // Things will work even if an STA thread is calling this method but we
     // want to ensure that MTA is used and therefore return false here.
     return false;
@@ -394,8 +395,8 @@ AudioDeviceWindowsCore::AudioDeviceWindowsCore()
       _outputDevice(AudioDeviceModule::kDefaultCommunicationDevice),
       _inputDeviceIndex(0),
       _outputDeviceIndex(0) {
-  RTC_LOG(LS_INFO) << __FUNCTION__ << " created";
-  assert(_comInit.succeeded());
+  RTC_DLOG(LS_INFO) << __FUNCTION__ << " created";
+  RTC_DCHECK(_comInit.Succeeded());
 
   // Try to load the Avrt DLL
   if (!_avrtLibrary) {
@@ -491,7 +492,7 @@ AudioDeviceWindowsCore::AudioDeviceWindowsCore()
 // ----------------------------------------------------------------------------
 
 AudioDeviceWindowsCore::~AudioDeviceWindowsCore() {
-  RTC_LOG(LS_INFO) << __FUNCTION__ << " destroyed";
+  RTC_DLOG(LS_INFO) << __FUNCTION__ << " destroyed";
 
   Terminate();
 
@@ -641,7 +642,10 @@ bool AudioDeviceWindowsCore::Initialized() const {
 
 int32_t AudioDeviceWindowsCore::InitSpeaker() {
   MutexLock lock(&mutex_);
+  return InitSpeakerLocked();
+}
 
+int32_t AudioDeviceWindowsCore::InitSpeakerLocked() {
   if (_playing) {
     return -1;
   }
@@ -651,7 +655,7 @@ int32_t AudioDeviceWindowsCore::InitSpeaker() {
   }
 
   if (_usingOutputDeviceIndex) {
-    int16_t nDevices = PlayoutDevices();
+    int16_t nDevices = PlayoutDevicesLocked();
     if (_outputDeviceIndex > (nDevices - 1)) {
       RTC_LOG(LS_ERROR) << "current device selection is invalid => unable to"
                            " initialize";
@@ -710,7 +714,10 @@ int32_t AudioDeviceWindowsCore::InitSpeaker() {
 
 int32_t AudioDeviceWindowsCore::InitMicrophone() {
   MutexLock lock(&mutex_);
+  return InitMicrophoneLocked();
+}
 
+int32_t AudioDeviceWindowsCore::InitMicrophoneLocked() {
   if (_recording) {
     return -1;
   }
@@ -720,7 +727,7 @@ int32_t AudioDeviceWindowsCore::InitMicrophone() {
   }
 
   if (_usingInputDeviceIndex) {
-    int16_t nDevices = RecordingDevices();
+    int16_t nDevices = RecordingDevicesLocked();
     if (_inputDeviceIndex > (nDevices - 1)) {
       RTC_LOG(LS_ERROR) << "current device selection is invalid => unable to"
                            " initialize";
@@ -1340,7 +1347,7 @@ Exit:
 // ----------------------------------------------------------------------------
 
 int32_t AudioDeviceWindowsCore::MaxMicrophoneVolume(uint32_t& maxVolume) const {
-  RTC_LOG(LS_VERBOSE) << __FUNCTION__;
+  RTC_DLOG(LS_VERBOSE) << __FUNCTION__;
 
   if (!_microphoneIsInitialized) {
     return -1;
@@ -1368,10 +1375,12 @@ int32_t AudioDeviceWindowsCore::MinMicrophoneVolume(uint32_t& minVolume) const {
 // ----------------------------------------------------------------------------
 //  PlayoutDevices
 // ----------------------------------------------------------------------------
-
 int16_t AudioDeviceWindowsCore::PlayoutDevices() {
   MutexLock lock(&mutex_);
+  return PlayoutDevicesLocked();
+}
 
+int16_t AudioDeviceWindowsCore::PlayoutDevicesLocked() {
   if (_RefreshDeviceList(eRender) != -1) {
     return (_DeviceListCount(eRender));
   }
@@ -1634,7 +1643,10 @@ int32_t AudioDeviceWindowsCore::RecordingDeviceName(
 
 int16_t AudioDeviceWindowsCore::RecordingDevices() {
   MutexLock lock(&mutex_);
+  return RecordingDevicesLocked();
+}
 
+int16_t AudioDeviceWindowsCore::RecordingDevicesLocked() {
   if (_RefreshDeviceList(eCapture) != -1) {
     return (_DeviceListCount(eCapture));
   }
@@ -1800,7 +1812,7 @@ int32_t AudioDeviceWindowsCore::InitPlayout() {
   }
 
   // Initialize the speaker (devices might have been added or removed)
-  if (InitSpeaker() == -1) {
+  if (InitSpeakerLocked() == -1) {
     RTC_LOG(LS_WARNING) << "InitSpeaker() failed";
   }
 
@@ -2119,7 +2131,7 @@ int32_t AudioDeviceWindowsCore::InitRecording() {
   }
 
   // Initialize the microphone (devices might have been added or removed)
-  if (InitMicrophone() == -1) {
+  if (InitMicrophoneLocked() == -1) {
     RTC_LOG(LS_WARNING) << "InitMicrophone() failed";
   }
 
@@ -2353,7 +2365,6 @@ int32_t AudioDeviceWindowsCore::StartRecording() {
 
     // Set thread priority to highest possible
     SetThreadPriority(_hRecThread, THREAD_PRIORITY_TIME_CRITICAL);
-
   }  // critScoped
 
   DWORD ret = WaitForSingleObject(_hCaptureStartedEvent, 1000);
@@ -2641,7 +2652,7 @@ DWORD AudioDeviceWindowsCore::DoRenderThread() {
 
   // Initialize COM as MTA in this thread.
   ScopedCOMInitializer comInit(ScopedCOMInitializer::kMTA);
-  if (!comInit.succeeded()) {
+  if (!comInit.Succeeded()) {
     RTC_LOG(LS_ERROR) << "failed to initialize COM in render thread";
     return 1;
   }
@@ -2948,7 +2959,7 @@ DWORD AudioDeviceWindowsCore::DoCaptureThreadPollDMO() {
 
   // Initialize COM as MTA in this thread.
   ScopedCOMInitializer comInit(ScopedCOMInitializer::kMTA);
-  if (!comInit.succeeded()) {
+  if (!comInit.Succeeded()) {
     RTC_LOG(LS_ERROR) << "failed to initialize COM in polling DMO thread";
     return 1;
   }
@@ -3080,7 +3091,7 @@ DWORD AudioDeviceWindowsCore::DoCaptureThread() {
 
   // Initialize COM as MTA in this thread.
   ScopedCOMInitializer comInit(ScopedCOMInitializer::kMTA);
-  if (!comInit.succeeded()) {
+  if (!comInit.Succeeded()) {
     RTC_LOG(LS_ERROR) << "failed to initialize COM in capture thread";
     return 1;
   }
@@ -3416,7 +3427,7 @@ int AudioDeviceWindowsCore::SetDMOProperties() {
   // MFPKEY_WMAAECMA_FEATR_AGC - Digital AGC (disabled).
   // MFPKEY_WMAAECMA_FEATR_CENTER_CLIP - AEC center clipping (enabled).
   // MFPKEY_WMAAECMA_FEATR_ECHO_LENGTH - Filter length (256 ms).
-  //   TODO(andrew): investigate decresing the length to 128 ms.
+  // TODO(andrew): investigate decresing the length to 128 ms.
   // MFPKEY_WMAAECMA_FEATR_FRAME_SIZE - Frame size (0).
   //   0 is automatic; defaults to 160 samples (or 10 ms frames at the
   //   selected 16 kHz) as long as mic array processing is disabled.
@@ -3501,7 +3512,7 @@ int AudioDeviceWindowsCore::SetVtI4Property(IPropertyStore* ptrPS,
 // ----------------------------------------------------------------------------
 
 int32_t AudioDeviceWindowsCore::_RefreshDeviceList(EDataFlow dir) {
-  RTC_LOG(LS_VERBOSE) << __FUNCTION__;
+  RTC_DLOG(LS_VERBOSE) << __FUNCTION__;
 
   HRESULT hr = S_OK;
   IMMDeviceCollection* pCollection = NULL;
@@ -3537,7 +3548,7 @@ int32_t AudioDeviceWindowsCore::_RefreshDeviceList(EDataFlow dir) {
 // ----------------------------------------------------------------------------
 
 int16_t AudioDeviceWindowsCore::_DeviceListCount(EDataFlow dir) {
-  RTC_LOG(LS_VERBOSE) << __FUNCTION__;
+  RTC_DLOG(LS_VERBOSE) << __FUNCTION__;
 
   HRESULT hr = S_OK;
   UINT count = 0;
@@ -3573,7 +3584,7 @@ int32_t AudioDeviceWindowsCore::_GetListDeviceName(EDataFlow dir,
                                                    int index,
                                                    LPWSTR szBuffer,
                                                    int bufferLen) {
-  RTC_LOG(LS_VERBOSE) << __FUNCTION__;
+  RTC_DLOG(LS_VERBOSE) << __FUNCTION__;
 
   HRESULT hr = S_OK;
   IMMDevice* pDevice = NULL;
@@ -3610,7 +3621,7 @@ int32_t AudioDeviceWindowsCore::_GetDefaultDeviceName(EDataFlow dir,
                                                       ERole role,
                                                       LPWSTR szBuffer,
                                                       int bufferLen) {
-  RTC_LOG(LS_VERBOSE) << __FUNCTION__;
+  RTC_DLOG(LS_VERBOSE) << __FUNCTION__;
 
   HRESULT hr = S_OK;
   IMMDevice* pDevice = NULL;
@@ -3647,7 +3658,7 @@ int32_t AudioDeviceWindowsCore::_GetListDeviceID(EDataFlow dir,
                                                  int index,
                                                  LPWSTR szBuffer,
                                                  int bufferLen) {
-  RTC_LOG(LS_VERBOSE) << __FUNCTION__;
+  RTC_DLOG(LS_VERBOSE) << __FUNCTION__;
 
   HRESULT hr = S_OK;
   IMMDevice* pDevice = NULL;
@@ -3684,7 +3695,7 @@ int32_t AudioDeviceWindowsCore::_GetDefaultDeviceID(EDataFlow dir,
                                                     ERole role,
                                                     LPWSTR szBuffer,
                                                     int bufferLen) {
-  RTC_LOG(LS_VERBOSE) << __FUNCTION__;
+  RTC_DLOG(LS_VERBOSE) << __FUNCTION__;
 
   HRESULT hr = S_OK;
   IMMDevice* pDevice = NULL;
@@ -3709,7 +3720,7 @@ int32_t AudioDeviceWindowsCore::_GetDefaultDeviceID(EDataFlow dir,
 int32_t AudioDeviceWindowsCore::_GetDefaultDeviceIndex(EDataFlow dir,
                                                        ERole role,
                                                        int* index) {
-  RTC_LOG(LS_VERBOSE) << __FUNCTION__;
+  RTC_DLOG(LS_VERBOSE) << __FUNCTION__;
 
   HRESULT hr = S_OK;
   WCHAR szDefaultDeviceID[MAX_PATH] = {0};
@@ -3782,7 +3793,7 @@ int32_t AudioDeviceWindowsCore::_GetDefaultDeviceIndex(EDataFlow dir,
 int32_t AudioDeviceWindowsCore::_GetDeviceName(IMMDevice* pDevice,
                                                LPWSTR pszBuffer,
                                                int bufferLen) {
-  RTC_LOG(LS_VERBOSE) << __FUNCTION__;
+  RTC_DLOG(LS_VERBOSE) << __FUNCTION__;
 
   static const WCHAR szDefault[] = L"<Device not available>";
 
@@ -3849,7 +3860,7 @@ int32_t AudioDeviceWindowsCore::_GetDeviceName(IMMDevice* pDevice,
 int32_t AudioDeviceWindowsCore::_GetDeviceID(IMMDevice* pDevice,
                                              LPWSTR pszBuffer,
                                              int bufferLen) {
-  RTC_LOG(LS_VERBOSE) << __FUNCTION__;
+  RTC_DLOG(LS_VERBOSE) << __FUNCTION__;
 
   static const WCHAR szDefault[] = L"<Device not available>";
 
@@ -3882,7 +3893,7 @@ int32_t AudioDeviceWindowsCore::_GetDeviceID(IMMDevice* pDevice,
 int32_t AudioDeviceWindowsCore::_GetDefaultDevice(EDataFlow dir,
                                                   ERole role,
                                                   IMMDevice** ppDevice) {
-  RTC_LOG(LS_VERBOSE) << __FUNCTION__;
+  RTC_DLOG(LS_VERBOSE) << __FUNCTION__;
 
   HRESULT hr(S_OK);
 
@@ -3927,6 +3938,8 @@ int32_t AudioDeviceWindowsCore::_GetListDevice(EDataFlow dir,
     return -1;
   }
 
+  SAFE_RELEASE(pCollection);
+
   return 0;
 }
 
@@ -3936,7 +3949,7 @@ int32_t AudioDeviceWindowsCore::_GetListDevice(EDataFlow dir,
 
 int32_t AudioDeviceWindowsCore::_EnumerateEndpointDevicesAll(
     EDataFlow dataFlow) const {
-  RTC_LOG(LS_VERBOSE) << __FUNCTION__;
+  RTC_DLOG(LS_VERBOSE) << __FUNCTION__;
 
   assert(_ptrEnumerator != NULL);
 

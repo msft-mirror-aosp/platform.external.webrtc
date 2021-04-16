@@ -31,6 +31,7 @@
 #include "api/video/video_stream_encoder_settings.h"
 #include "api/video_codecs/video_encoder_config.h"
 #include "call/rtp_config.h"
+#include "common_video/frame_counts.h"
 #include "common_video/include/quality_limitation_reason.h"
 #include "modules/rtp_rtcp/include/report_block_data.h"
 #include "modules/rtp_rtcp/include/rtcp_statistics.h"
@@ -107,6 +108,7 @@ class VideoSendStream {
     uint64_t total_encode_time_ms = 0;
     // https://w3c.github.io/webrtc-stats/#dom-rtcoutboundrtpstreamstats-totalencodedbytestarget
     uint64_t total_encoded_bytes_target = 0;
+    uint32_t frames = 0;
     uint32_t frames_dropped_by_capturer = 0;
     uint32_t frames_dropped_by_encoder_queue = 0;
     uint32_t frames_dropped_by_rate_limiter = 0;

@@ -51,8 +51,7 @@ namespace {
 
 const uint8_t kH264StartCode[] = {0x00, 0x00, 0x00, 0x01};
 
-std::vector<uint64_t> GetAbsoluteCaptureTimestamps(
-    const video_coding::EncodedFrame* frame) {
+std::vector<uint64_t> GetAbsoluteCaptureTimestamps(const EncodedFrame* frame) {
   std::vector<uint64_t> result;
   for (const auto& packet_info : frame->PacketInfos()) {
     if (packet_info.absolute_capture_time()) {
@@ -95,24 +94,13 @@ class MockKeyFrameRequestSender : public KeyFrameRequestSender {
   MOCK_METHOD(void, RequestKeyFrame, (), (override));
 };
 
-class MockOnCompleteFrameCallback
-    : public video_coding::OnCompleteFrameCallback {
+class MockOnCompleteFrameCallback : public OnCompleteFrameCallback {
  public:
-  MOCK_METHOD(void, DoOnCompleteFrame, (video_coding::EncodedFrame*), ());
-  MOCK_METHOD(void,
-              DoOnCompleteFrameFailNullptr,
-              (video_coding::EncodedFrame*),
-              ());
-  MOCK_METHOD(void,
-              DoOnCompleteFrameFailLength,
-              (video_coding::EncodedFrame*),
-              ());
-  MOCK_METHOD(void,
-              DoOnCompleteFrameFailBitstream,
-              (video_coding::EncodedFrame*),
-              ());
-  void OnCompleteFrame(
-      std::unique_ptr<video_coding::EncodedFrame> frame) override {
+  MOCK_METHOD(void, DoOnCompleteFrame, (EncodedFrame*), ());
+  MOCK_METHOD(void, DoOnCompleteFrameFailNullptr, (EncodedFrame*), ());
+  MOCK_METHOD(void, DoOnCompleteFrameFailLength, (EncodedFrame*), ());
+  MOCK_METHOD(void, DoOnCompleteFrameFailBitstream, (EncodedFrame*), ());
+  void OnCompleteFrame(std::unique_ptr<EncodedFrame> frame) override {
     if (!frame) {
       DoOnCompleteFrameFailNullptr(nullptr);
       return;
@@ -145,11 +133,11 @@ class MockRtpPacketSink : public RtpPacketSinkInterface {
 };
 
 constexpr uint32_t kSsrc = 111;
-constexpr uint16_t kSequenceNumber = 222;
 constexpr int kPayloadType = 100;
 constexpr int kRedPayloadType = 125;
 
 std::unique_ptr<RtpPacketReceived> CreateRtpPacketReceived() {
+  constexpr uint16_t kSequenceNumber = 222;
   auto packet = std::make_unique<RtpPacketReceived>();
   packet->SetSsrc(kSsrc);
   packet->SetSequenceNumber(kSequenceNumber);
@@ -164,7 +152,8 @@ MATCHER_P(SamePacketAs, other, "") {
 
 }  // namespace
 
-class RtpVideoStreamReceiver2Test : public ::testing::Test {
+class RtpVideoStreamReceiver2Test : public ::testing::Test,
+                                    public RtpPacketSinkInterface {
  public:
   RtpVideoStreamReceiver2Test() : RtpVideoStreamReceiver2Test("") {}
   explicit RtpVideoStreamReceiver2Test(std::string field_trials)
@@ -180,9 +169,8 @@ class RtpVideoStreamReceiver2Test : public ::testing::Test {
         &mock_key_frame_request_sender_, &mock_on_complete_frame_callback_,
         nullptr, nullptr);
     VideoCodec codec;
-    codec.plType = kPayloadType;
     codec.codecType = kVideoCodecGeneric;
-    rtp_video_stream_receiver_->AddReceiveCodec(codec, {},
+    rtp_video_stream_receiver_->AddReceiveCodec(kPayloadType, codec, {},
                                                 /*raw_payload=*/false);
   }
 
@@ -202,7 +190,7 @@ class RtpVideoStreamReceiver2Test : public ::testing::Test {
     info.type = H264::NaluType::kSps;
     info.sps_id = sps_id;
     info.pps_id = -1;
-    data->AppendData({H264::NaluType::kSps, sps_id});
+    data->AppendData<uint8_t, 2>({H264::NaluType::kSps, sps_id});
     auto& h264 = absl::get<RTPVideoHeaderH264>(video_header->video_type_header);
     h264.nalus[h264.nalus_length++] = info;
   }
@@ -215,7 +203,7 @@ class RtpVideoStreamReceiver2Test : public ::testing::Test {
     info.type = H264::NaluType::kPps;
     info.sps_id = sps_id;
     info.pps_id = pps_id;
-    data->AppendData({H264::NaluType::kPps, pps_id});
+    data->AppendData<uint8_t, 2>({H264::NaluType::kPps, pps_id});
     auto& h264 = absl::get<RTPVideoHeaderH264>(video_header->video_type_header);
     h264.nalus[h264.nalus_length++] = info;
   }
@@ -229,12 +217,18 @@ class RtpVideoStreamReceiver2Test : public ::testing::Test {
     h264.nalus[h264.nalus_length++] = info;
   }
 
+  void OnRtpPacket(const RtpPacketReceived& packet) override {
+    if (test_packet_sink_)
+      test_packet_sink_->OnRtpPacket(packet);
+  }
+
  protected:
-  static VideoReceiveStream::Config CreateConfig() {
+  VideoReceiveStream::Config CreateConfig() {
     VideoReceiveStream::Config config(nullptr);
     config.rtp.remote_ssrc = 1111;
     config.rtp.local_ssrc = 2222;
     config.rtp.red_payload_type = kRedPayloadType;
+    config.rtp.packet_sink_ = this;
     return config;
   }
 
@@ -250,6 +244,7 @@ class RtpVideoStreamReceiver2Test : public ::testing::Test {
   std::unique_ptr<ProcessThread> process_thread_;
   std::unique_ptr<ReceiveStatistics> rtp_receive_statistics_;
   std::unique_ptr<RtpVideoStreamReceiver2> rtp_video_stream_receiver_;
+  RtpPacketSinkInterface* test_packet_sink_ = nullptr;
 };
 
 TEST_F(RtpVideoStreamReceiver2Test, CacheColorSpaceFromLastPacketOfKeyframe) {
@@ -317,10 +312,10 @@ TEST_F(RtpVideoStreamReceiver2Test, CacheColorSpaceFromLastPacketOfKeyframe) {
 
   // Prepare the receiver for VP9.
   VideoCodec codec;
-  codec.plType = kVp9PayloadType;
   codec.codecType = kVideoCodecVP9;
   std::map<std::string, std::string> codec_params;
-  rtp_video_stream_receiver_->AddReceiveCodec(codec, codec_params,
+  rtp_video_stream_receiver_->AddReceiveCodec(kVp9PayloadType, codec,
+                                              codec_params,
                                               /*raw_payload=*/false);
 
   // Generate key frame packets.
@@ -345,7 +340,7 @@ TEST_F(RtpVideoStreamReceiver2Test, CacheColorSpaceFromLastPacketOfKeyframe) {
   EXPECT_TRUE(key_frame_packet2.GetExtension<ColorSpaceExtension>());
   rtp_video_stream_receiver_->OnRtpPacket(key_frame_packet1);
   EXPECT_CALL(mock_on_complete_frame_callback_, DoOnCompleteFrame(_))
-      .WillOnce(Invoke([kColorSpace](video_coding::EncodedFrame* frame) {
+      .WillOnce(Invoke([kColorSpace](EncodedFrame* frame) {
         ASSERT_TRUE(frame->EncodedImage().ColorSpace());
         EXPECT_EQ(*frame->EncodedImage().ColorSpace(), kColorSpace);
       }));
@@ -361,7 +356,7 @@ TEST_F(RtpVideoStreamReceiver2Test, CacheColorSpaceFromLastPacketOfKeyframe) {
   // included in the RTP packet.
   EXPECT_FALSE(delta_frame_packet.GetExtension<ColorSpaceExtension>());
   EXPECT_CALL(mock_on_complete_frame_callback_, DoOnCompleteFrame(_))
-      .WillOnce(Invoke([kColorSpace](video_coding::EncodedFrame* frame) {
+      .WillOnce(Invoke([kColorSpace](EncodedFrame* frame) {
         ASSERT_TRUE(frame->EncodedImage().ColorSpace());
         EXPECT_EQ(*frame->EncodedImage().ColorSpace(), kColorSpace);
       }));
@@ -403,11 +398,10 @@ TEST_F(RtpVideoStreamReceiver2Test, PacketInfoIsPropagatedIntoVideoFrames) {
   mock_on_complete_frame_callback_.AppendExpectedBitstream(data.data(),
                                                            data.size());
   EXPECT_CALL(mock_on_complete_frame_callback_, DoOnCompleteFrame(_))
-      .WillOnce(Invoke(
-          [kAbsoluteCaptureTimestamp](video_coding::EncodedFrame* frame) {
-            EXPECT_THAT(GetAbsoluteCaptureTimestamps(frame),
-                        ElementsAre(kAbsoluteCaptureTimestamp));
-          }));
+      .WillOnce(Invoke([kAbsoluteCaptureTimestamp](EncodedFrame* frame) {
+        EXPECT_THAT(GetAbsoluteCaptureTimestamps(frame),
+                    ElementsAre(kAbsoluteCaptureTimestamp));
+      }));
   rtp_video_stream_receiver_->OnReceivedPayloadData(data, rtp_packet,
                                                     video_header);
 }
@@ -451,7 +445,7 @@ TEST_F(RtpVideoStreamReceiver2Test,
   // Expect rtp video stream receiver to extrapolate it for the resulting video
   // frame using absolute capture time from the previous packet.
   EXPECT_CALL(mock_on_complete_frame_callback_, DoOnCompleteFrame(_))
-      .WillOnce(Invoke([](video_coding::EncodedFrame* frame) {
+      .WillOnce(Invoke([](EncodedFrame* frame) {
         EXPECT_THAT(GetAbsoluteCaptureTimestamps(frame), SizeIs(1));
       }));
   rtp_video_stream_receiver_->OnReceivedPayloadData(data, rtp_packet,
@@ -524,13 +518,7 @@ INSTANTIATE_TEST_SUITE_P(SpsPpsIdrIsKeyframe,
                          RtpVideoStreamReceiver2TestH264,
                          Values("", "WebRTC-SpsPpsIdrIsH264Keyframe/Enabled/"));
 
-// Fails on MSAN: https://bugs.chromium.org/p/webrtc/issues/detail?id=11376.
-#if defined(MEMORY_SANITIZER)
-#define MAYBE_InBandSpsPps DISABLED_InBandSpsPps
-#else
-#define MAYBE_InBandSpsPps InBandSpsPps
-#endif
-TEST_P(RtpVideoStreamReceiver2TestH264, MAYBE_InBandSpsPps) {
+TEST_P(RtpVideoStreamReceiver2TestH264, InBandSpsPps) {
   rtc::CopyOnWriteBuffer sps_data;
   RtpPacketReceived rtp_packet;
   RTPVideoHeader sps_video_header = GetDefaultH264VideoHeader();
@@ -580,13 +568,12 @@ TEST_P(RtpVideoStreamReceiver2TestH264, MAYBE_InBandSpsPps) {
 TEST_P(RtpVideoStreamReceiver2TestH264, OutOfBandFmtpSpsPps) {
   constexpr int kPayloadType = 99;
   VideoCodec codec;
-  codec.plType = kPayloadType;
   std::map<std::string, std::string> codec_params;
   // Example parameter sets from https://tools.ietf.org/html/rfc3984#section-8.2
   // .
   codec_params.insert(
       {cricket::kH264FmtpSpropParameterSets, "Z0IACpZTBYmI,aMljiA=="});
-  rtp_video_stream_receiver_->AddReceiveCodec(codec, codec_params,
+  rtp_video_stream_receiver_->AddReceiveCodec(kPayloadType, codec, codec_params,
                                               /*raw_payload=*/false);
   const uint8_t binary_sps[] = {0x67, 0x42, 0x00, 0x0a, 0x96,
                                 0x53, 0x05, 0x89, 0x88};
@@ -617,6 +604,75 @@ TEST_P(RtpVideoStreamReceiver2TestH264, OutOfBandFmtpSpsPps) {
   EXPECT_CALL(mock_on_complete_frame_callback_, DoOnCompleteFrame(_));
   rtp_video_stream_receiver_->OnReceivedPayloadData(data, rtp_packet,
                                                     video_header);
+}
+
+TEST_P(RtpVideoStreamReceiver2TestH264, ForceSpsPpsIdrIsKeyframe) {
+  constexpr int kPayloadType = 99;
+  VideoCodec codec;
+  std::map<std::string, std::string> codec_params;
+  if (GetParam() ==
+      "") {  // Forcing can be done either with field trial or codec_params.
+    codec_params.insert({cricket::kH264FmtpSpsPpsIdrInKeyframe, ""});
+  }
+  rtp_video_stream_receiver_->AddReceiveCodec(kPayloadType, codec, codec_params,
+                                              /*raw_payload=*/false);
+  rtc::CopyOnWriteBuffer sps_data;
+  RtpPacketReceived rtp_packet;
+  RTPVideoHeader sps_video_header = GetDefaultH264VideoHeader();
+  AddSps(&sps_video_header, 0, &sps_data);
+  rtp_packet.SetSequenceNumber(0);
+  rtp_packet.SetPayloadType(kPayloadType);
+  sps_video_header.is_first_packet_in_frame = true;
+  sps_video_header.frame_type = VideoFrameType::kEmptyFrame;
+  mock_on_complete_frame_callback_.AppendExpectedBitstream(
+      kH264StartCode, sizeof(kH264StartCode));
+  mock_on_complete_frame_callback_.AppendExpectedBitstream(sps_data.data(),
+                                                           sps_data.size());
+  rtp_video_stream_receiver_->OnReceivedPayloadData(sps_data, rtp_packet,
+                                                    sps_video_header);
+
+  rtc::CopyOnWriteBuffer pps_data;
+  RTPVideoHeader pps_video_header = GetDefaultH264VideoHeader();
+  AddPps(&pps_video_header, 0, 1, &pps_data);
+  rtp_packet.SetSequenceNumber(1);
+  pps_video_header.is_first_packet_in_frame = true;
+  pps_video_header.frame_type = VideoFrameType::kEmptyFrame;
+  mock_on_complete_frame_callback_.AppendExpectedBitstream(
+      kH264StartCode, sizeof(kH264StartCode));
+  mock_on_complete_frame_callback_.AppendExpectedBitstream(pps_data.data(),
+                                                           pps_data.size());
+  rtp_video_stream_receiver_->OnReceivedPayloadData(pps_data, rtp_packet,
+                                                    pps_video_header);
+
+  rtc::CopyOnWriteBuffer idr_data;
+  RTPVideoHeader idr_video_header = GetDefaultH264VideoHeader();
+  AddIdr(&idr_video_header, 1);
+  rtp_packet.SetSequenceNumber(2);
+  idr_video_header.is_first_packet_in_frame = true;
+  idr_video_header.is_last_packet_in_frame = true;
+  idr_video_header.frame_type = VideoFrameType::kVideoFrameKey;
+  const uint8_t idr[] = {0x65, 1, 2, 3};
+  idr_data.AppendData(idr);
+  mock_on_complete_frame_callback_.AppendExpectedBitstream(
+      kH264StartCode, sizeof(kH264StartCode));
+  mock_on_complete_frame_callback_.AppendExpectedBitstream(idr_data.data(),
+                                                           idr_data.size());
+  EXPECT_CALL(mock_on_complete_frame_callback_, DoOnCompleteFrame)
+      .WillOnce(
+          [&](EncodedFrame* frame) { EXPECT_TRUE(frame->is_keyframe()); });
+  rtp_video_stream_receiver_->OnReceivedPayloadData(idr_data, rtp_packet,
+                                                    idr_video_header);
+  mock_on_complete_frame_callback_.ClearExpectedBitstream();
+  mock_on_complete_frame_callback_.AppendExpectedBitstream(
+      kH264StartCode, sizeof(kH264StartCode));
+  mock_on_complete_frame_callback_.AppendExpectedBitstream(idr_data.data(),
+                                                           idr_data.size());
+  rtp_packet.SetSequenceNumber(3);
+  EXPECT_CALL(mock_on_complete_frame_callback_, DoOnCompleteFrame)
+      .WillOnce(
+          [&](EncodedFrame* frame) { EXPECT_FALSE(frame->is_keyframe()); });
+  rtp_video_stream_receiver_->OnReceivedPayloadData(idr_data, rtp_packet,
+                                                    idr_video_header);
 }
 
 TEST_F(RtpVideoStreamReceiver2Test, PaddingInMediaStream) {
@@ -692,83 +748,36 @@ TEST_F(RtpVideoStreamReceiver2Test, RequestKeyframeWhenPacketBufferGetsFull) {
                                                     video_header);
 }
 
-TEST_F(RtpVideoStreamReceiver2Test, SecondarySinksGetRtpNotifications) {
+TEST_F(RtpVideoStreamReceiver2Test, SinkGetsRtpNotifications) {
   rtp_video_stream_receiver_->StartReceive();
 
-  MockRtpPacketSink secondary_sink_1;
-  MockRtpPacketSink secondary_sink_2;
-
-  rtp_video_stream_receiver_->AddSecondarySink(&secondary_sink_1);
-  rtp_video_stream_receiver_->AddSecondarySink(&secondary_sink_2);
+  MockRtpPacketSink test_sink;
+  test_packet_sink_ = &test_sink;
 
   auto rtp_packet = CreateRtpPacketReceived();
-  EXPECT_CALL(secondary_sink_1, OnRtpPacket(SamePacketAs(*rtp_packet)));
-  EXPECT_CALL(secondary_sink_2, OnRtpPacket(SamePacketAs(*rtp_packet)));
+  EXPECT_CALL(test_sink, OnRtpPacket(SamePacketAs(*rtp_packet)));
 
   rtp_video_stream_receiver_->OnRtpPacket(*rtp_packet);
 
   // Test tear-down.
   rtp_video_stream_receiver_->StopReceive();
-  rtp_video_stream_receiver_->RemoveSecondarySink(&secondary_sink_1);
-  rtp_video_stream_receiver_->RemoveSecondarySink(&secondary_sink_2);
+  test_packet_sink_ = nullptr;
 }
 
-TEST_F(RtpVideoStreamReceiver2Test,
-       RemovedSecondarySinksGetNoRtpNotifications) {
-  rtp_video_stream_receiver_->StartReceive();
-
-  MockRtpPacketSink secondary_sink;
-
-  rtp_video_stream_receiver_->AddSecondarySink(&secondary_sink);
-  rtp_video_stream_receiver_->RemoveSecondarySink(&secondary_sink);
-
-  auto rtp_packet = CreateRtpPacketReceived();
-
-  EXPECT_CALL(secondary_sink, OnRtpPacket(_)).Times(0);
-
-  rtp_video_stream_receiver_->OnRtpPacket(*rtp_packet);
-
-  // Test tear-down.
-  rtp_video_stream_receiver_->StopReceive();
-}
-
-TEST_F(RtpVideoStreamReceiver2Test,
-       OnlyRemovedSecondarySinksExcludedFromNotifications) {
-  rtp_video_stream_receiver_->StartReceive();
-
-  MockRtpPacketSink kept_secondary_sink;
-  MockRtpPacketSink removed_secondary_sink;
-
-  rtp_video_stream_receiver_->AddSecondarySink(&kept_secondary_sink);
-  rtp_video_stream_receiver_->AddSecondarySink(&removed_secondary_sink);
-  rtp_video_stream_receiver_->RemoveSecondarySink(&removed_secondary_sink);
-
-  auto rtp_packet = CreateRtpPacketReceived();
-  EXPECT_CALL(kept_secondary_sink, OnRtpPacket(SamePacketAs(*rtp_packet)));
-
-  rtp_video_stream_receiver_->OnRtpPacket(*rtp_packet);
-
-  // Test tear-down.
-  rtp_video_stream_receiver_->StopReceive();
-  rtp_video_stream_receiver_->RemoveSecondarySink(&kept_secondary_sink);
-}
-
-TEST_F(RtpVideoStreamReceiver2Test,
-       SecondariesOfNonStartedStreamGetNoNotifications) {
+TEST_F(RtpVideoStreamReceiver2Test, NonStartedStreamGetsNoRtpCallbacks) {
   // Explicitly showing that the stream is not in the |started| state,
   // regardless of whether streams start out |started| or |stopped|.
   rtp_video_stream_receiver_->StopReceive();
 
-  MockRtpPacketSink secondary_sink;
-  rtp_video_stream_receiver_->AddSecondarySink(&secondary_sink);
+  MockRtpPacketSink test_sink;
+  test_packet_sink_ = &test_sink;
 
   auto rtp_packet = CreateRtpPacketReceived();
-  EXPECT_CALL(secondary_sink, OnRtpPacket(_)).Times(0);
+  EXPECT_CALL(test_sink, OnRtpPacket(_)).Times(0);
 
   rtp_video_stream_receiver_->OnRtpPacket(*rtp_packet);
 
-  // Test tear-down.
-  rtp_video_stream_receiver_->RemoveSecondarySink(&secondary_sink);
+  test_packet_sink_ = nullptr;
 }
 
 TEST_F(RtpVideoStreamReceiver2Test, ParseGenericDescriptorOnePacket) {
@@ -803,11 +812,11 @@ TEST_F(RtpVideoStreamReceiver2Test, ParseGenericDescriptorOnePacket) {
   rtp_packet.SetSequenceNumber(1);
 
   EXPECT_CALL(mock_on_complete_frame_callback_, DoOnCompleteFrame)
-      .WillOnce(Invoke([kSpatialIndex](video_coding::EncodedFrame* frame) {
+      .WillOnce(Invoke([kSpatialIndex](EncodedFrame* frame) {
         EXPECT_EQ(frame->num_references, 2U);
-        EXPECT_EQ(frame->references[0], frame->id.picture_id - 90);
-        EXPECT_EQ(frame->references[1], frame->id.picture_id - 80);
-        EXPECT_EQ(frame->id.spatial_layer, kSpatialIndex);
+        EXPECT_EQ(frame->references[0], frame->Id() - 90);
+        EXPECT_EQ(frame->references[1], frame->Id() - 80);
+        EXPECT_EQ(frame->SpatialIndex(), kSpatialIndex);
         EXPECT_THAT(frame->PacketInfos(), SizeIs(1));
       }));
 
@@ -861,9 +870,9 @@ TEST_F(RtpVideoStreamReceiver2Test, ParseGenericDescriptorTwoPackets) {
                                                            data.size() - 1);
 
   EXPECT_CALL(mock_on_complete_frame_callback_, DoOnCompleteFrame)
-      .WillOnce(Invoke([kSpatialIndex](video_coding::EncodedFrame* frame) {
+      .WillOnce(Invoke([kSpatialIndex](EncodedFrame* frame) {
         EXPECT_EQ(frame->num_references, 0U);
-        EXPECT_EQ(frame->id.spatial_layer, kSpatialIndex);
+        EXPECT_EQ(frame->SpatialIndex(), kSpatialIndex);
         EXPECT_EQ(frame->EncodedImage()._encodedWidth, 480u);
         EXPECT_EQ(frame->EncodedImage()._encodedHeight, 360u);
         EXPECT_THAT(frame->PacketInfos(), SizeIs(2));
@@ -877,8 +886,8 @@ TEST_F(RtpVideoStreamReceiver2Test, ParseGenericDescriptorRawPayload) {
   const int kRawPayloadType = 123;
 
   VideoCodec codec;
-  codec.plType = kRawPayloadType;
-  rtp_video_stream_receiver_->AddReceiveCodec(codec, {}, /*raw_payload=*/true);
+  rtp_video_stream_receiver_->AddReceiveCodec(kRawPayloadType, codec, {},
+                                              /*raw_payload=*/true);
   rtp_video_stream_receiver_->StartReceive();
 
   RtpHeaderExtensionMap extension_map;
@@ -909,8 +918,8 @@ TEST_F(RtpVideoStreamReceiver2Test, UnwrapsFrameId) {
   const int kPayloadType = 123;
 
   VideoCodec codec;
-  codec.plType = kPayloadType;
-  rtp_video_stream_receiver_->AddReceiveCodec(codec, {}, /*raw_payload=*/true);
+  rtp_video_stream_receiver_->AddReceiveCodec(kPayloadType, codec, {},
+                                              /*raw_payload=*/true);
   rtp_video_stream_receiver_->StartReceive();
   RtpHeaderExtensionMap extension_map;
   extension_map.Register<RtpGenericFrameDescriptorExtension00>(5);
@@ -940,14 +949,12 @@ TEST_F(RtpVideoStreamReceiver2Test, UnwrapsFrameId) {
 
   int64_t first_picture_id;
   EXPECT_CALL(mock_on_complete_frame_callback_, DoOnCompleteFrame)
-      .WillOnce([&](video_coding::EncodedFrame* frame) {
-        first_picture_id = frame->id.picture_id;
-      });
+      .WillOnce([&](EncodedFrame* frame) { first_picture_id = frame->Id(); });
   inject_packet(/*wrapped_frame_id=*/0xffff);
 
   EXPECT_CALL(mock_on_complete_frame_callback_, DoOnCompleteFrame)
-      .WillOnce([&](video_coding::EncodedFrame* frame) {
-        EXPECT_EQ(frame->id.picture_id - first_picture_id, 3);
+      .WillOnce([&](EncodedFrame* frame) {
+        EXPECT_EQ(frame->Id() - first_picture_id, 3);
       });
   inject_packet(/*wrapped_frame_id=*/0x0002);
 }
@@ -957,8 +964,7 @@ class RtpVideoStreamReceiver2DependencyDescriptorTest
  public:
   RtpVideoStreamReceiver2DependencyDescriptorTest() {
     VideoCodec codec;
-    codec.plType = payload_type_;
-    rtp_video_stream_receiver_->AddReceiveCodec(codec, {},
+    rtp_video_stream_receiver_->AddReceiveCodec(payload_type_, codec, {},
                                                 /*raw_payload=*/true);
     extension_map_.Register<RtpDependencyDescriptorExtension>(7);
     rtp_video_stream_receiver_->StartReceive();
@@ -1012,9 +1018,7 @@ TEST_F(RtpVideoStreamReceiver2DependencyDescriptorTest, UnwrapsFrameId) {
   // keyframe. Thus feed a key frame first, then test reodered delta frames.
   int64_t first_picture_id;
   EXPECT_CALL(mock_on_complete_frame_callback_, DoOnCompleteFrame)
-      .WillOnce([&](video_coding::EncodedFrame* frame) {
-        first_picture_id = frame->id.picture_id;
-      });
+      .WillOnce([&](EncodedFrame* frame) { first_picture_id = frame->Id(); });
   InjectPacketWith(stream_structure, keyframe_descriptor);
 
   DependencyDescriptor deltaframe1_descriptor;
@@ -1028,13 +1032,13 @@ TEST_F(RtpVideoStreamReceiver2DependencyDescriptorTest, UnwrapsFrameId) {
   // Parser should unwrap frame ids correctly even if packets were reordered by
   // the network.
   EXPECT_CALL(mock_on_complete_frame_callback_, DoOnCompleteFrame)
-      .WillOnce([&](video_coding::EncodedFrame* frame) {
+      .WillOnce([&](EncodedFrame* frame) {
         // 0x0002 - 0xfff0
-        EXPECT_EQ(frame->id.picture_id - first_picture_id, 18);
+        EXPECT_EQ(frame->Id() - first_picture_id, 18);
       })
-      .WillOnce([&](video_coding::EncodedFrame* frame) {
+      .WillOnce([&](EncodedFrame* frame) {
         // 0xfffe - 0xfff0
-        EXPECT_EQ(frame->id.picture_id - first_picture_id, 14);
+        EXPECT_EQ(frame->Id() - first_picture_id, 14);
       });
   InjectPacketWith(stream_structure, deltaframe2_descriptor);
   InjectPacketWith(stream_structure, deltaframe1_descriptor);
@@ -1098,9 +1102,8 @@ TEST_F(RtpVideoStreamReceiver2DependencyDescriptorTest,
   keyframe2_descriptor.frame_number = 3;
 
   EXPECT_CALL(mock_on_complete_frame_callback_, DoOnCompleteFrame)
-      .WillOnce([&](video_coding::EncodedFrame* frame) {
-        EXPECT_EQ(frame->id.picture_id & 0xFFFF, 3);
-      });
+      .WillOnce(
+          [&](EncodedFrame* frame) { EXPECT_EQ(frame->Id() & 0xFFFF, 3); });
   InjectPacketWith(stream_structure2, keyframe2_descriptor);
   InjectPacketWith(stream_structure1, keyframe1_descriptor);
 
@@ -1110,25 +1113,10 @@ TEST_F(RtpVideoStreamReceiver2DependencyDescriptorTest,
   deltaframe_descriptor.frame_dependencies = stream_structure2.templates[0];
   deltaframe_descriptor.frame_number = 4;
   EXPECT_CALL(mock_on_complete_frame_callback_, DoOnCompleteFrame)
-      .WillOnce([&](video_coding::EncodedFrame* frame) {
-        EXPECT_EQ(frame->id.picture_id & 0xFFFF, 4);
-      });
+      .WillOnce(
+          [&](EncodedFrame* frame) { EXPECT_EQ(frame->Id() & 0xFFFF, 4); });
   InjectPacketWith(stream_structure2, deltaframe_descriptor);
 }
-
-#if RTC_DCHECK_IS_ON && GTEST_HAS_DEATH_TEST && !defined(WEBRTC_ANDROID)
-using RtpVideoStreamReceiver2DeathTest = RtpVideoStreamReceiver2Test;
-TEST_F(RtpVideoStreamReceiver2DeathTest, RepeatedSecondarySinkDisallowed) {
-  MockRtpPacketSink secondary_sink;
-
-  rtp_video_stream_receiver_->AddSecondarySink(&secondary_sink);
-  EXPECT_DEATH(rtp_video_stream_receiver_->AddSecondarySink(&secondary_sink),
-               "");
-
-  // Test tear-down.
-  rtp_video_stream_receiver_->RemoveSecondarySink(&secondary_sink);
-}
-#endif
 
 TEST_F(RtpVideoStreamReceiver2Test, TransformFrame) {
   rtc::scoped_refptr<MockFrameTransformer> mock_frame_transformer =
@@ -1141,9 +1129,9 @@ TEST_F(RtpVideoStreamReceiver2Test, TransformFrame) {
       nullptr, process_thread_.get(), &mock_nack_sender_, nullptr,
       &mock_on_complete_frame_callback_, nullptr, mock_frame_transformer);
   VideoCodec video_codec;
-  video_codec.plType = kPayloadType;
   video_codec.codecType = kVideoCodecGeneric;
-  receiver->AddReceiveCodec(video_codec, {}, /*raw_payload=*/false);
+  receiver->AddReceiveCodec(kPayloadType, video_codec, {},
+                            /*raw_payload=*/false);
 
   RtpPacketReceived rtp_packet;
   rtp_packet.SetPayloadType(kPayloadType);
@@ -1162,11 +1150,11 @@ TEST_F(RtpVideoStreamReceiver2Test, TransformFrame) {
 }
 
 // Test default behavior and when playout delay is overridden by field trial.
-const PlayoutDelay kTransmittedPlayoutDelay = {100, 200};
-const PlayoutDelay kForcedPlayoutDelay = {70, 90};
+const VideoPlayoutDelay kTransmittedPlayoutDelay = {100, 200};
+const VideoPlayoutDelay kForcedPlayoutDelay = {70, 90};
 struct PlayoutDelayOptions {
   std::string field_trial;
-  PlayoutDelay expected_delay;
+  VideoPlayoutDelay expected_delay;
 };
 const PlayoutDelayOptions kDefaultBehavior = {
     /*field_trial=*/"", /*expected_delay=*/kTransmittedPlayoutDelay};
@@ -1210,8 +1198,8 @@ TEST_P(RtpVideoStreamReceiver2TestPlayoutDelay, PlayoutDelay) {
   // Expect the playout delay of encoded frame to be the same as the transmitted
   // playout delay unless it was overridden by a field trial.
   EXPECT_CALL(mock_on_complete_frame_callback_, DoOnCompleteFrame(_))
-      .WillOnce(Invoke([expected_playout_delay = GetParam().expected_delay](
-                           video_coding::EncodedFrame* frame) {
+      .WillOnce(Invoke([expected_playout_delay =
+                            GetParam().expected_delay](EncodedFrame* frame) {
         EXPECT_EQ(frame->EncodedImage().playout_delay_, expected_playout_delay);
       }));
   rtp_video_stream_receiver_->OnReceivedPayloadData(

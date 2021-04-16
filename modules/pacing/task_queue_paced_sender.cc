@@ -32,7 +32,7 @@ constexpr TimeDelta kMinTimeBetweenStatsUpdates = TimeDelta::Millis(1);
 
 TaskQueuePacedSender::TaskQueuePacedSender(
     Clock* clock,
-    PacketRouter* packet_router,
+    PacingController::PacketSender* packet_sender,
     RtcEventLog* event_log,
     const WebRtcKeyValueConfig* field_trials,
     TaskQueueFactory* task_queue_factory,
@@ -40,7 +40,7 @@ TaskQueuePacedSender::TaskQueuePacedSender(
     : clock_(clock),
       hold_back_window_(hold_back_window),
       pacing_controller_(clock,
-                         packet_router,
+                         packet_sender,
                          event_log,
                          field_trials,
                          PacingController::ProcessMode::kDynamic),
@@ -59,6 +59,14 @@ TaskQueuePacedSender::~TaskQueuePacedSender() {
   task_queue_.PostTask([&]() {
     RTC_DCHECK_RUN_ON(&task_queue_);
     is_shutdown_ = true;
+  });
+}
+
+void TaskQueuePacedSender::EnsureStarted() {
+  task_queue_.PostTask([this]() {
+    RTC_DCHECK_RUN_ON(&task_queue_);
+    is_started_ = true;
+    MaybeProcessPackets(Timestamp::MinusInfinity());
   });
 }
 
@@ -136,6 +144,7 @@ void TaskQueuePacedSender::EnqueuePackets(
   task_queue_.PostTask([this, packets_ = std::move(packets)]() mutable {
     RTC_DCHECK_RUN_ON(&task_queue_);
     for (auto& packet : packets_) {
+      RTC_DCHECK_GE(packet->capture_time_ms(), 0);
       pacing_controller_.EnqueuePacket(std::move(packet));
     }
     MaybeProcessPackets(Timestamp::MinusInfinity());
@@ -196,7 +205,7 @@ void TaskQueuePacedSender::MaybeProcessPackets(
     Timestamp scheduled_process_time) {
   RTC_DCHECK_RUN_ON(&task_queue_);
 
-  if (is_shutdown_) {
+  if (is_shutdown_ || !is_started_) {
     return;
   }
 
@@ -218,20 +227,34 @@ void TaskQueuePacedSender::MaybeProcessPackets(
     next_process_time = pacing_controller_.NextSendTime();
   }
 
-  const TimeDelta min_sleep = pacing_controller_.IsProbing()
-                                  ? PacingController::kMinSleepTime
-                                  : hold_back_window_;
-  next_process_time = std::max(now + min_sleep, next_process_time);
+  absl::optional<TimeDelta> time_to_next_process;
+  if (pacing_controller_.IsProbing() &&
+      next_process_time != next_process_time_) {
+    // If we're probing and there isn't already a wakeup scheduled for the next
+    // process time, always post a task and just round sleep time down to
+    // nearest millisecond.
+    if (next_process_time.IsMinusInfinity()) {
+      time_to_next_process = TimeDelta::Zero();
+    } else {
+      time_to_next_process =
+          std::max(TimeDelta::Zero(),
+                   (next_process_time - now).RoundDownTo(TimeDelta::Millis(1)));
+    }
+  } else if (next_process_time_.IsMinusInfinity() ||
+             next_process_time <= next_process_time_ - hold_back_window_) {
+    // Schedule a new task since there is none currently scheduled
+    // (|next_process_time_| is infinite), or the new process time is at least
+    // one holdback window earlier than whatever is currently scheduled.
+    time_to_next_process = std::max(next_process_time - now, hold_back_window_);
+  }
 
-  TimeDelta sleep_time = next_process_time - now;
-  if (next_process_time_.IsMinusInfinity() ||
-      next_process_time <=
-          next_process_time_ - PacingController::kMinSleepTime) {
+  if (time_to_next_process) {
+    // Set a new scheduled process time and post a delayed task.
     next_process_time_ = next_process_time;
 
     task_queue_.PostDelayedTask(
         [this, next_process_time]() { MaybeProcessPackets(next_process_time); },
-        sleep_time.ms<uint32_t>());
+        time_to_next_process->ms<uint32_t>());
   }
 
   MaybeUpdateStats(false);

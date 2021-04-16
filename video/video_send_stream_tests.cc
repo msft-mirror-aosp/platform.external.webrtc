@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "absl/algorithm/container.h"
+#include "api/sequence_checker.h"
 #include "api/task_queue/default_task_queue_factory.h"
 #include "api/task_queue/task_queue_base.h"
 #include "api/test/simulated_network.h"
@@ -39,7 +40,6 @@
 #include "rtc_base/platform_thread.h"
 #include "rtc_base/rate_limiter.h"
 #include "rtc_base/synchronization/mutex.h"
-#include "rtc_base/synchronization/sequence_checker.h"
 #include "rtc_base/task_queue_for_test.h"
 #include "rtc_base/task_utils/to_queued_task.h"
 #include "rtc_base/time_utils.h"
@@ -1276,180 +1276,6 @@ TEST_F(VideoSendStreamTest, FragmentsVp8AccordingToMaxPacketSizeWithFec) {
   TestPacketFragmentationSize(kVP8, true);
 }
 
-// The test will go through a number of phases.
-// 1. Start sending packets.
-// 2. As soon as the RTP stream has been detected, signal a low REMB value to
-//    suspend the stream.
-// 3. Wait until |kSuspendTimeFrames| have been captured without seeing any RTP
-//    packets.
-// 4. Signal a high REMB and then wait for the RTP stream to start again.
-//    When the stream is detected again, and the stats show that the stream
-//    is no longer suspended, the test ends.
-TEST_F(VideoSendStreamTest, SuspendBelowMinBitrate) {
-  static const int kSuspendTimeFrames = 60;  // Suspend for 2 seconds @ 30 fps.
-
-  class RembObserver : public test::SendTest {
-   public:
-    class CaptureObserver : public rtc::VideoSinkInterface<VideoFrame> {
-     public:
-      explicit CaptureObserver(RembObserver* remb_observer)
-          : remb_observer_(remb_observer) {}
-
-      void OnFrame(const VideoFrame&) {
-        MutexLock lock(&remb_observer_->mutex_);
-        if (remb_observer_->test_state_ == kDuringSuspend &&
-            ++remb_observer_->suspended_frame_count_ > kSuspendTimeFrames) {
-          VideoSendStream::Stats stats = remb_observer_->stream_->GetStats();
-          EXPECT_TRUE(stats.suspended);
-          remb_observer_->SendRtcpFeedback(remb_observer_->high_remb_bps_);
-          remb_observer_->test_state_ = kWaitingForPacket;
-        }
-      }
-
-     private:
-      RembObserver* const remb_observer_;
-    };
-
-    RembObserver()
-        : SendTest(kDefaultTimeoutMs),
-          clock_(Clock::GetRealTimeClock()),
-          capture_observer_(this),
-          stream_(nullptr),
-          test_state_(kBeforeSuspend),
-          rtp_count_(0),
-          last_sequence_number_(0),
-          suspended_frame_count_(0),
-          low_remb_bps_(0),
-          high_remb_bps_(0) {}
-
-   private:
-    Action OnSendRtp(const uint8_t* packet, size_t length) override {
-      MutexLock lock(&mutex_);
-      ++rtp_count_;
-      RtpPacket rtp_packet;
-      EXPECT_TRUE(rtp_packet.Parse(packet, length));
-      last_sequence_number_ = rtp_packet.SequenceNumber();
-
-      if (test_state_ == kBeforeSuspend) {
-        // The stream has started. Try to suspend it.
-        SendRtcpFeedback(low_remb_bps_);
-        test_state_ = kDuringSuspend;
-      } else if (test_state_ == kDuringSuspend) {
-        if (rtp_packet.padding_size() == 0) {
-          // Received non-padding packet during suspension period. Reset the
-          // counter.
-          suspended_frame_count_ = 0;
-        }
-        SendRtcpFeedback(0);  // REMB is only sent if value is > 0.
-      } else if (test_state_ == kWaitingForPacket) {
-        if (rtp_packet.padding_size() == 0) {
-          // Non-padding packet observed. Test is almost complete. Will just
-          // have to wait for the stats to change.
-          test_state_ = kWaitingForStats;
-        }
-        SendRtcpFeedback(0);  // REMB is only sent if value is > 0.
-      } else if (test_state_ == kWaitingForStats) {
-        VideoSendStream::Stats stats = stream_->GetStats();
-        if (stats.suspended == false) {
-          // Stats flipped to false. Test is complete.
-          observation_complete_.Set();
-        }
-        SendRtcpFeedback(0);  // REMB is only sent if value is > 0.
-      }
-
-      return SEND_PACKET;
-    }
-
-    void set_low_remb_bps(int value) {
-      MutexLock lock(&mutex_);
-      low_remb_bps_ = value;
-    }
-
-    void set_high_remb_bps(int value) {
-      MutexLock lock(&mutex_);
-      high_remb_bps_ = value;
-    }
-
-    void OnVideoStreamsCreated(
-        VideoSendStream* send_stream,
-        const std::vector<VideoReceiveStream*>& receive_streams) override {
-      stream_ = send_stream;
-    }
-
-    void OnFrameGeneratorCapturerCreated(
-        test::FrameGeneratorCapturer* frame_generator_capturer) override {
-      frame_generator_capturer->AddOrUpdateSink(&capture_observer_,
-                                                rtc::VideoSinkWants());
-    }
-
-    void ModifyVideoConfigs(
-        VideoSendStream::Config* send_config,
-        std::vector<VideoReceiveStream::Config>* receive_configs,
-        VideoEncoderConfig* encoder_config) override {
-      RTC_DCHECK_EQ(1, encoder_config->number_of_streams);
-      transport_adapter_.reset(
-          new internal::TransportAdapter(send_config->send_transport));
-      transport_adapter_->Enable();
-      send_config->rtp.nack.rtp_history_ms = kNackRtpHistoryMs;
-      send_config->suspend_below_min_bitrate = true;
-      int min_bitrate_bps =
-          test::DefaultVideoStreamFactory::kDefaultMinBitratePerStream[0];
-      set_low_remb_bps(min_bitrate_bps - 10000);
-      int threshold_window = std::max(min_bitrate_bps / 10, 20000);
-      ASSERT_GT(encoder_config->max_bitrate_bps,
-                min_bitrate_bps + threshold_window + 5000);
-      set_high_remb_bps(min_bitrate_bps + threshold_window + 5000);
-    }
-
-    void PerformTest() override {
-      EXPECT_TRUE(Wait()) << "Timed out during suspend-below-min-bitrate test.";
-    }
-
-    enum TestState {
-      kBeforeSuspend,
-      kDuringSuspend,
-      kWaitingForPacket,
-      kWaitingForStats
-    };
-
-    virtual void SendRtcpFeedback(int remb_value)
-        RTC_EXCLUSIVE_LOCKS_REQUIRED(mutex_) {
-      FakeReceiveStatistics receive_stats(kVideoSendSsrcs[0],
-                                          last_sequence_number_, rtp_count_, 0);
-      RtpRtcpInterface::Configuration config;
-      config.clock = clock_;
-      config.receive_statistics = &receive_stats;
-      config.outgoing_transport = transport_adapter_.get();
-      config.rtcp_report_interval_ms = kRtcpIntervalMs;
-      config.local_media_ssrc = kVideoSendSsrcs[0];
-      RTCPSender rtcp_sender(config);
-
-      rtcp_sender.SetRTCPStatus(RtcpMode::kReducedSize);
-      rtcp_sender.SetRemoteSSRC(kVideoSendSsrcs[0]);
-      if (remb_value > 0) {
-        rtcp_sender.SetRemb(remb_value, std::vector<uint32_t>());
-      }
-      RTCPSender::FeedbackState feedback_state;
-      EXPECT_EQ(0, rtcp_sender.SendRTCP(feedback_state, kRtcpRr));
-    }
-
-    std::unique_ptr<internal::TransportAdapter> transport_adapter_;
-    Clock* const clock_;
-    CaptureObserver capture_observer_;
-    VideoSendStream* stream_;
-
-    Mutex mutex_;
-    TestState test_state_ RTC_GUARDED_BY(mutex_);
-    int rtp_count_ RTC_GUARDED_BY(mutex_);
-    int last_sequence_number_ RTC_GUARDED_BY(mutex_);
-    int suspended_frame_count_ RTC_GUARDED_BY(mutex_);
-    int low_remb_bps_ RTC_GUARDED_BY(mutex_);
-    int high_remb_bps_ RTC_GUARDED_BY(mutex_);
-  } test;
-
-  RunBaseTest(&test);
-}
-
 // This test that padding stops being send after a while if the Camera stops
 // producing video frames and that padding resumes if the camera restarts.
 TEST_F(VideoSendStreamTest, NoPaddingWhenVideoIsMuted) {
@@ -2156,7 +1982,6 @@ TEST_F(VideoSendStreamTest,
    public:
     EncoderObserver()
         : FakeEncoder(Clock::GetRealTimeClock()),
-          number_of_initializations_(0),
           last_initialized_frame_width_(0),
           last_initialized_frame_height_(0) {}
 
@@ -2183,7 +2008,6 @@ TEST_F(VideoSendStreamTest,
       MutexLock lock(&mutex_);
       last_initialized_frame_width_ = config->width;
       last_initialized_frame_height_ = config->height;
-      ++number_of_initializations_;
       init_encode_called_.Set();
       return FakeEncoder::InitEncode(config, settings);
     }
@@ -2197,7 +2021,6 @@ TEST_F(VideoSendStreamTest,
 
     Mutex mutex_;
     rtc::Event init_encode_called_;
-    size_t number_of_initializations_ RTC_GUARDED_BY(&mutex_);
     int last_initialized_frame_width_ RTC_GUARDED_BY(&mutex_);
     int last_initialized_frame_height_ RTC_GUARDED_BY(&mutex_);
   };
@@ -2449,13 +2272,6 @@ TEST_F(VideoSendStreamTest, VideoSendStreamUpdateActiveSimulcastLayers) {
     GetVideoSendStream()->ReconfigureVideoEncoder(
         GetVideoEncoderConfig()->Copy());
   });
-  // TODO(bugs.webrtc.org/8807): Currently we require a hard reconfiguration to
-  // update the VideoBitrateAllocator and BitrateAllocator of which layers are
-  // active. Once the change is made for a "soft" reconfiguration we can remove
-  // the expecation for an encoder init. We can also test that bitrate changes
-  // when just updating individual active layers, which should change the
-  // bitrate set to the video encoder.
-  EXPECT_TRUE(encoder.WaitForEncoderInit());
   EXPECT_TRUE(encoder.WaitBitrateChanged(true));
 
   // Turning off both simulcast layers should trigger a bitrate change of 0.
@@ -2935,12 +2751,13 @@ TEST_F(VideoSendStreamTest, ReconfigureBitratesSetsEncoderBitratesCorrectly) {
   static const int kMaxBitrateKbps = 413;
   static const int kIncreasedStartBitrateKbps = 451;
   static const int kIncreasedMaxBitrateKbps = 597;
-  // If these fields trial are on, we get lower bitrates than expected by this
-  // test, due to the packetization overhead and encoder pushback.
+  // TODO(bugs.webrtc.org/12058): If these fields trial are on, we get lower
+  // bitrates than expected by this test, due to encoder pushback and subtracted
+  // overhead.
   webrtc::test::ScopedFieldTrials field_trials(
       std::string(field_trial::GetFieldTrialString()) +
-      "WebRTC-SubtractPacketizationOverhead/Disabled/"
-      "WebRTC-VideoRateControl/bitrate_adjuster:false/");
+      "WebRTC-VideoRateControl/bitrate_adjuster:false/"
+      "WebRTC-SendSideBwe-WithOverhead/Disabled/");
 
   class EncoderBitrateThresholdObserver : public test::SendTest,
                                           public VideoBitrateAllocatorFactory,
@@ -3150,8 +2967,10 @@ TEST_F(VideoSendStreamTest, ReportsSentResolution) {
       CodecSpecificInfo specifics;
       specifics.codecType = kVideoCodecGeneric;
 
-      uint8_t buffer[16] = {0};
-      EncodedImage encoded(buffer, sizeof(buffer), sizeof(buffer));
+      EncodedImage encoded;
+      auto buffer = EncodedImageBuffer::Create(16);
+      memset(buffer->data(), 0, 16);
+      encoded.SetEncodedData(buffer);
       encoded.SetTimestamp(input_image.timestamp());
       encoded.capture_time_ms_ = input_image.render_time_ms();
 
@@ -3166,7 +2985,7 @@ TEST_F(VideoSendStreamTest, ReportsSentResolution) {
           callback = callback_;
         }
         RTC_DCHECK(callback);
-        if (callback->OnEncodedImage(encoded, &specifics, nullptr).error !=
+        if (callback->OnEncodedImage(encoded, &specifics).error !=
             EncodedImageCallback::Result::OK) {
           return -1;
         }
@@ -4020,7 +3839,7 @@ class ContentSwitchTest : public test::SendTest {
     auto internal_send_peer = test::VideoSendStreamPeer(send_stream_);
     float pacing_factor =
         internal_send_peer.GetPacingFactorOverride().value_or(0.0f);
-    float expected_pacing_factor = PacedSender::kDefaultPaceMultiplier;
+    float expected_pacing_factor = 1.1;  // Strict pacing factor.
     if (send_stream_->GetStats().content_type ==
         webrtc::VideoContentType::SCREENSHARE) {
       expected_pacing_factor = 1.0f;  // Currently used pacing factor in ALR.

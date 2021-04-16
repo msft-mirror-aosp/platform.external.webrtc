@@ -190,7 +190,6 @@ bool SimplePeerConnection::CreatePeerConnection(const char** turn_urls,
   webrtc::PeerConnectionInterface::IceServer stun_server;
   stun_server.uri = GetPeerConnectionString();
   config_.servers.push_back(stun_server);
-  config_.enable_rtp_data_channel = true;
   config_.enable_dtls_srtp = false;
 
   peer_connection_ = g_peer_connection_factory->CreatePeerConnection(
@@ -336,10 +335,10 @@ bool SimplePeerConnection::SetRemoteDescription(const char* type,
     return false;
 
   std::string remote_desc(sdp);
-  std::string sdp_type(type);
+  std::string desc_type(type);
   webrtc::SdpParseError error;
   webrtc::SessionDescriptionInterface* session_description(
-      webrtc::CreateSessionDescription(sdp_type, remote_desc, &error));
+      webrtc::CreateSessionDescription(desc_type, remote_desc, &error));
   if (!session_description) {
     RTC_LOG(WARNING) << "Can't parse received session description message. "
                         "SdpParseError was: "

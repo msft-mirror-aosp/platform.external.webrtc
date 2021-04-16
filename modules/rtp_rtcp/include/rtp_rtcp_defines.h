@@ -65,6 +65,7 @@ enum RTPExtensionType : int {
   kRtpExtensionTransportSequenceNumber02,
   kRtpExtensionPlayoutDelay,
   kRtpExtensionVideoContentType,
+  kRtpExtensionVideoLayersAllocation,
   kRtpExtensionVideoTiming,
   kRtpExtensionRtpStreamId,
   kRtpExtensionRepairedRtpStreamId,
@@ -73,6 +74,7 @@ enum RTPExtensionType : int {
   kRtpExtensionGenericFrameDescriptor = kRtpExtensionGenericFrameDescriptor00,
   kRtpExtensionGenericFrameDescriptor02,
   kRtpExtensionColorSpace,
+  kRtpExtensionVideoFrameTrackingId,
   kRtpExtensionNumberOfExtensions  // Must be the last entity in the enum.
 };
 

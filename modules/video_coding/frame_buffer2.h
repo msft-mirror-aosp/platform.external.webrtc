@@ -18,17 +18,17 @@
 #include <vector>
 
 #include "absl/container/inlined_vector.h"
+#include "api/sequence_checker.h"
 #include "api/video/encoded_frame.h"
 #include "modules/video_coding/include/video_coding_defines.h"
 #include "modules/video_coding/inter_frame_delay.h"
 #include "modules/video_coding/jitter_estimator.h"
 #include "modules/video_coding/utility/decoded_frames_history.h"
-#include "rtc_base/constructor_magic.h"
 #include "rtc_base/event.h"
 #include "rtc_base/experiments/rtt_mult_experiment.h"
 #include "rtc_base/numerics/sequence_number_util.h"
 #include "rtc_base/synchronization/mutex.h"
-#include "rtc_base/synchronization/sequence_checker.h"
+#include "rtc_base/system/no_unique_address.h"
 #include "rtc_base/task_queue.h"
 #include "rtc_base/task_utils/repeating_task.h"
 #include "rtc_base/thread_annotations.h"
@@ -50,11 +50,14 @@ class FrameBuffer {
               VCMTiming* timing,
               VCMReceiveStatisticsCallback* stats_callback);
 
+  FrameBuffer() = delete;
+  FrameBuffer(const FrameBuffer&) = delete;
+  FrameBuffer& operator=(const FrameBuffer&) = delete;
+
   virtual ~FrameBuffer();
 
   // Insert a frame into the frame buffer. Returns the picture id
   // of the last continuous frame or -1 if there is no continuous frame.
-  // TODO(philipel): Return a VideoLayerFrameId and not only the picture id.
   int64_t InsertFrame(std::unique_ptr<EncodedFrame> frame);
 
   // Get the next frame for decoding. Will return at latest after
@@ -71,10 +74,6 @@ class FrameBuffer {
   //                 implemented.
   void SetProtectionMode(VCMVideoProtection mode);
 
-  // Start the frame buffer, has no effect if the frame buffer is started.
-  // The frame buffer is started upon construction.
-  void Start();
-
   // Stop the frame buffer, causing any sleeping thread in NextFrame to
   // return immediately.
   void Stop();
@@ -85,6 +84,8 @@ class FrameBuffer {
   // Clears the FrameBuffer, removing all the buffered frames.
   void Clear();
 
+  int Size();
+
  private:
   struct FrameInfo {
     FrameInfo();
@@ -93,7 +94,7 @@ class FrameBuffer {
 
     // Which other frames that have direct unfulfilled dependencies
     // on this frame.
-    absl::InlinedVector<VideoLayerFrameId, 8> dependent_frames;
+    absl::InlinedVector<int64_t, 8> dependent_frames;
 
     // A frame is continiuous if it has all its referenced/indirectly
     // referenced frames.
@@ -113,7 +114,7 @@ class FrameBuffer {
     std::unique_ptr<EncodedFrame> frame;
   };
 
-  using FrameMap = std::map<VideoLayerFrameId, FrameInfo>;
+  using FrameMap = std::map<int64_t, FrameInfo>;
 
   // Check that the references of |frame| are valid.
   bool ValidReferences(const EncodedFrame& frame) const;
@@ -146,10 +147,6 @@ class FrameBuffer {
 
   void ClearFramesAndHistory() RTC_EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
-  // Checks if the superframe, which current frame belongs to, is complete.
-  bool IsCompleteSuperFrame(const EncodedFrame& frame)
-      RTC_EXCLUSIVE_LOCKS_REQUIRED(mutex_);
-
   bool HasBadRenderTiming(const EncodedFrame& frame, int64_t now_ms)
       RTC_EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
@@ -160,8 +157,8 @@ class FrameBuffer {
   EncodedFrame* CombineAndDeleteFrames(
       const std::vector<EncodedFrame*>& frames) const;
 
-  SequenceChecker construction_checker_;
-  SequenceChecker callback_checker_;
+  RTC_NO_UNIQUE_ADDRESS SequenceChecker construction_checker_;
+  RTC_NO_UNIQUE_ADDRESS SequenceChecker callback_checker_;
 
   // Stores only undecoded frames.
   FrameMap frames_ RTC_GUARDED_BY(mutex_);
@@ -180,8 +177,7 @@ class FrameBuffer {
   VCMJitterEstimator jitter_estimator_ RTC_GUARDED_BY(mutex_);
   VCMTiming* const timing_ RTC_GUARDED_BY(mutex_);
   VCMInterFrameDelay inter_frame_delay_ RTC_GUARDED_BY(mutex_);
-  absl::optional<VideoLayerFrameId> last_continuous_frame_
-      RTC_GUARDED_BY(mutex_);
+  absl::optional<int64_t> last_continuous_frame_ RTC_GUARDED_BY(mutex_);
   std::vector<FrameMap::iterator> frames_to_decode_ RTC_GUARDED_BY(mutex_);
   bool stopped_ RTC_GUARDED_BY(mutex_);
   VCMVideoProtection protection_mode_ RTC_GUARDED_BY(mutex_);
@@ -192,8 +188,6 @@ class FrameBuffer {
 
   // rtt_mult experiment settings.
   const absl::optional<RttMultExperiment::Settings> rtt_mult_settings_;
-
-  RTC_DISALLOW_IMPLICIT_CONSTRUCTORS(FrameBuffer);
 };
 
 }  // namespace video_coding
