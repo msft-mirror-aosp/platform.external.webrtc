@@ -19,6 +19,7 @@
 #include "api/audio_codecs/audio_encoder_factory.h"
 #include "api/crypto/crypto_options.h"
 #include "api/rtp_parameters.h"
+#include "api/transport/webrtc_key_value_config.h"
 #include "api/video/video_bitrate_allocator_factory.h"
 #include "call/audio_state.h"
 #include "media/base/codec.h"
@@ -120,9 +121,9 @@ class MediaEngineInterface {
  public:
   virtual ~MediaEngineInterface() {}
 
-  // Initialization
-  // Starts the engine.
+  // Initialization. Needs to be called on the worker thread.
   virtual bool Init() = 0;
+
   virtual VoiceEngineInterface& voice() = 0;
   virtual VideoEngineInterface& video() = 0;
   virtual const VoiceEngineInterface& voice() const = 0;
@@ -131,11 +132,17 @@ class MediaEngineInterface {
 
 // CompositeMediaEngine constructs a MediaEngine from separate
 // voice and video engine classes.
+// Optionally owns a WebRtcKeyValueConfig trials map.
 class CompositeMediaEngine : public MediaEngineInterface {
  public:
+  CompositeMediaEngine(std::unique_ptr<webrtc::WebRtcKeyValueConfig> trials,
+                       std::unique_ptr<VoiceEngineInterface> audio_engine,
+                       std::unique_ptr<VideoEngineInterface> video_engine);
   CompositeMediaEngine(std::unique_ptr<VoiceEngineInterface> audio_engine,
                        std::unique_ptr<VideoEngineInterface> video_engine);
   ~CompositeMediaEngine() override;
+
+  // Always succeeds.
   bool Init() override;
 
   VoiceEngineInterface& voice() override;
@@ -144,8 +151,9 @@ class CompositeMediaEngine : public MediaEngineInterface {
   const VideoEngineInterface& video() const override;
 
  private:
-  std::unique_ptr<VoiceEngineInterface> voice_engine_;
-  std::unique_ptr<VideoEngineInterface> video_engine_;
+  const std::unique_ptr<webrtc::WebRtcKeyValueConfig> trials_;
+  const std::unique_ptr<VoiceEngineInterface> voice_engine_;
+  const std::unique_ptr<VideoEngineInterface> video_engine_;
 };
 
 enum DataChannelType {

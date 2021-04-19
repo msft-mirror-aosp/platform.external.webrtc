@@ -10,12 +10,15 @@
 
 #include "modules/desktop_capture/win/window_capturer_win_gdi.h"
 
+#include <cmath>
 #include <map>
 #include <memory>
 #include <utility>
 #include <vector>
 
 #include "modules/desktop_capture/cropped_desktop_frame.h"
+#include "modules/desktop_capture/desktop_capture_metrics_helper.h"
+#include "modules/desktop_capture/desktop_capture_types.h"
 #include "modules/desktop_capture/desktop_capturer.h"
 #include "modules/desktop_capture/desktop_frame_win.h"
 #include "modules/desktop_capture/win/screen_capture_utils.h"
@@ -24,8 +27,10 @@
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/string_utils.h"
+#include "rtc_base/time_utils.h"
 #include "rtc_base/trace_event.h"
 #include "rtc_base/win32.h"
+#include "system_wrappers/include/metrics.h"
 
 namespace webrtc {
 
@@ -142,14 +147,27 @@ bool WindowCapturerWinGdi::IsOccluded(const DesktopVector& pos) {
 void WindowCapturerWinGdi::Start(Callback* callback) {
   RTC_DCHECK(!callback_);
   RTC_DCHECK(callback);
+  RecordCapturerImpl(DesktopCapturerId::kWindowCapturerWinGdi);
 
   callback_ = callback;
 }
 
 void WindowCapturerWinGdi::CaptureFrame() {
   RTC_DCHECK(callback_);
+  int64_t capture_start_time_nanos = rtc::TimeNanos();
 
   CaptureResults results = CaptureFrame(/*capture_owned_windows*/ true);
+
+  if (results.frame) {
+    int capture_time_ms = (rtc::TimeNanos() - capture_start_time_nanos) /
+                          rtc::kNumNanosecsPerMillisec;
+    RTC_HISTOGRAM_COUNTS_1000(
+        "WebRTC.DesktopCapture.Win.WindowGdiCapturerFrameTime",
+        capture_time_ms);
+    results.frame->set_capture_time_ms(capture_time_ms);
+    results.frame->set_capturer_id(DesktopCapturerId::kWindowCapturerWinGdi);
+  }
+
   callback_->OnCaptureResult(results.result, std::move(results.frame));
 }
 
@@ -222,12 +240,22 @@ WindowCapturerWinGdi::CaptureResults WindowCapturerWinGdi::CaptureFrame(
 
     // If |window_dc_size| is smaller than |window_rect|, let's resize both
     // |original_rect| and |cropped_rect| according to the scaling factor.
+    // This will adjust the width and height of the two rects.
     horizontal_scale =
         static_cast<double>(window_dc_size.width()) / original_rect.width();
     vertical_scale =
         static_cast<double>(window_dc_size.height()) / original_rect.height();
     original_rect.Scale(horizontal_scale, vertical_scale);
     cropped_rect.Scale(horizontal_scale, vertical_scale);
+
+    // Translate |cropped_rect| to the left so that its position within
+    // |original_rect| remains accurate after scaling.
+    // See crbug.com/1083527 for more info.
+    int translate_left = static_cast<int>(std::round(
+        (cropped_rect.left() - original_rect.left()) * (horizontal_scale - 1)));
+    int translate_top = static_cast<int>(std::round(
+        (cropped_rect.top() - original_rect.top()) * (vertical_scale - 1)));
+    cropped_rect.Translate(translate_left, translate_top);
   }
 
   std::unique_ptr<DesktopFrameWin> frame(

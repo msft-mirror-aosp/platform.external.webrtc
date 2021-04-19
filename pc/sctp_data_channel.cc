@@ -21,6 +21,7 @@
 #include "rtc_base/location.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/ref_counted_object.h"
+#include "rtc_base/task_utils/to_queued_task.h"
 #include "rtc_base/thread.h"
 
 namespace webrtc {
@@ -37,8 +38,8 @@ int GenerateUniqueId() {
 }
 
 // Define proxy for DataChannelInterface.
-BEGIN_SIGNALING_PROXY_MAP(DataChannel)
-PROXY_SIGNALING_THREAD_DESTRUCTOR()
+BEGIN_PRIMARY_PROXY_MAP(DataChannel)
+PROXY_PRIMARY_THREAD_DESTRUCTOR()
 PROXY_METHOD1(void, RegisterObserver, DataChannelObserver*)
 PROXY_METHOD0(void, UnregisterObserver)
 BYPASS_PROXY_CONSTMETHOD0(std::string, label)
@@ -206,8 +207,14 @@ bool SctpDataChannel::Init() {
   // Chrome glue and WebKit) are not wired up properly until after this
   // function returns.
   if (provider_->ReadyToSendData()) {
-    invoker_.AsyncInvoke<void>(RTC_FROM_HERE, rtc::Thread::Current(),
-                               [this] { OnTransportReady(true); });
+    AddRef();
+    rtc::Thread::Current()->PostTask(ToQueuedTask(
+        [this] {
+          RTC_DCHECK_RUN_ON(signaling_thread_);
+          if (state_ != kClosed)
+            OnTransportReady(true);
+        },
+        [this] { Release(); }));
   }
 
   return true;

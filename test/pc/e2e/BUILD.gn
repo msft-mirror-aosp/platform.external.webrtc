@@ -13,13 +13,12 @@ if (!build_with_chromium) {
     testonly = true
 
     deps = [
-      ":default_encoded_image_data_injector",
       ":encoded_image_data_injector_api",
       ":example_video_quality_analyzer",
-      ":id_generator",
       ":quality_analyzing_video_decoder",
       ":quality_analyzing_video_encoder",
       ":single_process_encoded_image_data_injector",
+      ":video_frame_tracking_id_injector",
     ]
     if (rtc_include_tests) {
       deps += [
@@ -35,11 +34,11 @@ if (!build_with_chromium) {
       testonly = true
 
       deps = [
-        ":default_encoded_image_data_injector_unittest",
         ":default_video_quality_analyzer_test",
         ":multi_head_queue_test",
         ":peer_connection_e2e_smoke_test",
         ":single_process_encoded_image_data_injector_unittest",
+        ":video_frame_tracking_id_injector_unittest",
       ]
     }
   }
@@ -58,8 +57,10 @@ if (!build_with_chromium) {
       "../../../api/rtc_event_log",
       "../../../api/task_queue",
       "../../../api/transport:network_control",
+      "../../../api/transport:webrtc_key_value_config",
       "../../../api/video_codecs:video_codecs_api",
       "../../../rtc_base",
+      "../../../rtc_base:threading",
     ]
   }
 
@@ -69,23 +70,6 @@ if (!build_with_chromium) {
     sources = [ "analyzer/video/encoded_image_data_injector.h" ]
 
     deps = [ "../../../api/video:encoded_image" ]
-  }
-
-  rtc_library("default_encoded_image_data_injector") {
-    visibility = [ "*" ]
-    testonly = true
-    sources = [
-      "analyzer/video/default_encoded_image_data_injector.cc",
-      "analyzer/video/default_encoded_image_data_injector.h",
-    ]
-
-    deps = [
-      ":encoded_image_data_injector_api",
-      "../../../api/video:encoded_image",
-      "../../../rtc_base:checks",
-      "../../../rtc_base:criticalsection",
-    ]
-    absl_deps = [ "//third_party/abseil-cpp/absl/memory" ]
   }
 
   rtc_library("single_process_encoded_image_data_injector") {
@@ -106,14 +90,20 @@ if (!build_with_chromium) {
     absl_deps = [ "//third_party/abseil-cpp/absl/memory" ]
   }
 
-  rtc_library("id_generator") {
+  rtc_library("video_frame_tracking_id_injector") {
     visibility = [ "*" ]
     testonly = true
     sources = [
-      "analyzer/video/id_generator.cc",
-      "analyzer/video/id_generator.h",
+      "analyzer/video/video_frame_tracking_id_injector.cc",
+      "analyzer/video/video_frame_tracking_id_injector.h",
     ]
-    deps = []
+
+    deps = [
+      ":encoded_image_data_injector_api",
+      "../../../api/video:encoded_image",
+      "../../../rtc_base:checks",
+    ]
+    absl_deps = [ "//third_party/abseil-cpp/absl/memory" ]
   }
 
   rtc_library("simulcast_dummy_buffer_helper") {
@@ -123,10 +113,7 @@ if (!build_with_chromium) {
       "analyzer/video/simulcast_dummy_buffer_helper.cc",
       "analyzer/video/simulcast_dummy_buffer_helper.h",
     ]
-    deps = [
-      "../../../api/video:video_frame",
-      "../../../api/video:video_frame_i420",
-    ]
+    deps = [ "../../../api/video:video_frame" ]
   }
 
   rtc_library("quality_analyzing_video_decoder") {
@@ -138,12 +125,10 @@ if (!build_with_chromium) {
     ]
     deps = [
       ":encoded_image_data_injector_api",
-      ":id_generator",
       ":simulcast_dummy_buffer_helper",
       "../../../api:video_quality_analyzer_api",
       "../../../api/video:encoded_image",
       "../../../api/video:video_frame",
-      "../../../api/video:video_frame_i420",
       "../../../api/video:video_rtp_headers",
       "../../../api/video_codecs:video_codecs_api",
       "../../../modules/video_coding:video_codec_interface",
@@ -166,7 +151,6 @@ if (!build_with_chromium) {
     ]
     deps = [
       ":encoded_image_data_injector_api",
-      ":id_generator",
       "../../../api:video_quality_analyzer_api",
       "../../../api/video:encoded_image",
       "../../../api/video:video_frame",
@@ -190,7 +174,6 @@ if (!build_with_chromium) {
       ]
       deps = [
         ":encoded_image_data_injector_api",
-        ":id_generator",
         ":quality_analyzing_video_decoder",
         ":quality_analyzing_video_encoder",
         ":simulcast_dummy_buffer_helper",
@@ -269,6 +252,7 @@ if (!build_with_chromium) {
         "../../../api:time_controller",
         "../../../api/rtc_event_log:rtc_event_log_factory",
         "../../../api/task_queue:default_task_queue_factory",
+        "../../../api/transport:field_trial_based_config",
         "../../../api/video_codecs:builtin_video_decoder_factory",
         "../../../api/video_codecs:builtin_video_encoder_factory",
         "../../../media:rtc_audio_video",
@@ -305,6 +289,7 @@ if (!build_with_chromium) {
         "../../../api:peer_connection_quality_test_fixture_api",
         "../../../api/video:video_frame",
         "../../../pc:peerconnection",
+        "../../../pc:video_track_source",
       ]
       absl_deps = [ "//third_party/abseil-cpp/absl/types:variant" ]
     }
@@ -329,6 +314,7 @@ if (!build_with_chromium) {
         "../../../api/transport:network_control",
         "../../../api/video_codecs:video_codecs_api",
         "../../../rtc_base",
+        "../../../rtc_base:threading",
       ]
       absl_deps = [ "//third_party/abseil-cpp/absl/strings" ]
     }
@@ -395,7 +381,6 @@ if (!build_with_chromium) {
         "../../../api:video_quality_analyzer_api",
         "../../../api/rtc_event_log",
         "../../../api/task_queue",
-        "../../../api/task_queue:default_task_queue_factory",
         "../../../api/units:time_delta",
         "../../../api/units:timestamp",
         "../../../pc:pc_test_utils",
@@ -406,6 +391,7 @@ if (!build_with_chromium) {
         "../../../rtc_base:rtc_base_approved",
         "../../../rtc_base:safe_conversions",
         "../../../rtc_base:task_queue_for_test",
+        "../../../rtc_base:threading",
         "../../../rtc_base/synchronization:mutex",
         "../../../system_wrappers",
         "../../../system_wrappers:field_trial",
@@ -426,12 +412,12 @@ if (!build_with_chromium) {
       ]
     }
 
-    rtc_library("default_encoded_image_data_injector_unittest") {
+    rtc_library("video_frame_tracking_id_injector_unittest") {
       testonly = true
       sources =
-          [ "analyzer/video/default_encoded_image_data_injector_unittest.cc" ]
+          [ "analyzer/video/video_frame_tracking_id_injector_unittest.cc" ]
       deps = [
-        ":default_encoded_image_data_injector",
+        ":video_frame_tracking_id_injector",
         "../../../api/video:encoded_image",
         "../../../rtc_base:rtc_base_approved",
         "../../../test:test_support",
@@ -458,6 +444,7 @@ if (!build_with_chromium) {
         ":default_audio_quality_analyzer",
         ":default_video_quality_analyzer",
         ":network_quality_metrics_reporter",
+        ":stats_based_network_quality_metrics_reporter",
         "../../../api:callfactory_api",
         "../../../api:create_network_emulation_manager",
         "../../../api:create_peer_connection_quality_test_frame_generator",
@@ -519,9 +506,10 @@ if (!build_with_chromium) {
         "../../../api:rtp_packet_info",
         "../../../api/video:encoded_image",
         "../../../api/video:video_frame",
-        "../../../api/video:video_frame_i420",
+        "../../../common_video",
         "../../../modules/rtp_rtcp:rtp_rtcp_format",
         "../../../rtc_base:stringutils",
+        "../../../rtc_tools:video_quality_analysis",
         "../../../system_wrappers",
       ]
     }
@@ -544,9 +532,9 @@ if (!build_with_chromium) {
       "analyzer_helper.h",
     ]
     deps = [
+      "../../../api:sequence_checker",
       "../../../api:track_id_stream_info_map",
       "../../../rtc_base:macromagic",
-      "../../../rtc_base/synchronization:sequence_checker",
     ]
     absl_deps = [ "//third_party/abseil-cpp/absl/strings" ]
   }
@@ -565,6 +553,7 @@ if (!build_with_chromium) {
       "../../../api:rtc_stats_api",
       "../../../api:stats_observer_interface",
       "../../../api:track_id_stream_info_map",
+      "../../../api/numerics",
       "../../../api/units:time_delta",
       "../../../api/units:timestamp",
       "../../../rtc_base:criticalsection",
@@ -608,6 +597,7 @@ if (!build_with_chromium) {
       "../../../api:peer_connection_quality_test_fixture_api",
       "../../../api:rtc_stats_api",
       "../../../api:track_id_stream_info_map",
+      "../../../api/numerics",
       "../../../api/units:data_rate",
       "../../../api/units:data_size",
       "../../../api/units:time_delta",
@@ -633,11 +623,11 @@ if (!build_with_chromium) {
       "../..:perf_test",
       "../../../api:array_view",
       "../../../api:video_quality_analyzer_api",
+      "../../../api/numerics",
       "../../../api/units:time_delta",
       "../../../api/units:timestamp",
       "../../../api/video:encoded_image",
       "../../../api/video:video_frame",
-      "../../../api/video:video_frame_i420",
       "../../../api/video:video_rtp_headers",
       "../../../common_video",
       "../../../rtc_base:criticalsection",
@@ -648,6 +638,7 @@ if (!build_with_chromium) {
       "../../../rtc_base:rtc_numerics",
       "../../../rtc_base:timeutils",
       "../../../rtc_base/synchronization:mutex",
+      "../../../rtc_tools:video_quality_analysis",
       "../../../system_wrappers",
     ]
   }
@@ -674,6 +665,35 @@ if (!build_with_chromium) {
     absl_deps = [ "//third_party/abseil-cpp/absl/strings" ]
   }
 
+  rtc_library("stats_based_network_quality_metrics_reporter") {
+    visibility = [ "*" ]
+    testonly = true
+    sources = [
+      "stats_based_network_quality_metrics_reporter.cc",
+      "stats_based_network_quality_metrics_reporter.h",
+    ]
+    deps = [
+      "../..:perf_test",
+      "../../../api:array_view",
+      "../../../api:network_emulation_manager_api",
+      "../../../api:peer_connection_quality_test_fixture_api",
+      "../../../api:rtc_stats_api",
+      "../../../api:scoped_refptr",
+      "../../../api/numerics",
+      "../../../api/test/network_emulation",
+      "../../../api/units:data_rate",
+      "../../../api/units:data_size",
+      "../../../api/units:timestamp",
+      "../../../rtc_base",
+      "../../../rtc_base:ip_address",
+      "../../../rtc_base:rtc_event",
+      "../../../rtc_base:stringutils",
+      "../../../rtc_base/synchronization:mutex",
+      "../../../system_wrappers:field_trial",
+    ]
+    absl_deps = [ "//third_party/abseil-cpp/absl/strings" ]
+  }
+
   rtc_library("cross_media_metrics_reporter") {
     visibility = [ "*" ]
     testonly = true
@@ -687,6 +707,7 @@ if (!build_with_chromium) {
       "../../../api:peer_connection_quality_test_fixture_api",
       "../../../api:rtc_stats_api",
       "../../../api:track_id_stream_info_map",
+      "../../../api/numerics",
       "../../../api/units:timestamp",
       "../../../rtc_base:criticalsection",
       "../../../rtc_base:rtc_event",

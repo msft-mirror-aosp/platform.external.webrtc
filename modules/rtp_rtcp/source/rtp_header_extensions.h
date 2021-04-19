@@ -148,7 +148,7 @@ class VideoOrientation {
 
 class PlayoutDelayLimits {
  public:
-  using value_type = PlayoutDelay;
+  using value_type = VideoPlayoutDelay;
   static constexpr RTPExtensionType kId = kRtpExtensionPlayoutDelay;
   static constexpr uint8_t kValueSizeBytes = 3;
   static constexpr const char kUri[] =
@@ -162,10 +162,10 @@ class PlayoutDelayLimits {
   static constexpr int kMaxMs = 0xfff * kGranularityMs;  // 40950.
 
   static bool Parse(rtc::ArrayView<const uint8_t> data,
-                    PlayoutDelay* playout_delay);
-  static size_t ValueSize(const PlayoutDelay&) { return kValueSizeBytes; }
+                    VideoPlayoutDelay* playout_delay);
+  static size_t ValueSize(const VideoPlayoutDelay&) { return kValueSizeBytes; }
   static bool Write(rtc::ArrayView<uint8_t> data,
-                    const PlayoutDelay& playout_delay);
+                    const VideoPlayoutDelay& playout_delay);
 };
 
 class VideoContentTypeExtension {
@@ -305,6 +305,22 @@ class InbandComfortNoiseExtension {
   }
   static bool Write(rtc::ArrayView<uint8_t> data,
                     absl::optional<uint8_t> level);
+};
+
+class VideoFrameTrackingIdExtension {
+ public:
+  using value_type = uint16_t;
+  static constexpr RTPExtensionType kId = kRtpExtensionVideoFrameTrackingId;
+  static constexpr uint8_t kValueSizeBytes = 2;
+  static constexpr const char kUri[] =
+      "http://www.webrtc.org/experiments/rtp-hdrext/video-frame-tracking-id";
+  static bool Parse(rtc::ArrayView<const uint8_t> data,
+                    uint16_t* video_frame_tracking_id);
+  static size_t ValueSize(uint16_t /*video_frame_tracking_id*/) {
+    return kValueSizeBytes;
+  }
+  static bool Write(rtc::ArrayView<uint8_t> data,
+                    uint16_t video_frame_tracking_id);
 };
 
 }  // namespace webrtc

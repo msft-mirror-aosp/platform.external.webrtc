@@ -48,10 +48,14 @@ class SingleProcessEncodedImageDataInjector : public EncodedImageDataInjector,
   // changed.
   EncodedImage InjectData(uint16_t id,
                           bool discard,
-                          const EncodedImage& source,
-                          int coding_entity_id) override;
-  EncodedImageExtractionResult ExtractData(const EncodedImage& source,
-                                           int coding_entity_id) override;
+                          const EncodedImage& source) override;
+
+  void Start(int expected_receivers_count) override {
+    MutexLock crit(&lock_);
+    expected_receivers_count_ = expected_receivers_count;
+  }
+  void AddParticipantInCall() override;
+  EncodedImageExtractionResult ExtractData(const EncodedImage& source) override;
 
  private:
   // Contains data required to extract frame id from EncodedImage and restore
@@ -67,6 +71,8 @@ class SingleProcessEncodedImageDataInjector : public EncodedImageDataInjector,
     bool discard;
     // Data from first 3 bytes of origin encoded image's payload.
     uint8_t origin_data[ExtractionInfo::kUsedBufferSize];
+    // Count of how many times this frame was received.
+    int received_count = 0;
   };
 
   struct ExtractionInfoVector {
@@ -79,6 +85,7 @@ class SingleProcessEncodedImageDataInjector : public EncodedImageDataInjector,
   };
 
   Mutex lock_;
+  int expected_receivers_count_ RTC_GUARDED_BY(lock_);
   // Stores a mapping from frame id to extraction info for spatial layers
   // for this frame id. There can be a lot of them, because if frame was
   // dropped we can't clean it up, because we won't receive a signal on

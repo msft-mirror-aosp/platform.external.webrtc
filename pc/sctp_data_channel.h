@@ -11,19 +11,25 @@
 #ifndef PC_SCTP_DATA_CHANNEL_H_
 #define PC_SCTP_DATA_CHANNEL_H_
 
+#include <stdint.h>
+
 #include <memory>
 #include <set>
 #include <string>
 
+#include "absl/types/optional.h"
 #include "api/data_channel_interface.h"
 #include "api/priority.h"
+#include "api/rtc_error.h"
 #include "api/scoped_refptr.h"
 #include "api/transport/data_channel_transport_interface.h"
 #include "media/base/media_channel.h"
 #include "pc/data_channel_utils.h"
-#include "rtc_base/async_invoker.h"
+#include "rtc_base/copy_on_write_buffer.h"
 #include "rtc_base/ssl_stream_adapter.h"  // For SSLRole
 #include "rtc_base/third_party/sigslot/sigslot.h"
+#include "rtc_base/thread.h"
+#include "rtc_base/thread_annotations.h"
 
 namespace webrtc {
 
@@ -277,7 +283,6 @@ class SctpDataChannel : public DataChannelInterface,
   PacketQueue queued_control_data_ RTC_GUARDED_BY(signaling_thread_);
   PacketQueue queued_received_data_ RTC_GUARDED_BY(signaling_thread_);
   PacketQueue queued_send_data_ RTC_GUARDED_BY(signaling_thread_);
-  rtc::AsyncInvoker invoker_ RTC_GUARDED_BY(signaling_thread_);
 };
 
 }  // namespace webrtc
