@@ -2389,10 +2389,10 @@ endif()
 android_add_library(
   TARGET libvpx
   LICENSE "BSD-3-Clause"
-  NOTICE "REPO/NOTICE"
-  REPO "${ANDROID_QEMU2_TOP_DIR}/../libvpx"
+  NOTICE "REPO/LICENSE"
+  REPO "${VPX_ROOT}/../.."
        URL
-       "https://android.googlesource.com/platform/external/libvpx/+/refs/heads/emu-master-dev"
+       "https://android.googlesource.com/platform/external/webrtc/+/refs/heads/emu-master-dev"
   SRC # cmake-format: sortable
       ${libvpx_sources})
 
