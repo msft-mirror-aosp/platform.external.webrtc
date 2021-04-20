@@ -1,4 +1,4 @@
-set(USRSCTP_ROOT ${AOSP_ROOT}/external/usrsctp)
+set(USRSCTP_ROOT ${CMAKE_CURRENT_LIST_DIR}/usrsctplib)
 android_add_library(
   TARGET usrsctp
   LICENSE

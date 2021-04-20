@@ -1,4 +1,4 @@
-set(JSONCPP_ROOT ${AOSP_ROOT}/external/jsoncpp)
+set(JSONCPP_ROOT ${CMAKE_CURRENT_LIST_DIR}/source)
 android_add_library(
   TARGET jsoncpp
   LICENSE
