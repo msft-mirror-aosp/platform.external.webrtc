@@ -1,4 +1,4 @@
-set(OPUS_ROOT ${AOSP_ROOT}/external/libopus)
+set(OPUS_ROOT ${CMAKE_CURRENT_LIST_DIR}/src)
 android_add_library(
   TARGET opus
   LICENSE "BSD-3-Clause"

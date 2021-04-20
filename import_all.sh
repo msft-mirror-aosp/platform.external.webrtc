@@ -41,7 +41,7 @@ function sync_deps {
       --exclude 'third_party' \
       --include '*/' \
       --include '*.asm' --include '*.S' --include 'NOTICE' \
-      --include '*.proto' \
+      --include '*.proto' --include '*.inl' \
       --include '*.h' --include '*.cc' --include '*.c' --include '*.cpp' \
       --exclude '*' \
       $1/third_party/${dep} third_party/
