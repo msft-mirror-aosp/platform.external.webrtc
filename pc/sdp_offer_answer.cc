@@ -22,7 +22,6 @@
 #include "absl/strings/string_view.h"
 #include "api/array_view.h"
 #include "api/crypto/crypto_options.h"
-#include "api/data_channel_interface.h"
 #include "api/dtls_transport_interface.h"
 #include "api/media_stream_proxy.h"
 #include "api/rtp_parameters.h"
@@ -32,6 +31,7 @@
 #include "media/base/codec.h"
 #include "media/base/media_engine.h"
 #include "media/base/rid_description.h"
+#include "p2p/base/ice_transport_internal.h"
 #include "p2p/base/p2p_constants.h"
 #include "p2p/base/p2p_transport_channel.h"
 #include "p2p/base/port.h"
@@ -39,15 +39,13 @@
 #include "p2p/base/transport_description_factory.h"
 #include "p2p/base/transport_info.h"
 #include "pc/data_channel_utils.h"
-#include "pc/media_protocol_names.h"
+#include "pc/dtls_transport.h"
 #include "pc/media_stream.h"
 #include "pc/peer_connection.h"
 #include "pc/peer_connection_message_handler.h"
-#include "pc/rtp_data_channel.h"
 #include "pc/rtp_media_utils.h"
 #include "pc/rtp_sender.h"
 #include "pc/rtp_transport_internal.h"
-#include "pc/sctp_transport.h"
 #include "pc/simulcast_description.h"
 #include "pc/stats_collector.h"
 #include "pc/usage_pattern.h"
@@ -57,7 +55,6 @@
 #include "rtc_base/logging.h"
 #include "rtc_base/ref_counted_object.h"
 #include "rtc_base/rtc_certificate.h"
-#include "rtc_base/socket_address.h"
 #include "rtc_base/ssl_stream_adapter.h"
 #include "rtc_base/string_encode.h"
 #include "rtc_base/strings/string_builder.h"
@@ -250,7 +247,7 @@ void ReportSimulcastApiVersion(const char* name,
 }
 
 const ContentInfo* FindTransceiverMSection(
-    RtpTransceiverProxyWithInternal<RtpTransceiver>* transceiver,
+    RtpTransceiver* transceiver,
     const SessionDescriptionInterface* session_description) {
   return transceiver->mid()
              ? session_description->description()->GetContentByName(
@@ -420,7 +417,7 @@ bool VerifyIceUfragPwdPresent(const SessionDescription* desc) {
   return true;
 }
 
-static RTCError ValidateMids(const cricket::SessionDescription& description) {
+RTCError ValidateMids(const cricket::SessionDescription& description) {
   std::set<std::string> mids;
   for (const cricket::ContentInfo& content : description.contents()) {
     if (content.name.empty()) {
@@ -472,7 +469,7 @@ std::string GetSignalingStateString(
 // This method will extract any send encodings that were sent by the remote
 // connection. This is currently only relevant for Simulcast scenario (where
 // the number of layers may be communicated by the server).
-static std::vector<RtpEncodingParameters> GetSendEncodingsFromRemoteDescription(
+std::vector<RtpEncodingParameters> GetSendEncodingsFromRemoteDescription(
     const MediaContentDescription& desc) {
   if (!desc.HasSimulcast()) {
     return {};
@@ -496,7 +493,7 @@ static std::vector<RtpEncodingParameters> GetSendEncodingsFromRemoteDescription(
   return result;
 }
 
-static RTCError UpdateSimulcastLayerStatusInSender(
+RTCError UpdateSimulcastLayerStatusInSender(
     const std::vector<SimulcastLayer>& layers,
     rtc::scoped_refptr<RtpSenderInternal> sender) {
   RTC_DCHECK(sender);
@@ -527,9 +524,8 @@ static RTCError UpdateSimulcastLayerStatusInSender(
   return result;
 }
 
-static bool SimulcastIsRejected(
-    const ContentInfo* local_content,
-    const MediaContentDescription& answer_media_desc) {
+bool SimulcastIsRejected(const ContentInfo* local_content,
+                         const MediaContentDescription& answer_media_desc) {
   bool simulcast_offered = local_content &&
                            local_content->media_description() &&
                            local_content->media_description()->HasSimulcast();
@@ -539,7 +535,7 @@ static bool SimulcastIsRejected(
   return simulcast_offered && (!simulcast_answered || !rids_supported);
 }
 
-static RTCError DisableSimulcastInSender(
+RTCError DisableSimulcastInSender(
     rtc::scoped_refptr<RtpSenderInternal> sender) {
   RTC_DCHECK(sender);
   RtpParameters parameters = sender->GetParametersInternal();
@@ -557,7 +553,7 @@ static RTCError DisableSimulcastInSender(
 
 // The SDP parser used to populate these values by default for the 'content
 // name' if an a=mid line was absent.
-static absl::string_view GetDefaultMidForPlanB(cricket::MediaType media_type) {
+absl::string_view GetDefaultMidForPlanB(cricket::MediaType media_type) {
   switch (media_type) {
     case cricket::MEDIA_TYPE_AUDIO:
       return cricket::CN_AUDIO;
@@ -596,10 +592,8 @@ void AddPlanBRtpSenderOptions(
   }
 }
 
-static cricket::MediaDescriptionOptions
-GetMediaDescriptionOptionsForTransceiver(
-    rtc::scoped_refptr<RtpTransceiverProxyWithInternal<RtpTransceiver>>
-        transceiver,
+cricket::MediaDescriptionOptions GetMediaDescriptionOptionsForTransceiver(
+    RtpTransceiver* transceiver,
     const std::string& mid,
     bool is_create_offer) {
   // NOTE: a stopping transceiver should be treated as a stopped one in
@@ -619,7 +613,7 @@ GetMediaDescriptionOptionsForTransceiver(
   // 2. If the MSID is included, then it must be included in any subsequent
   //    offer/answer exactly the same until the RtpTransceiver is stopped.
   if (stopped || (!RtpTransceiverDirectionHasSend(transceiver->direction()) &&
-                  !transceiver->internal()->has_ever_been_used_to_send())) {
+                  !transceiver->has_ever_been_used_to_send())) {
     return media_description_options;
   }
 
@@ -630,7 +624,7 @@ GetMediaDescriptionOptionsForTransceiver(
   // The following sets up RIDs and Simulcast.
   // RIDs are included if Simulcast is requested or if any RID was specified.
   RtpParameters send_parameters =
-      transceiver->internal()->sender_internal()->GetParametersInternal();
+      transceiver->sender_internal()->GetParametersInternal();
   bool has_rids = std::any_of(send_parameters.encodings.begin(),
                               send_parameters.encodings.end(),
                               [](const RtpEncodingParameters& encoding) {
@@ -662,9 +656,8 @@ GetMediaDescriptionOptionsForTransceiver(
 }
 
 // Returns the ContentInfo at mline index |i|, or null if none exists.
-static const ContentInfo* GetContentByIndex(
-    const SessionDescriptionInterface* sdesc,
-    size_t i) {
+const ContentInfo* GetContentByIndex(const SessionDescriptionInterface* sdesc,
+                                     size_t i) {
   if (!sdesc) {
     return nullptr;
   }
@@ -691,27 +684,6 @@ std::string GenerateRtcpCname() {
     RTC_NOTREACHED();
   }
   return cname;
-}
-
-// Add options to |session_options| from |rtp_data_channels|.
-void AddRtpDataChannelOptions(
-    const std::map<std::string, rtc::scoped_refptr<RtpDataChannel>>&
-        rtp_data_channels,
-    cricket::MediaDescriptionOptions* data_media_description_options) {
-  if (!data_media_description_options) {
-    return;
-  }
-  // Check for data channels.
-  for (const auto& kv : rtp_data_channels) {
-    const RtpDataChannel* channel = kv.second;
-    if (channel->state() == RtpDataChannel::kConnecting ||
-        channel->state() == RtpDataChannel::kOpen) {
-      // Legacy RTP data channels are signaled with the track/stream ID set to
-      // the data channel's label.
-      data_media_description_options->AddRtpDataChannel(channel->label(),
-                                                        channel->label());
-    }
-  }
 }
 
 // Check if we can send |new_stream| on a PeerConnection.
@@ -1313,7 +1285,8 @@ RTCError SdpOfferAnswerHandler::ApplyLocalDescription(
     }
     std::vector<rtc::scoped_refptr<RtpTransceiverInterface>> remove_list;
     std::vector<rtc::scoped_refptr<MediaStreamInterface>> removed_streams;
-    for (const auto& transceiver : transceivers()->List()) {
+    for (const auto& transceiver_ext : transceivers()->List()) {
+      auto transceiver = transceiver_ext->internal();
       if (transceiver->stopped()) {
         continue;
       }
@@ -1324,10 +1297,8 @@ RTCError SdpOfferAnswerHandler::ApplyLocalDescription(
       if (transceiver->mid()) {
         auto dtls_transport = LookupDtlsTransportByMid(
             pc_->network_thread(), transport_controller(), *transceiver->mid());
-        transceiver->internal()->sender_internal()->set_transport(
-            dtls_transport);
-        transceiver->internal()->receiver_internal()->set_transport(
-            dtls_transport);
+        transceiver->sender_internal()->set_transport(dtls_transport);
+        transceiver->receiver_internal()->set_transport(dtls_transport);
       }
 
       const ContentInfo* content =
@@ -1344,16 +1315,15 @@ RTCError SdpOfferAnswerHandler::ApplyLocalDescription(
         // "recvonly", process the removal of a remote track for the media
         // description, given transceiver, removeList, and muteTracks.
         if (!RtpTransceiverDirectionHasRecv(media_desc->direction()) &&
-            (transceiver->internal()->fired_direction() &&
-             RtpTransceiverDirectionHasRecv(
-                 *transceiver->internal()->fired_direction()))) {
-          ProcessRemovalOfRemoteTrack(transceiver, &remove_list,
+            (transceiver->fired_direction() &&
+             RtpTransceiverDirectionHasRecv(*transceiver->fired_direction()))) {
+          ProcessRemovalOfRemoteTrack(transceiver_ext, &remove_list,
                                       &removed_streams);
         }
         // 2.2.7.1.6.2: Set transceiver's [[CurrentDirection]] and
         // [[FiredDirection]] slots to direction.
-        transceiver->internal()->set_current_direction(media_desc->direction());
-        transceiver->internal()->set_fired_direction(media_desc->direction());
+        transceiver->set_current_direction(media_desc->direction());
+        transceiver->set_fired_direction(media_desc->direction());
       }
     }
     auto observer = pc_->Observer();
@@ -1397,12 +1367,15 @@ RTCError SdpOfferAnswerHandler::ApplyLocalDescription(
   // If setting the description decided our SSL role, allocate any necessary
   // SCTP sids.
   rtc::SSLRole role;
-  if (IsSctpLike(pc_->data_channel_type()) && pc_->GetSctpSslRole(&role)) {
+  if (pc_->GetSctpSslRole(&role)) {
     data_channel_controller()->AllocateSctpSids(role);
   }
 
   if (IsUnifiedPlan()) {
-    for (const auto& transceiver : transceivers()->List()) {
+    // We must use List and not ListInternal here because
+    // transceivers()->StableState() is indexed by the non-internal refptr.
+    for (const auto& transceiver_ext : transceivers()->List()) {
+      auto transceiver = transceiver_ext->internal();
       if (transceiver->stopped()) {
         continue;
       }
@@ -1411,25 +1384,22 @@ RTCError SdpOfferAnswerHandler::ApplyLocalDescription(
       if (!content) {
         continue;
       }
-      cricket::ChannelInterface* channel = transceiver->internal()->channel();
+      cricket::ChannelInterface* channel = transceiver->channel();
       if (content->rejected || !channel || channel->local_streams().empty()) {
         // 0 is a special value meaning "this sender has no associated send
         // stream". Need to call this so the sender won't attempt to configure
         // a no longer existing stream and run into DCHECKs in the lower
         // layers.
-        transceiver->internal()->sender_internal()->SetSsrc(0);
+        transceiver->sender_internal()->SetSsrc(0);
       } else {
         // Get the StreamParams from the channel which could generate SSRCs.
         const std::vector<StreamParams>& streams = channel->local_streams();
-        transceiver->internal()->sender_internal()->set_stream_ids(
-            streams[0].stream_ids());
-        auto encodings =
-            transceiver->internal()->sender_internal()->init_send_encodings();
-        transceiver->internal()->sender_internal()->SetSsrc(
-            streams[0].first_ssrc());
+        transceiver->sender_internal()->set_stream_ids(streams[0].stream_ids());
+        auto encodings = transceiver->sender_internal()->init_send_encodings();
+        transceiver->sender_internal()->SetSsrc(streams[0].first_ssrc());
         if (!encodings.empty()) {
           transceivers()
-              ->StableState(transceiver)
+              ->StableState(transceiver_ext)
               ->SetInitSendEncodings(encodings);
         }
       }
@@ -1464,17 +1434,7 @@ RTCError SdpOfferAnswerHandler::ApplyLocalDescription(
     }
   }
 
-  const cricket::ContentInfo* data_content =
-      GetFirstDataContent(local_description()->description());
-  if (data_content) {
-    const cricket::RtpDataContentDescription* rtp_data_desc =
-        data_content->media_description()->as_rtp_data();
-    // rtp_data_desc will be null if this is an SCTP description.
-    if (rtp_data_desc) {
-      data_channel_controller()->UpdateLocalRtpDataChannels(
-          rtp_data_desc->streams());
-    }
-  }
+  // This function does nothing with data content.
 
   if (type == SdpType::kAnswer &&
       local_ice_credentials_to_replace_->SatisfiesIceRestart(
@@ -1676,7 +1636,7 @@ RTCError SdpOfferAnswerHandler::ApplyRemoteDescription(
   // If setting the description decided our SSL role, allocate any necessary
   // SCTP sids.
   rtc::SSLRole role;
-  if (IsSctpLike(pc_->data_channel_type()) && pc_->GetSctpSslRole(&role)) {
+  if (pc_->GetSctpSslRole(&role)) {
     data_channel_controller()->AllocateSctpSids(role);
   }
 
@@ -1686,7 +1646,8 @@ RTCError SdpOfferAnswerHandler::ApplyRemoteDescription(
     std::vector<rtc::scoped_refptr<RtpTransceiverInterface>> remove_list;
     std::vector<rtc::scoped_refptr<MediaStreamInterface>> added_streams;
     std::vector<rtc::scoped_refptr<MediaStreamInterface>> removed_streams;
-    for (const auto& transceiver : transceivers()->List()) {
+    for (const auto& transceiver_ext : transceivers()->List()) {
+      const auto transceiver = transceiver_ext->internal();
       const ContentInfo* content =
           FindMediaSectionForTransceiver(transceiver, remote_description());
       if (!content) {
@@ -1706,14 +1667,13 @@ RTCError SdpOfferAnswerHandler::ApplyRemoteDescription(
           stream_ids = media_desc->streams()[0].stream_ids();
         }
         transceivers()
-            ->StableState(transceiver)
+            ->StableState(transceiver_ext)
             ->SetRemoteStreamIdsIfUnset(transceiver->receiver()->stream_ids());
 
         RTC_LOG(LS_INFO) << "Processing the MSIDs for MID=" << content->name
                          << " (" << GetStreamIdsString(stream_ids) << ").";
-        SetAssociatedRemoteStreams(transceiver->internal()->receiver_internal(),
-                                   stream_ids, &added_streams,
-                                   &removed_streams);
+        SetAssociatedRemoteStreams(transceiver->receiver_internal(), stream_ids,
+                                   &added_streams, &removed_streams);
         // From the WebRTC specification, steps 2.2.8.5/6 of section 4.4.1.6
         // "Set the RTCSessionDescription: If direction is sendrecv or recvonly,
         // and transceiver's current direction is neither sendrecv nor recvonly,
@@ -1733,26 +1693,24 @@ RTCError SdpOfferAnswerHandler::ApplyRemoteDescription(
       if (!RtpTransceiverDirectionHasRecv(local_direction) &&
           (transceiver->fired_direction() &&
            RtpTransceiverDirectionHasRecv(*transceiver->fired_direction()))) {
-        ProcessRemovalOfRemoteTrack(transceiver, &remove_list,
+        ProcessRemovalOfRemoteTrack(transceiver_ext, &remove_list,
                                     &removed_streams);
       }
       // 2.2.8.1.10: Set transceiver's [[FiredDirection]] slot to direction.
-      transceiver->internal()->set_fired_direction(local_direction);
+      transceiver->set_fired_direction(local_direction);
       // 2.2.8.1.11: If description is of type "answer" or "pranswer", then run
       // the following steps:
       if (type == SdpType::kPrAnswer || type == SdpType::kAnswer) {
         // 2.2.8.1.11.1: Set transceiver's [[CurrentDirection]] slot to
         // direction.
-        transceiver->internal()->set_current_direction(local_direction);
+        transceiver->set_current_direction(local_direction);
         // 2.2.8.1.11.[3-6]: Set the transport internal slots.
         if (transceiver->mid()) {
           auto dtls_transport = LookupDtlsTransportByMid(pc_->network_thread(),
                                                          transport_controller(),
                                                          *transceiver->mid());
-          transceiver->internal()->sender_internal()->set_transport(
-              dtls_transport);
-          transceiver->internal()->receiver_internal()->set_transport(
-              dtls_transport);
+          transceiver->sender_internal()->set_transport(dtls_transport);
+          transceiver->receiver_internal()->set_transport(dtls_transport);
         }
       }
       // 2.2.8.1.12: If the media description is rejected, and transceiver is
@@ -1760,18 +1718,16 @@ RTCError SdpOfferAnswerHandler::ApplyRemoteDescription(
       if (content->rejected && !transceiver->stopped()) {
         RTC_LOG(LS_INFO) << "Stopping transceiver for MID=" << content->name
                          << " since the media section was rejected.";
-        transceiver->internal()->StopTransceiverProcedure();
+        transceiver->StopTransceiverProcedure();
       }
       if (!content->rejected &&
           RtpTransceiverDirectionHasRecv(local_direction)) {
         if (!media_desc->streams().empty() &&
             media_desc->streams()[0].has_ssrcs()) {
           uint32_t ssrc = media_desc->streams()[0].first_ssrc();
-          transceiver->internal()->receiver_internal()->SetupMediaChannel(ssrc);
+          transceiver->receiver_internal()->SetupMediaChannel(ssrc);
         } else {
-          transceiver->internal()
-              ->receiver_internal()
-              ->SetupUnsignaledMediaChannel();
+          transceiver->receiver_internal()->SetupUnsignaledMediaChannel();
         }
       }
     }
@@ -1802,8 +1758,6 @@ RTCError SdpOfferAnswerHandler::ApplyRemoteDescription(
       GetFirstAudioContentDescription(remote_description()->description());
   const cricket::VideoContentDescription* video_desc =
       GetFirstVideoContentDescription(remote_description()->description());
-  const cricket::RtpDataContentDescription* rtp_data_desc =
-      GetFirstRtpDataContentDescription(remote_description()->description());
 
   // Check if the descriptions include streams, just in case the peer supports
   // MSID, but doesn't indicate so with "a=msid-semantic".
@@ -1854,13 +1808,6 @@ RTCError SdpOfferAnswerHandler::ApplyRemoteDescription(
                                 default_video_track_needed, video_desc->type(),
                                 new_streams);
       }
-    }
-
-    // If this is an RTP data transport, update the DataChannels with the
-    // information from the remote peer.
-    if (rtp_data_desc) {
-      data_channel_controller()->UpdateRemoteRtpDataChannels(
-          GetActiveStreams(rtp_data_desc));
     }
 
     // Iterate new_streams and notify the observer about new MediaStreams.
@@ -2515,7 +2462,6 @@ RTCError SdpOfferAnswerHandler::UpdateSessionState(
     RTC_DCHECK(type == SdpType::kAnswer);
     ChangeSignalingState(PeerConnectionInterface::kStable);
     transceivers()->DiscardStableStates();
-    have_pending_rtp_data_channel_ = false;
   }
 
   // Update internal objects according to the session description's media
@@ -2739,10 +2685,6 @@ RTCError SdpOfferAnswerHandler::Rollback(SdpType desc_type) {
     transceiver->internal()->set_mline_index(state.mline_index());
   }
   transport_controller()->RollbackTransports();
-  if (have_pending_rtp_data_channel_) {
-    DestroyDataChannelTransport();
-    have_pending_rtp_data_channel_ = false;
-  }
   transceivers()->DiscardStableStates();
   pending_local_description_.reset();
   pending_remote_description_.reset();
@@ -2905,12 +2847,12 @@ bool SdpOfferAnswerHandler::CheckIfNegotiationIsNeeded() {
 
   // 5. For each transceiver in connection's set of transceivers, perform the
   // following checks:
-  for (const auto& transceiver : transceivers()->List()) {
+  for (const auto& transceiver : transceivers()->ListInternal()) {
     const ContentInfo* current_local_msection =
-        FindTransceiverMSection(transceiver.get(), description);
+        FindTransceiverMSection(transceiver, description);
 
-    const ContentInfo* current_remote_msection = FindTransceiverMSection(
-        transceiver.get(), current_remote_description());
+    const ContentInfo* current_remote_msection =
+        FindTransceiverMSection(transceiver, current_remote_description());
 
     // 5.4 If transceiver is stopped and is associated with an m= section,
     // but the associated m= section is not yet rejected in
@@ -2998,7 +2940,7 @@ bool SdpOfferAnswerHandler::CheckIfNegotiationIsNeeded() {
         return true;
 
       const ContentInfo* offered_remote_msection =
-          FindTransceiverMSection(transceiver.get(), remote_description());
+          FindTransceiverMSection(transceiver, remote_description());
 
       RtpTransceiverDirection offered_direction =
           offered_remote_msection
@@ -3398,28 +3340,15 @@ RTCError SdpOfferAnswerHandler::UpdateDataChannel(
     cricket::ContentSource source,
     const cricket::ContentInfo& content,
     const cricket::ContentGroup* bundle_group) {
-  if (pc_->data_channel_type() == cricket::DCT_NONE) {
-    // If data channels are disabled, ignore this media section. CreateAnswer
-    // will take care of rejecting it.
-    return RTCError::OK();
-  }
   if (content.rejected) {
     RTC_LOG(LS_INFO) << "Rejected data channel, mid=" << content.mid();
     DestroyDataChannelTransport();
   } else {
-    if (!data_channel_controller()->rtp_data_channel() &&
-        !data_channel_controller()->data_channel_transport()) {
+    if (!data_channel_controller()->data_channel_transport()) {
       RTC_LOG(LS_INFO) << "Creating data channel, mid=" << content.mid();
       if (!CreateDataChannel(content.name)) {
         LOG_AND_RETURN_ERROR(RTCErrorType::INTERNAL_ERROR,
                              "Failed to create data channel.");
-      }
-    }
-    if (source == cricket::CS_REMOTE) {
-      const MediaContentDescription* data_desc = content.media_description();
-      if (data_desc && cricket::IsRtpProtocol(data_desc->protocol())) {
-        data_channel_controller()->UpdateRemoteRtpDataChannels(
-            GetActiveStreams(data_desc));
       }
     }
   }
@@ -3515,19 +3444,17 @@ SdpOfferAnswerHandler::FindAvailableTransceiverToReceive(
 
 const cricket::ContentInfo*
 SdpOfferAnswerHandler::FindMediaSectionForTransceiver(
-    rtc::scoped_refptr<RtpTransceiverProxyWithInternal<RtpTransceiver>>
-        transceiver,
+    const RtpTransceiver* transceiver,
     const SessionDescriptionInterface* sdesc) const {
   RTC_DCHECK_RUN_ON(signaling_thread());
   RTC_DCHECK(transceiver);
   RTC_DCHECK(sdesc);
   if (IsUnifiedPlan()) {
-    if (!transceiver->internal()->mid()) {
+    if (!transceiver->mid()) {
       // This transceiver is not associated with a media section yet.
       return nullptr;
     }
-    return sdesc->description()->GetContentByName(
-        *transceiver->internal()->mid());
+    return sdesc->description()->GetContentByName(*transceiver->mid());
   } else {
     // Plan B only allows at most one audio and one video section, so use the
     // first media section of that type.
@@ -3546,16 +3473,6 @@ void SdpOfferAnswerHandler::GetOptionsForOffer(
     GetOptionsForUnifiedPlanOffer(offer_answer_options, session_options);
   } else {
     GetOptionsForPlanBOffer(offer_answer_options, session_options);
-  }
-
-  // Intentionally unset the data channel type for RTP data channel with the
-  // second condition. Otherwise the RTP data channels would be successfully
-  // negotiated by default and the unit tests in WebRtcDataBrowserTest will fail
-  // when building with chromium. We want to leave RTP data channels broken, so
-  // people won't try to use them.
-  if (data_channel_controller()->HasRtpDataChannels() ||
-      pc_->data_channel_type() != cricket::DCT_RTP) {
-    session_options->data_channel_type = pc_->data_channel_type();
   }
 
   // Apply ICE restart flag and renomination flag.
@@ -3734,7 +3651,7 @@ void SdpOfferAnswerHandler::GetOptionsForUnifiedPlanOffer(
         } else {
           session_options->media_description_options.push_back(
               GetMediaDescriptionOptionsForTransceiver(
-                  transceiver, mid,
+                  transceiver->internal(), mid,
                   /*is_create_offer=*/true));
           // CreateOffer shouldn't really cause any state changes in
           // PeerConnection, but we need a way to match new transceivers to new
@@ -3772,7 +3689,7 @@ void SdpOfferAnswerHandler::GetOptionsForUnifiedPlanOffer(
   // and not associated). Reuse media sections marked as recyclable first,
   // otherwise append to the end of the offer. New media sections should be
   // added in the order they were added to the PeerConnection.
-  for (const auto& transceiver : transceivers()->List()) {
+  for (const auto& transceiver : transceivers()->ListInternal()) {
     if (transceiver->mid() || transceiver->stopping()) {
       continue;
     }
@@ -3792,7 +3709,7 @@ void SdpOfferAnswerHandler::GetOptionsForUnifiedPlanOffer(
               /*is_create_offer=*/true));
     }
     // See comment above for why CreateOffer changes the transceiver's state.
-    transceiver->internal()->set_mline_index(mline_index);
+    transceiver->set_mline_index(mline_index);
   }
   // Lastly, add a m-section if we have local data channels and an m section
   // does not already exist.
@@ -3813,15 +3730,6 @@ void SdpOfferAnswerHandler::GetOptionsForAnswer(
     GetOptionsForUnifiedPlanAnswer(offer_answer_options, session_options);
   } else {
     GetOptionsForPlanBAnswer(offer_answer_options, session_options);
-  }
-
-  // Intentionally unset the data channel type for RTP data channel. Otherwise
-  // the RTP data channels would be successfully negotiated by default and the
-  // unit tests in WebRtcDataBrowserTest will fail when building with chromium.
-  // We want to leave RTP data channels broken, so people won't try to use them.
-  if (data_channel_controller()->HasRtpDataChannels() ||
-      pc_->data_channel_type() != cricket::DCT_RTP) {
-    session_options->data_channel_type = pc_->data_channel_type();
   }
 
   // Apply ICE renomination flag.
@@ -3904,7 +3812,7 @@ void SdpOfferAnswerHandler::GetOptionsForUnifiedPlanAnswer(
       if (transceiver) {
         session_options->media_description_options.push_back(
             GetMediaDescriptionOptionsForTransceiver(
-                transceiver, content.name,
+                transceiver->internal(), content.name,
                 /*is_create_offer=*/false));
       } else {
         // This should only happen with rejected transceivers.
@@ -3925,8 +3833,7 @@ void SdpOfferAnswerHandler::GetOptionsForUnifiedPlanAnswer(
       // Reject all data sections if data channels are disabled.
       // Reject a data section if it has already been rejected.
       // Reject all data sections except for the first one.
-      if (pc_->data_channel_type() == cricket::DCT_NONE || content.rejected ||
-          content.name != *(pc_->GetDataMid())) {
+      if (content.rejected || content.name != *(pc_->GetDataMid())) {
         session_options->media_description_options.push_back(
             GetMediaDescriptionOptionsForRejectedData(content.name));
       } else {
@@ -4228,16 +4135,11 @@ void SdpOfferAnswerHandler::UpdateRemoteSendersList(
 
 void SdpOfferAnswerHandler::EnableSending() {
   RTC_DCHECK_RUN_ON(signaling_thread());
-  for (const auto& transceiver : transceivers()->List()) {
-    cricket::ChannelInterface* channel = transceiver->internal()->channel();
+  for (const auto& transceiver : transceivers()->ListInternal()) {
+    cricket::ChannelInterface* channel = transceiver->channel();
     if (channel && !channel->enabled()) {
       channel->Enable(true);
     }
-  }
-
-  if (data_channel_controller()->rtp_data_channel() &&
-      !data_channel_controller()->rtp_data_channel()->enabled()) {
-    data_channel_controller()->rtp_data_channel()->Enable(true);
   }
 }
 
@@ -4259,10 +4161,10 @@ RTCError SdpOfferAnswerHandler::PushdownMediaDescription(
   }
 
   // Push down the new SDP media section for each audio/video transceiver.
-  for (const auto& transceiver : transceivers()->List()) {
+  for (const auto& transceiver : transceivers()->ListInternal()) {
     const ContentInfo* content_info =
         FindMediaSectionForTransceiver(transceiver, sdesc);
-    cricket::ChannelInterface* channel = transceiver->internal()->channel();
+    cricket::ChannelInterface* channel = transceiver->channel();
     if (!channel || !content_info || content_info->rejected) {
       continue;
     }
@@ -4277,29 +4179,6 @@ RTCError SdpOfferAnswerHandler::PushdownMediaDescription(
                        : channel->SetRemoteContent(content_desc, type, &error);
     if (!success) {
       LOG_AND_RETURN_ERROR(RTCErrorType::INVALID_PARAMETER, error);
-    }
-  }
-
-  // If using the RtpDataChannel, push down the new SDP section for it too.
-  if (data_channel_controller()->rtp_data_channel()) {
-    const ContentInfo* data_content =
-        cricket::GetFirstDataContent(sdesc->description());
-    if (data_content && !data_content->rejected) {
-      const MediaContentDescription* data_desc =
-          data_content->media_description();
-      if (data_desc) {
-        std::string error;
-        bool success = (source == cricket::CS_LOCAL)
-                           ? data_channel_controller()
-                                 ->rtp_data_channel()
-                                 ->SetLocalContent(data_desc, type, &error)
-                           : data_channel_controller()
-                                 ->rtp_data_channel()
-                                 ->SetRemoteContent(data_desc, type, &error);
-        if (!success) {
-          LOG_AND_RETURN_ERROR(RTCErrorType::INVALID_PARAMETER, error);
-        }
-      }
     }
   }
 
@@ -4365,27 +4244,23 @@ void SdpOfferAnswerHandler::RemoveStoppedTransceivers() {
     if (!transceiver->stopped()) {
       continue;
     }
-    const ContentInfo* local_content =
-        FindMediaSectionForTransceiver(transceiver, local_description());
-    const ContentInfo* remote_content =
-        FindMediaSectionForTransceiver(transceiver, remote_description());
+    const ContentInfo* local_content = FindMediaSectionForTransceiver(
+        transceiver->internal(), local_description());
+    const ContentInfo* remote_content = FindMediaSectionForTransceiver(
+        transceiver->internal(), remote_description());
     if ((local_content && local_content->rejected) ||
         (remote_content && remote_content->rejected)) {
       RTC_LOG(LS_INFO) << "Dissociating transceiver"
-                       << " since the media section is being recycled.";
+                          " since the media section is being recycled.";
       transceiver->internal()->set_mid(absl::nullopt);
       transceiver->internal()->set_mline_index(absl::nullopt);
-      transceivers()->Remove(transceiver);
-      continue;
-    }
-    if (!local_content && !remote_content) {
+    } else if (!local_content && !remote_content) {
       // TODO(bugs.webrtc.org/11973): Consider if this should be removed already
       // See https://github.com/w3c/webrtc-pc/issues/2576
       RTC_LOG(LS_INFO)
           << "Dropping stopped transceiver that was never associated";
-      transceivers()->Remove(transceiver);
-      continue;
     }
+    transceivers()->Remove(transceiver);
   }
 }
 
@@ -4598,8 +4473,7 @@ RTCError SdpOfferAnswerHandler::CreateChannels(const SessionDescription& desc) {
   }
 
   const cricket::ContentInfo* data = cricket::GetFirstDataContent(&desc);
-  if (pc_->data_channel_type() != cricket::DCT_NONE && data &&
-      !data->rejected && !data_channel_controller()->rtp_data_channel() &&
+  if (data && !data->rejected &&
       !data_channel_controller()->data_channel_transport()) {
     if (!CreateDataChannel(data->name)) {
       LOG_AND_RETURN_ERROR(RTCErrorType::INTERNAL_ERROR,
@@ -4622,17 +4496,10 @@ cricket::VoiceChannel* SdpOfferAnswerHandler::CreateVoiceChannel(
   // TODO(bugs.webrtc.org/11992): CreateVoiceChannel internally switches to the
   // worker thread. We shouldn't be using the |call_ptr_| hack here but simply
   // be on the worker thread and use |call_| (update upstream code).
-  cricket::VoiceChannel* voice_channel = channel_manager()->CreateVoiceChannel(
+  return channel_manager()->CreateVoiceChannel(
       pc_->call_ptr(), pc_->configuration()->media_config, rtp_transport,
       signaling_thread(), mid, pc_->SrtpRequired(), pc_->GetCryptoOptions(),
       &ssrc_generator_, audio_options());
-
-  if (!voice_channel) {
-    return nullptr;
-  }
-  voice_channel->SignalSentPacket().connect(pc_,
-                                            &PeerConnection::OnSentPacket_w);
-  return voice_channel;
 }
 
 // TODO(steveanton): Perhaps this should be managed by the RtpTransceiver.
@@ -4648,54 +4515,27 @@ cricket::VideoChannel* SdpOfferAnswerHandler::CreateVideoChannel(
   // TODO(bugs.webrtc.org/11992): CreateVideoChannel internally switches to the
   // worker thread. We shouldn't be using the |call_ptr_| hack here but simply
   // be on the worker thread and use |call_| (update upstream code).
-  cricket::VideoChannel* video_channel = channel_manager()->CreateVideoChannel(
+  return channel_manager()->CreateVideoChannel(
       pc_->call_ptr(), pc_->configuration()->media_config, rtp_transport,
       signaling_thread(), mid, pc_->SrtpRequired(), pc_->GetCryptoOptions(),
       &ssrc_generator_, video_options(),
       video_bitrate_allocator_factory_.get());
-  if (!video_channel) {
-    return nullptr;
-  }
-  video_channel->SignalSentPacket().connect(pc_,
-                                            &PeerConnection::OnSentPacket_w);
-  return video_channel;
 }
 
 bool SdpOfferAnswerHandler::CreateDataChannel(const std::string& mid) {
   RTC_DCHECK_RUN_ON(signaling_thread());
-  switch (pc_->data_channel_type()) {
-    case cricket::DCT_SCTP:
-      if (!pc_->network_thread()->Invoke<bool>(RTC_FROM_HERE, [this, &mid] {
-            RTC_DCHECK_RUN_ON(pc_->network_thread());
-            return pc_->SetupDataChannelTransport_n(mid);
-          })) {
-        return false;
-      }
-      // TODO(tommi): Is this necessary? SetupDataChannelTransport_n() above
-      // will have queued up updating the transport name on the signaling thread
-      // and could update the mid at the same time. This here is synchronous
-      // though, but it changes the state of PeerConnection and makes it be
-      // out of sync (transport name not set while the mid is set).
-      pc_->SetSctpDataMid(mid);
-      break;
-    case cricket::DCT_RTP:
-    default:
-      RtpTransportInternal* rtp_transport = pc_->GetRtpTransport(mid);
-      cricket::RtpDataChannel* data_channel =
-          channel_manager()->CreateRtpDataChannel(
-              pc_->configuration()->media_config, rtp_transport,
-              signaling_thread(), mid, pc_->SrtpRequired(),
-              pc_->GetCryptoOptions(), &ssrc_generator_);
-      if (!data_channel)
-        return false;
-
-      pc_->network_thread()->Invoke<void>(RTC_FROM_HERE, [this, data_channel] {
+  if (!pc_->network_thread()->Invoke<bool>(RTC_FROM_HERE, [this, &mid] {
         RTC_DCHECK_RUN_ON(pc_->network_thread());
-        pc_->SetupRtpDataChannelTransport_n(data_channel);
-      });
-      have_pending_rtp_data_channel_ = true;
-      break;
+        return pc_->SetupDataChannelTransport_n(mid);
+      })) {
+    return false;
   }
+  // TODO(tommi): Is this necessary? SetupDataChannelTransport_n() above
+  // will have queued up updating the transport name on the signaling thread
+  // and could update the mid at the same time. This here is synchronous
+  // though, but it changes the state of PeerConnection and makes it be
+  // out of sync (transport name not set while the mid is set).
+  pc_->SetSctpDataMid(mid);
   return true;
 }
 
@@ -4716,9 +4556,9 @@ void SdpOfferAnswerHandler::DestroyTransceiverChannel(
   RTC_DCHECK_BLOCK_COUNT_NO_MORE_THAN(0);
   if (channel) {
     // TODO(tommi): VideoRtpReceiver::SetMediaChannel blocks and jumps to the
-    // worker thread. When being set to nullptr, there are additional blocking
-    // calls to e.g. ClearRecordableEncodedFrameCallback which triggers another
-    // blocking call or Stop() for video channels.
+    // worker thread. When being set to nullptrpus, there are additional
+    // blocking calls to e.g. ClearRecordableEncodedFrameCallback which triggers
+    // another blocking call or Stop() for video channels.
     transceiver->internal()->SetChannel(nullptr);
     RTC_DCHECK_BLOCK_COUNT_NO_MORE_THAN(2);
     // TODO(tommi): All channel objects end up getting deleted on the
@@ -4731,9 +4571,8 @@ void SdpOfferAnswerHandler::DestroyTransceiverChannel(
 void SdpOfferAnswerHandler::DestroyDataChannelTransport() {
   RTC_DCHECK_RUN_ON(signaling_thread());
   const bool has_sctp = pc_->sctp_mid().has_value();
-  auto* rtp_data_channel = data_channel_controller()->rtp_data_channel();
 
-  if (has_sctp || rtp_data_channel)
+  if (has_sctp)
     data_channel_controller()->OnTransportChannelClosed();
 
   pc_->network_thread()->Invoke<void>(RTC_FROM_HERE, [this] {
@@ -4743,9 +4582,6 @@ void SdpOfferAnswerHandler::DestroyDataChannelTransport() {
 
   if (has_sctp)
     pc_->ResetSctpDataMid();
-
-  if (rtp_data_channel)
-    DestroyChannelInterface(rtp_data_channel);
 }
 
 void SdpOfferAnswerHandler::DestroyChannelInterface(
@@ -4770,8 +4606,8 @@ void SdpOfferAnswerHandler::DestroyChannelInterface(
           static_cast<cricket::VideoChannel*>(channel));
       break;
     case cricket::MEDIA_TYPE_DATA:
-      channel_manager()->DestroyRtpDataChannel(
-          static_cast<cricket::RtpDataChannel*>(channel));
+      RTC_NOTREACHED()
+          << "Trying to destroy datachannel through DestroyChannelInterface";
       break;
     default:
       RTC_NOTREACHED() << "Unknown media type: " << channel->media_type();
@@ -4887,8 +4723,6 @@ SdpOfferAnswerHandler::GetMediaDescriptionOptionsForActiveData(
   cricket::MediaDescriptionOptions options(cricket::MEDIA_TYPE_DATA, mid,
                                            RtpTransceiverDirection::kSendRecv,
                                            /*stopped=*/false);
-  AddRtpDataChannelOptions(*(data_channel_controller()->rtp_data_channels()),
-                           &options);
   return options;
 }
 
@@ -4899,8 +4733,6 @@ SdpOfferAnswerHandler::GetMediaDescriptionOptionsForRejectedData(
   cricket::MediaDescriptionOptions options(cricket::MEDIA_TYPE_DATA, mid,
                                            RtpTransceiverDirection::kInactive,
                                            /*stopped=*/true);
-  AddRtpDataChannelOptions(*(data_channel_controller()->rtp_data_channels()),
-                           &options);
   return options;
 }
 
@@ -4978,8 +4810,8 @@ bool SdpOfferAnswerHandler::UpdatePayloadTypeDemuxingState(
   // single Invoke; necessary due to thread guards.
   std::vector<std::pair<RtpTransceiverDirection, cricket::ChannelInterface*>>
       channels_to_update;
-  for (const auto& transceiver : transceivers()->List()) {
-    cricket::ChannelInterface* channel = transceiver->internal()->channel();
+  for (const auto& transceiver : transceivers()->ListInternal()) {
+    cricket::ChannelInterface* channel = transceiver->channel();
     const ContentInfo* content =
         FindMediaSectionForTransceiver(transceiver, sdesc);
     if (!channel || !content) {
@@ -4990,8 +4822,7 @@ bool SdpOfferAnswerHandler::UpdatePayloadTypeDemuxingState(
     if (source == cricket::CS_REMOTE) {
       local_direction = RtpTransceiverDirectionReversed(local_direction);
     }
-    channels_to_update.emplace_back(local_direction,
-                                    transceiver->internal()->channel());
+    channels_to_update.emplace_back(local_direction, transceiver->channel());
   }
 
   if (channels_to_update.empty()) {

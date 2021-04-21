@@ -8,6 +8,7 @@
 
 function generate_from_build {
   for platform in Darwin Darwin-aarch64 Linux-aarch64 Linux Windows; do
+    echo "Generating cmake for ${platform}"
     python ./import-webrtc.py \
       --target webrtc_api_video_codecs_builtin_video_decoder_factory \
       --target webrtc_api_video_codecs_builtin_video_encoder_factory \
@@ -35,7 +36,7 @@ function generate_from_build {
     }
 
 function sync_deps {
-  for dep in libaom libvpx jsoncpp pffft opus rnnoise usrsctp libsrtp libyuv abseil-cpp
+  for dep in libaom libvpx jsoncpp pffft opus rnnoise usrsctp libsrtp libyuv
   do
     rsync -rav  \
       --exclude 'third_party' \
@@ -57,17 +58,28 @@ function sync_deps {
       --exclude '*' \
       $1/third_party/${dep} third_party/
   done
+  # abseil
+  rsync -rav  \
+    --exclude 'third_party' \
+    --include '*/' \
+    --include '*.asm' --include '*.S' --include 'NOTICE' \
+    --include '*.proto' --include '*.inc' \
+    --include '*.h' --include '*.cc' --include '*.c' --include '*.cpp' \
+    --include 'CMakeLists.txt' --include '*.cmake' \
+    --exclude '*' \
+    --delete \
+      $1/third_party/abseil-cpp  third_party/
 
-    # catapult
-    rsync -rav  \
-      --exclude 'third_party' \
-      --include '*/' \
-      --include '*.asm' --include '*.S' --include 'NOTICE' \
-      --include '*.proto' \
-      --include '*.h' --include '*.cc' --include '*.c' --include '*.cpp' \
-      --exclude '*' \
-      $1/third_party/catapult/tracing third_party/catapult
-}
+  # catapult
+  rsync -rav  \
+    --exclude 'third_party' \
+    --include '*/' \
+    --include '*.asm' --include '*.S' --include 'NOTICE' \
+    --include '*.proto' \
+    --include '*.h' --include '*.cc' --include '*.c' --include '*.cpp' \
+    --exclude '*' \
+    $1/third_party/catapult/tracing third_party/catapult
+  }
 
 git merge aosp/upstream-master
 generate_from_build $1

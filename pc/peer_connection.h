@@ -72,7 +72,6 @@
 #include "pc/peer_connection_internal.h"
 #include "pc/peer_connection_message_handler.h"
 #include "pc/rtc_stats_collector.h"
-#include "pc/rtp_data_channel.h"
 #include "pc/rtp_receiver.h"
 #include "pc/rtp_sender.h"
 #include "pc/rtp_transceiver.h"
@@ -98,6 +97,7 @@
 #include "rtc_base/thread.h"
 #include "rtc_base/thread_annotations.h"
 #include "rtc_base/unique_id_generator.h"
+#include "rtc_base/weak_ptr.h"
 
 namespace webrtc {
 
@@ -287,24 +287,16 @@ class PeerConnection : public PeerConnectionInternal,
     return rtp_manager()->transceivers()->List();
   }
 
-  sigslot::signal1<RtpDataChannel*>& SignalRtpDataChannelCreated() override {
-    return data_channel_controller_.SignalRtpDataChannelCreated();
-  }
-
   sigslot::signal1<SctpDataChannel*>& SignalSctpDataChannelCreated() override {
     return data_channel_controller_.SignalSctpDataChannelCreated();
-  }
-
-  cricket::RtpDataChannel* rtp_data_channel() const override {
-    return data_channel_controller_.rtp_data_channel();
   }
 
   std::vector<DataChannelStats> GetDataChannelStats() const override;
 
   absl::optional<std::string> sctp_transport_name() const override;
+  absl::optional<std::string> sctp_mid() const override;
 
   cricket::CandidateStatsList GetPooledCandidateStats() const override;
-  std::map<std::string, std::string> GetTransportNamesByMid() const override;
   std::map<std::string, cricket::TransportStats> GetTransportStatsByNames(
       const std::set<std::string>& transport_names) override;
   Call::Stats GetCallStats() override;
@@ -351,10 +343,6 @@ class PeerConnection : public PeerConnectionInternal,
     RTC_DCHECK_RUN_ON(signaling_thread());
     return &configuration_;
   }
-  absl::optional<std::string> sctp_mid() {
-    RTC_DCHECK_RUN_ON(signaling_thread());
-    return sctp_mid_s_;
-  }
   PeerConnectionMessageHandler* message_handler() {
     RTC_DCHECK_RUN_ON(signaling_thread());
     return &message_handler_;
@@ -376,7 +364,6 @@ class PeerConnection : public PeerConnectionInternal,
   const PeerConnectionFactoryInterface::Options* options() const {
     return &options_;
   }
-  cricket::DataChannelType data_channel_type() const;
   void SetIceConnectionState(IceConnectionState new_state);
   void NoteUsageEvent(UsageEvent event);
 
@@ -404,8 +391,8 @@ class PeerConnection : public PeerConnectionInternal,
   }
   bool ValidateBundleSettings(const cricket::SessionDescription* desc);
 
-  // Returns the MID for the data section associated with either the
-  // RtpDataChannel or SCTP data channel, if it has been set. If no data
+  // Returns the MID for the data section associated with the
+  // SCTP data channel, if it has been set. If no data
   // channels are configured this will return nullopt.
   absl::optional<std::string> GetDataMid() const;
 
@@ -439,14 +426,11 @@ class PeerConnection : public PeerConnectionInternal,
   // this session.
   bool SrtpRequired() const;
 
-  void OnSentPacket_w(const rtc::SentPacket& sent_packet);
-
   bool SetupDataChannelTransport_n(const std::string& mid)
       RTC_RUN_ON(network_thread());
-  void SetupRtpDataChannelTransport_n(cricket::RtpDataChannel* data_channel)
-      RTC_RUN_ON(network_thread());
   void TeardownDataChannelTransport_n() RTC_RUN_ON(network_thread());
-  cricket::ChannelInterface* GetChannel(const std::string& content_name);
+  cricket::ChannelInterface* GetChannel(const std::string& content_name)
+      RTC_RUN_ON(network_thread());
 
   // Functions made public for testing.
   void ReturnHistogramVeryQuicklyForTesting() {

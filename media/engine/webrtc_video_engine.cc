@@ -1587,6 +1587,19 @@ void WebRtcVideoChannel::ResetUnsignaledRecvStream() {
   }
 }
 
+void WebRtcVideoChannel::OnDemuxerCriteriaUpdatePending() {
+  RTC_DCHECK_RUN_ON(&thread_checker_);
+  ++demuxer_criteria_id_;
+}
+
+void WebRtcVideoChannel::OnDemuxerCriteriaUpdateComplete() {
+  RTC_DCHECK_RUN_ON(&network_thread_checker_);
+  worker_thread_->PostTask(ToQueuedTask(task_safety_, [this] {
+    RTC_DCHECK_RUN_ON(&thread_checker_);
+    ++demuxer_criteria_completed_id_;
+  }));
+}
+
 bool WebRtcVideoChannel::SetSink(
     uint32_t ssrc,
     rtc::VideoSinkInterface<webrtc::VideoFrame>* sink) {
@@ -1753,6 +1766,14 @@ void WebRtcVideoChannel::OnPacketReceived(rtc::CopyOnWriteBuffer packet,
           return;
         }
 
+        // Ignore unknown ssrcs if there is a demuxer criteria update pending.
+        // During a demuxer update we may receive ssrcs that were recently
+        // removed or we may receve ssrcs that were recently configured for a
+        // different video channel.
+        if (demuxer_criteria_id_ != demuxer_criteria_completed_id_) {
+          return;
+        }
+
         switch (unsignalled_ssrc_handler_->OnUnsignalledSsrc(this, ssrc)) {
           case UnsignalledSsrcHandler::kDropPacket:
             return;
@@ -1766,6 +1787,18 @@ void WebRtcVideoChannel::OnPacketReceived(rtc::CopyOnWriteBuffer packet,
           RTC_LOG(LS_WARNING) << "Failed to deliver RTP packet on re-delivery.";
         }
       }));
+}
+
+void WebRtcVideoChannel::OnPacketSent(const rtc::SentPacket& sent_packet) {
+  RTC_DCHECK_RUN_ON(&network_thread_checker_);
+  // TODO(tommi): We shouldn't need to go through call_ to deliver this
+  // notification. We should already have direct access to
+  // video_send_delay_stats_ and transport_send_ptr_ via `stream_`.
+  // So we should be able to remove OnSentPacket from Call and handle this per
+  // channel instead. At the moment Call::OnSentPacket calls OnSentPacket for
+  // the video stats, for all sent packets, including audio, which causes
+  // unnecessary lookups.
+  call_->OnSentPacket(sent_packet);
 }
 
 void WebRtcVideoChannel::BackfillBufferedPackets(

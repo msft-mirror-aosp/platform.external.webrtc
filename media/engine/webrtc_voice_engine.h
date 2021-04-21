@@ -187,6 +187,8 @@ class WebRtcVoiceMediaChannel final : public VoiceMediaChannel,
   bool AddRecvStream(const StreamParams& sp) override;
   bool RemoveRecvStream(uint32_t ssrc) override;
   void ResetUnsignaledRecvStream() override;
+  void OnDemuxerCriteriaUpdatePending() override;
+  void OnDemuxerCriteriaUpdateComplete() override;
 
   // E2EE Frame API
   // Set a frame decryptor to a particular ssrc that will intercept all
@@ -215,6 +217,7 @@ class WebRtcVoiceMediaChannel final : public VoiceMediaChannel,
 
   void OnPacketReceived(rtc::CopyOnWriteBuffer packet,
                         int64_t packet_time_us) override;
+  void OnPacketSent(const rtc::SentPacket& sent_packet) override;
   void OnNetworkRouteChanged(const std::string& transport_name,
                              const rtc::NetworkRoute& network_route) override;
   void OnReadyToSend(bool ready) override;
