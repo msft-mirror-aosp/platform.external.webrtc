@@ -634,6 +634,10 @@ class RTC_EXPORT PeerConnectionInterface : public rtc::RefCountInterface {
     // The delay before doing a usage histogram report for long-lived
     // PeerConnections. Used for testing only.
     absl::optional<int> report_usage_pattern_delay_ms;
+
+    // The ping interval (ms) when the connection is stable and writable. This
+    // parameter overrides the default value in the ICE implementation if set.
+    absl::optional<int> stable_writable_connection_ping_interval_ms;
     //
     // Don't forget to update operator== if adding something.
     //
@@ -1393,10 +1397,6 @@ class RTC_EXPORT PeerConnectionFactoryInterface
     // requirement, allowing unsecured media. Should only be used for
     // testing/debugging.
     bool disable_encryption = false;
-
-    // Deprecated. The only effect of setting this to true is that
-    // CreateDataChannel will fail, which is not that useful.
-    bool disable_sctp_data_channels = false;
 
     // If set to true, any platform-supported network monitoring capability
     // won't be used, and instead networks will only be updated via polling.
