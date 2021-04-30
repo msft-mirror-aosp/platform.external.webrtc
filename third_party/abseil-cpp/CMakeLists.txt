@@ -144,6 +144,7 @@ endif()
 add_subdirectory(absl)
 
 if(ABSL_ENABLE_INSTALL)
+   message(FATAL_ERROR "Please do not install abseil")
   # absl:lts-remove-begin(system installation is supported for LTS releases)
   # We don't support system-wide installation
   list(APPEND SYSTEM_INSTALL_DIRS "/usr/local" "/usr" "/opt/" "/opt/local" "c:/Program Files/${PROJECT_NAME}")
