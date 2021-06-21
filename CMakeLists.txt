@@ -7,7 +7,7 @@ if(${CMAKE_VERSION} VERSION_LESS "3.18.0")
         COMMAND unzip -n "${WEBRTC_ROOT}/test_resources.zip" -d ${CMAKE_CURRENT_BINARY_DIR}
         WORKING_DIRECTORY ${WEBRTC_ROOT})
 else()
-    file(ARCHIVE_EXTRACT INPUT test_resources.zip DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+    file(ARCHIVE_EXTRACT INPUT ${WEBRTC_ROOT}/test_resources.zip DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 endif()
 
 add_library(
