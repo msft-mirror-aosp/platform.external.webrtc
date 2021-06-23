@@ -419,6 +419,13 @@ TEST(Table, EmptyFunctorOptimization) {
     size_t growth_left;
     void* infoz;
   };
+  struct MockTableInfozDisabled {
+    void* ctrl;
+    void* slots;
+    size_t size;
+    size_t capacity;
+    size_t growth_left;
+  };
   struct StatelessHash {
     size_t operator()(absl::string_view) const { return 0; }
   };
@@ -426,17 +433,27 @@ TEST(Table, EmptyFunctorOptimization) {
     size_t dummy;
   };
 
-  EXPECT_EQ(
-      sizeof(MockTable),
-      sizeof(
-          raw_hash_set<StringPolicy, StatelessHash,
-                       std::equal_to<absl::string_view>, std::allocator<int>>));
+  if (std::is_empty<HashtablezInfoHandle>::value) {
+    EXPECT_EQ(sizeof(MockTableInfozDisabled),
+              sizeof(raw_hash_set<StringPolicy, StatelessHash,
+                                  std::equal_to<absl::string_view>,
+                                  std::allocator<int>>));
 
-  EXPECT_EQ(
-      sizeof(MockTable) + sizeof(StatefulHash),
-      sizeof(
-          raw_hash_set<StringPolicy, StatefulHash,
-                       std::equal_to<absl::string_view>, std::allocator<int>>));
+    EXPECT_EQ(sizeof(MockTableInfozDisabled) + sizeof(StatefulHash),
+              sizeof(raw_hash_set<StringPolicy, StatefulHash,
+                                  std::equal_to<absl::string_view>,
+                                  std::allocator<int>>));
+  } else {
+    EXPECT_EQ(sizeof(MockTable),
+              sizeof(raw_hash_set<StringPolicy, StatelessHash,
+                                  std::equal_to<absl::string_view>,
+                                  std::allocator<int>>));
+
+    EXPECT_EQ(sizeof(MockTable) + sizeof(StatefulHash),
+              sizeof(raw_hash_set<StringPolicy, StatefulHash,
+                                  std::equal_to<absl::string_view>,
+                                  std::allocator<int>>));
+  }
 }
 
 TEST(Table, Empty) {
@@ -522,6 +539,37 @@ TEST(Table, InsertCollisionAndFindAfterDelete) {
     }
   }
   EXPECT_TRUE(t.empty());
+}
+
+TEST(Table, InsertWithinCapacity) {
+  IntTable t;
+  t.reserve(10);
+  const size_t original_capacity = t.capacity();
+  const auto addr = [&](int i) {
+    return reinterpret_cast<uintptr_t>(&*t.find(i));
+  };
+  // Inserting an element does not change capacity.
+  t.insert(0);
+  EXPECT_THAT(t.capacity(), original_capacity);
+  const uintptr_t original_addr_0 = addr(0);
+  // Inserting another element does not rehash.
+  t.insert(1);
+  EXPECT_THAT(t.capacity(), original_capacity);
+  EXPECT_THAT(addr(0), original_addr_0);
+  // Inserting lots of duplicate elements does not rehash.
+  for (int i = 0; i < 100; ++i) {
+    t.insert(i % 10);
+  }
+  EXPECT_THAT(t.capacity(), original_capacity);
+  EXPECT_THAT(addr(0), original_addr_0);
+  // Inserting a range of duplicate elements does not rehash.
+  std::vector<int> dup_range;
+  for (int i = 0; i < 100; ++i) {
+    dup_range.push_back(i % 10);
+  }
+  t.insert(dup_range.begin(), dup_range.end());
+  EXPECT_THAT(t.capacity(), original_capacity);
+  EXPECT_THAT(addr(0), original_addr_0);
 }
 
 TEST(Table, LazyEmplace) {

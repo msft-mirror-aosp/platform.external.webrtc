@@ -9,6 +9,7 @@
  */
 
 #include "modules/audio_processing/aec3/reverb_model_estimator.h"
+#include <memory>
 
 namespace webrtc {
 

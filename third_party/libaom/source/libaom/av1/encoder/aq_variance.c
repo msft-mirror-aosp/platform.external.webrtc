@@ -52,7 +52,7 @@ void av1_vaq_frame_setup(AV1_COMP *cpi) {
   int resolution_change =
       cm->prev_frame && (cm->width != cm->prev_frame->width ||
                          cm->height != cm->prev_frame->height);
-  int avg_energy = (int)(cpi->twopass.mb_av_energy - 2);
+  int avg_energy = (int)(cpi->ppi->twopass.mb_av_energy - 2);
   double avg_ratio;
   if (avg_energy > 7) avg_energy = 7;
   if (avg_energy < 0) avg_energy = 0;
@@ -81,7 +81,7 @@ void av1_vaq_frame_setup(AV1_COMP *cpi) {
       int qindex_delta = av1_compute_qdelta_by_rate(
           &cpi->rc, cm->current_frame.frame_type, base_qindex,
           rate_ratio[i] / avg_ratio, cpi->is_screen_content_type,
-          cm->seq_params.bit_depth);
+          cm->seq_params->bit_depth);
 
       // We don't allow qindex 0 in a segment if the base value is not 0.
       // Q index 0 (lossless) implies 4x4 encoding only and in AQ mode a segment
@@ -126,14 +126,14 @@ int av1_log_block_var(const AV1_COMP *cpi, MACROBLOCK *x, BLOCK_SIZE bs) {
     for (j = 0; j < bw; j += 4) {
       if (is_cur_buf_hbd(xd)) {
         var +=
-            log(1.0 + cpi->fn_ptr[BLOCK_4X4].vf(
+            log(1.0 + cpi->ppi->fn_ptr[BLOCK_4X4].vf(
                           x->plane[0].src.buf + i * x->plane[0].src.stride + j,
                           x->plane[0].src.stride,
                           CONVERT_TO_BYTEPTR(av1_highbd_all_zeros), 0, &sse) /
                           16);
       } else {
         var +=
-            log(1.0 + cpi->fn_ptr[BLOCK_4X4].vf(
+            log(1.0 + cpi->ppi->fn_ptr[BLOCK_4X4].vf(
                           x->plane[0].src.buf + i * x->plane[0].src.stride + j,
                           x->plane[0].src.stride, av1_all_zeros, 0, &sse) /
                           16);
@@ -154,15 +154,12 @@ static unsigned int haar_ac_energy(MACROBLOCK *x, BLOCK_SIZE bs) {
   MACROBLOCKD *xd = &x->e_mbd;
   int stride = x->plane[0].src.stride;
   uint8_t *buf = x->plane[0].src.buf;
-  const int bw = MI_SIZE * mi_size_wide[bs];
-  const int bh = MI_SIZE * mi_size_high[bs];
+  const int num_8x8_cols = block_size_wide[bs] / 8;
+  const int num_8x8_rows = block_size_high[bs] / 8;
   const int hbd = is_cur_buf_hbd(xd);
 
-  int var = 0;
-  for (int r = 0; r < bh; r += 8)
-    for (int c = 0; c < bw; c += 8) {
-      var += av1_haar_ac_sad_8x8_uint8_input(buf + c + r * stride, stride, hbd);
-    }
+  int64_t var = av1_haar_ac_sad_mxn_uint8_input(buf, stride, hbd, num_8x8_rows,
+                                                num_8x8_cols);
 
   return (unsigned int)((uint64_t)var * 256) >> num_pels_log2_lookup[bs];
 }
@@ -178,7 +175,7 @@ int av1_block_wavelet_energy_level(const AV1_COMP *cpi, MACROBLOCK *x,
   double energy, energy_midpoint;
   aom_clear_system_state();
   energy_midpoint = (is_stat_consumption_stage_twopass(cpi))
-                        ? cpi->twopass.frame_avg_haar_energy
+                        ? cpi->ppi->twopass.frame_avg_haar_energy
                         : DEFAULT_E_MIDPOINT;
   energy = av1_log_block_wavelet_energy(x, bs) - energy_midpoint;
   return clamp((int)round(energy), ENERGY_MIN, ENERGY_MAX);
@@ -199,7 +196,7 @@ int av1_compute_q_from_energy_level_deltaq_mode(const AV1_COMP *const cpi,
   int qindex_delta = av1_compute_qdelta_by_rate(
       &cpi->rc, cm->current_frame.frame_type, base_qindex,
       deltaq_rate_ratio[rate_level], cpi->is_screen_content_type,
-      cm->seq_params.bit_depth);
+      cm->seq_params->bit_depth);
 
   if ((base_qindex != 0) && ((base_qindex + qindex_delta) == 0)) {
     qindex_delta = -base_qindex + 1;

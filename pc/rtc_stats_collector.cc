@@ -209,20 +209,20 @@ const char* IceCandidatePairStateToRTCStatsIceCandidatePairState(
 }
 
 const char* DtlsTransportStateToRTCDtlsTransportState(
-    cricket::DtlsTransportState state) {
+    DtlsTransportState state) {
   switch (state) {
-    case cricket::DTLS_TRANSPORT_NEW:
+    case DtlsTransportState::kNew:
       return RTCDtlsTransportState::kNew;
-    case cricket::DTLS_TRANSPORT_CONNECTING:
+    case DtlsTransportState::kConnecting:
       return RTCDtlsTransportState::kConnecting;
-    case cricket::DTLS_TRANSPORT_CONNECTED:
+    case DtlsTransportState::kConnected:
       return RTCDtlsTransportState::kConnected;
-    case cricket::DTLS_TRANSPORT_CLOSED:
+    case DtlsTransportState::kClosed:
       return RTCDtlsTransportState::kClosed;
-    case cricket::DTLS_TRANSPORT_FAILED:
+    case DtlsTransportState::kFailed:
       return RTCDtlsTransportState::kFailed;
     default:
-      RTC_NOTREACHED();
+      RTC_CHECK_NOTREACHED();
       return nullptr;
   }
 }
@@ -263,6 +263,17 @@ const char* QualityLimitationReasonToRTCQualityLimitationReason(
       return RTCQualityLimitationReason::kOther;
   }
   RTC_CHECK_NOTREACHED();
+}
+
+std::map<std::string, double>
+QualityLimitationDurationToRTCQualityLimitationDuration(
+    std::map<webrtc::QualityLimitationReason, int64_t> durations_ms) {
+  std::map<std::string, double> result;
+  for (const auto& elem : durations_ms) {
+    result[QualityLimitationReasonToRTCQualityLimitationReason(elem.first)] =
+        elem.second;
+  }
+  return result;
 }
 
 double DoubleAudioLevelFromIntAudioLevel(int audio_level) {
@@ -568,6 +579,9 @@ void SetOutboundRTPStreamStatsFromVideoSenderInfo(
   outbound_video->quality_limitation_reason =
       QualityLimitationReasonToRTCQualityLimitationReason(
           video_sender_info.quality_limitation_reason);
+  outbound_video->quality_limitation_durations =
+      QualityLimitationDurationToRTCQualityLimitationDuration(
+          video_sender_info.quality_limitation_durations_ms);
   outbound_video->quality_limitation_resolution_changes =
       video_sender_info.quality_limitation_resolution_changes;
   // TODO(https://crbug.com/webrtc/10529): When info's |content_info| is
@@ -1097,8 +1111,7 @@ RTCStatsCollector::RequestInfo::RequestInfo(
 rtc::scoped_refptr<RTCStatsCollector> RTCStatsCollector::Create(
     PeerConnectionInternal* pc,
     int64_t cache_lifetime_us) {
-  return rtc::scoped_refptr<RTCStatsCollector>(
-      new rtc::RefCountedObject<RTCStatsCollector>(pc, cache_lifetime_us));
+  return rtc::make_ref_counted<RTCStatsCollector>(pc, cache_lifetime_us);
 }
 
 RTCStatsCollector::RTCStatsCollector(PeerConnectionInternal* pc,
@@ -1260,6 +1273,8 @@ void RTCStatsCollector::ProducePartialResultsOnSignalingThreadImpl(
 void RTCStatsCollector::ProducePartialResultsOnNetworkThread(
     int64_t timestamp_us,
     absl::optional<std::string> sctp_transport_name) {
+  TRACE_EVENT0("webrtc",
+               "RTCStatsCollector::ProducePartialResultsOnNetworkThread");
   RTC_DCHECK_RUN_ON(network_thread_);
   rtc::Thread::ScopedDisallowBlockingCalls no_blocking_calls;
 

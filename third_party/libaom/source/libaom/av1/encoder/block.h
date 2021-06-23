@@ -102,7 +102,7 @@ typedef struct {
  */
 typedef struct macroblock_plane {
   //! Stores source - pred so the txfm can be computed later
-  DECLARE_ALIGNED(32, int16_t, src_diff[MAX_SB_SQUARE]);
+  int16_t *src_diff;
   //! Dequantized coefficients
   tran_low_t *dqcoeff;
   //! Quantized coefficients
@@ -778,6 +778,23 @@ typedef struct {
   /**@}*/
 } MvCosts;
 
+/*! \brief Holds mv costs for intrabc.
+ */
+typedef struct {
+  /*! Costs for coding the joint mv. */
+  int joint_mv[MV_JOINTS];
+
+  /*! \brief Cost of transmitting the actual motion vector.
+   *  dv_costs_alloc[0][i] is the cost of motion vector with horizontal
+   * component (mv_row) equal to i - MV_MAX. dv_costs_alloc[1][i] is the cost of
+   * motion vector with vertical component (mv_col) equal to i - MV_MAX.
+   */
+  int dv_costs_alloc[2][MV_VALS];
+
+  /*! Points to the middle of \ref dv_costs_alloc. */
+  int *dv_costs[2];
+} IntraBCMVCosts;
+
 /*! \brief Holds the costs needed to encode the coefficients
  */
 typedef struct {
@@ -817,6 +834,14 @@ typedef struct {
   int lighting_change;
   int low_sumdiff;
 } CONTENT_STATE_SB;
+
+// Structure to hold pixel level gradient info.
+typedef struct {
+  uint16_t abs_dx_abs_dy_sum;
+  int8_t hist_bin_idx;
+  bool is_dx_zero;
+} PixelLevelGradientInfo;
+
 /*!\endcond */
 
 /*! \brief Encoder's parameters related to the current coding block.
@@ -945,6 +970,11 @@ typedef struct macroblock {
   //! multipliers for motion search.
   MvCosts *mv_costs;
 
+  /*! The rate needed to encode a new motion vector to the bitstream in intrabc
+   *  mode.
+   */
+  IntraBCMVCosts *dv_costs;
+
   //! The rate needed to signal the txfm coefficients to the bitstream.
   CoeffCosts coeff_costs;
   /**@}*/
@@ -1014,6 +1044,10 @@ typedef struct macroblock {
   int pred_mv_sad[REF_FRAMES];
   //! The minimum of \ref pred_mv_sad.
   int best_pred_mv_sad;
+  //! The sad of the 1st mv ref (nearest).
+  int pred_mv0_sad[REF_FRAMES];
+  //! The sad of the 2nd mv ref (near).
+  int pred_mv1_sad[REF_FRAMES];
 
   /*! \brief Disables certain ref frame pruning based on tpl.
    *
@@ -1092,8 +1126,7 @@ typedef struct macroblock {
    * In the second pass, we retry the winner modes with more thorough txfm
    * options.
    */
-  WinnerModeStats winner_mode_stats[AOMMAX(MAX_WINNER_MODE_COUNT_INTRA,
-                                           MAX_WINNER_MODE_COUNT_INTER)];
+  WinnerModeStats *winner_mode_stats;
   //! Tracks how many winner modes there are.
   int winner_mode_count;
 
@@ -1147,10 +1180,20 @@ typedef struct macroblock {
    */
   IntraBCHashInfo intrabc_hash_info;
 
-  /*! \brief Whether to reuse the mode stored in intermode_cache. */
-  int use_intermode_cache;
-  /*! \brief The mode to reuse during \ref av1_rd_pick_inter_mode. */
-  const MB_MODE_INFO *intermode_cache;
+  /*! \brief Whether to reuse the mode stored in mb_mode_cache. */
+  int use_mb_mode_cache;
+  /*! \brief The mode to reuse during \ref av1_rd_pick_intra_mode_sb and
+   *  \ref av1_rd_pick_inter_mode. */
+  const MB_MODE_INFO *mb_mode_cache;
+  /*! \brief Pointer to the buffer which caches gradient information.
+   *
+   * Pointer to the array of structures to store gradient information of each
+   * pixel in a superblock. The buffer constitutes of MAX_SB_SQUARE pixel level
+   * structures for each of the plane types (PLANE_TYPE_Y and PLANE_TYPE_UV).
+   */
+  PixelLevelGradientInfo *pixel_gradient_info;
+  /*! \brief Flags indicating the availability of cached gradient info. */
+  bool is_sb_gradient_cached[PLANE_TYPES];
   /**@}*/
 
   /*****************************************************************************
@@ -1195,6 +1238,8 @@ typedef struct macroblock {
    * Used in REALTIME coding mode to enhance the visual quality at the boundary
    * of moving color objects.
    */
+  uint8_t color_sensitivity_sb[2];
+  //! Color sensitivity flag for the coding block.
   uint8_t color_sensitivity[2];
   /**@}*/
 

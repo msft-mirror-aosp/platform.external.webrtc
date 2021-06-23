@@ -3,11 +3,12 @@ set(WEBRTC_ROOT ${CMAKE_CURRENT_LIST_DIR})
 # Extract the test files needed for the unit tests.
 message(STATUS "Extracting webrtc test resources")
 if(${CMAKE_VERSION} VERSION_LESS "3.18.0")
-    execute_process(
-        COMMAND unzip -n "${WEBRTC_ROOT}/test_resources.zip" -d ${CMAKE_CURRENT_BINARY_DIR}
-        WORKING_DIRECTORY ${WEBRTC_ROOT})
+  execute_process(
+    COMMAND unzip -n "${WEBRTC_ROOT}/test_resources.zip" -d
+            ${CMAKE_CURRENT_BINARY_DIR} WORKING_DIRECTORY ${WEBRTC_ROOT})
 else()
-    file(ARCHIVE_EXTRACT INPUT ${WEBRTC_ROOT}/test_resources.zip DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+  file(ARCHIVE_EXTRACT INPUT ${WEBRTC_ROOT}/test_resources.zip DESTINATION
+       ${CMAKE_CURRENT_BINARY_DIR})
 endif()
 
 add_library(
@@ -35,8 +36,8 @@ target_include_directories(webrtc_fft_size_256 PUBLIC ${WEBRTC_ROOT})
 add_library(webrtc_fft ${WEBRTC_ROOT}/modules/third_party/fft/fft.c)
 target_include_directories(webrtc_fft PUBLIC ${WEBRTC_ROOT})
 
-android_add_library(TARGET emulator_test_overrides NODISTRIBUTE
-                    SRC emu_file_utils_override.cc)
+android_add_library(TARGET emulator_test_overrides NODISTRIBUTE SRC
+                    emu_file_utils_override.cc)
 target_link_libraries(
   emulator_test_overrides
   PRIVATE android-emu-base webrtc_test_fileutils_override_api absl::optional)
@@ -59,6 +60,7 @@ add_subdirectory(third_party/usrsctp)
 add_subdirectory(third_party/libsrtp)
 add_subdirectory(third_party/catapult/tracing)
 add_subdirectory(third_party/libyuv)
+add_subdirectory(third_party/crc32c)
 
 if(DARWIN_X86_64)
   include(darwin_x86_64.cmake)
@@ -79,12 +81,16 @@ endif()
 # We manually register the tests, as some of time can be flaky..
 set(WEBRTC_TESTS
     webrtc_common_audio_common_audio_unittests
-    webrtc_common_video_common_video_unittests
-    webrtc_media_rtc_media_unittests
     webrtc_modules_audio_coding_audio_decoder_unittests
     # webrtc_pc_peerconnection_unittests  These are very expensive, and have
-    # some timing flakiness.
-    webrtc_pc_rtc_pc_unittests)
+    # some timing flakiness
+)
+
+# Arm64 has fewer tests that are supported.
+if(NOT LINUX_AARCH64)
+  list(APPEND WEBRTC_TESTS webrtc_common_video_common_video_unittests
+       webrtc_media_rtc_media_unittests webrtc_pc_rtc_pc_unittests)
+endif()
 
 if(OPTION_ASAN)
   message("Disabling webrtc tests in asan, they are too expensive/slow to run.")
@@ -92,8 +98,10 @@ if(OPTION_ASAN)
 endif()
 
 foreach(WEBRTC_TEST ${WEBRTC_TESTS})
-  add_test(NAME ${WEBRTC_TEST} COMMAND $<TARGET_FILE:${WEBRTC_TEST}>
-           WORKING_DIRECTORY $<TARGET_FILE_DIR:${WEBRTC_TEST}>)
+  add_test(
+    NAME ${WEBRTC_TEST}
+    COMMAND $<TARGET_FILE:${WEBRTC_TEST}>
+    WORKING_DIRECTORY $<TARGET_FILE_DIR:${WEBRTC_TEST}>)
 
   android_install_as_debug_info(${WEBRTC_TEST})
   android_add_default_test_properties(${WEBRTC_TEST})

@@ -194,11 +194,6 @@ typedef struct RD_STATS {
   int zero_rate;
 #if CONFIG_RD_DEBUG
   int txb_coeff_cost[MAX_MB_PLANE];
-  // TODO(jingning): Temporary solution to silence stack over-size warning
-  // in handle_inter_mode. This should be fixed after rate-distortion
-  // optimization refactoring.
-  int16_t txb_coeff_cost_map[MAX_MB_PLANE][TXB_COEFF_COST_MAP_SIZE]
-                            [TXB_COEFF_COST_MAP_SIZE];
 #endif  // CONFIG_RD_DEBUG
 } RD_STATS;
 
@@ -324,6 +319,9 @@ typedef struct MB_MODE_INFO {
   /*! \brief CDEF strength per BLOCK_64X64 */
   int8_t cdef_strength : 4;
   /**@}*/
+
+  /*! \brief Skip CDEF for this superblock */
+  uint8_t skip_cdef_curr_sb;
 
 #if CONFIG_RD_DEBUG
   /*! \brief RD info used for debugging */
@@ -552,10 +550,6 @@ typedef struct cfl_ctx {
 
   // Whether the reconstructed luma pixels need to be stored
   int store_y;
-
-#if CONFIG_DEBUG
-  int rate;
-#endif  // CONFIG_DEBUG
 } CFL_CTX;
 
 typedef struct dist_wtd_comp_params {
@@ -810,7 +804,7 @@ typedef struct macroblockd {
   FRAME_CONTEXT *tile_ctx;
 
   /*!
-   * Bit depth: copied from cm->seq_params.bit_depth for convenience.
+   * Bit depth: copied from cm->seq_params->bit_depth for convenience.
    */
   int bd;
 
@@ -893,7 +887,7 @@ typedef struct macroblockd {
   /*!
    * Mask for this block used for compound prediction.
    */
-  DECLARE_ALIGNED(16, uint8_t, seg_mask[2 * MAX_SB_SQUARE]);
+  uint8_t *seg_mask;
 
   /*!
    * CFL (chroma from luma) related parameters.
@@ -937,13 +931,42 @@ typedef struct macroblockd {
 /*!\cond */
 
 static INLINE int is_cur_buf_hbd(const MACROBLOCKD *xd) {
+#if CONFIG_AV1_HIGHBITDEPTH
   return xd->cur_buf->flags & YV12_FLAG_HIGHBITDEPTH ? 1 : 0;
+#else
+  (void)xd;
+  return 0;
+#endif
 }
 
 static INLINE uint8_t *get_buf_by_bd(const MACROBLOCKD *xd, uint8_t *buf16) {
+#if CONFIG_AV1_HIGHBITDEPTH
   return (xd->cur_buf->flags & YV12_FLAG_HIGHBITDEPTH)
              ? CONVERT_TO_BYTEPTR(buf16)
              : buf16;
+#else
+  (void)xd;
+  return buf16;
+#endif
+}
+
+typedef struct BitDepthInfo {
+  int bit_depth;
+  /*! Is the image buffer high bit depth?
+   * Low bit depth buffer uses uint8_t.
+   * High bit depth buffer uses uint16_t.
+   * Equivalent to cm->seq_params->use_highbitdepth
+   */
+  int use_highbitdepth_buf;
+} BitDepthInfo;
+
+static INLINE BitDepthInfo get_bit_depth_info(const MACROBLOCKD *xd) {
+  BitDepthInfo bit_depth_info;
+  bit_depth_info.bit_depth = xd->bd;
+  bit_depth_info.use_highbitdepth_buf = is_cur_buf_hbd(xd);
+  assert(IMPLIES(!bit_depth_info.use_highbitdepth_buf,
+                 bit_depth_info.bit_depth == 8));
+  return bit_depth_info;
 }
 
 static INLINE int get_sqr_bsize_idx(BLOCK_SIZE bsize) {

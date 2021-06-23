@@ -56,7 +56,6 @@ using cricket::Candidate;
 using cricket::ContentGroup;
 using cricket::ContentInfo;
 using cricket::CryptoParams;
-using cricket::DataCodec;
 using cricket::ICE_CANDIDATE_COMPONENT_RTCP;
 using cricket::ICE_CANDIDATE_COMPONENT_RTP;
 using cricket::kFecSsrcGroupSemantics;
@@ -1907,7 +1906,8 @@ class WebRtcSdpTest : public ::testing::Test {
     os.clear();
     os.str("");
     // Pl type 100 preferred.
-    os << "m=video 9 RTP/SAVPF 99 95\r\n"
+    os << "m=video 9 RTP/SAVPF 99 95 96\r\n"
+          "a=rtpmap:96 VP9/90000\r\n"  // out-of-order wrt the m= line.
           "a=rtpmap:99 VP8/90000\r\n"
           "a=rtpmap:95 RTX/90000\r\n"
           "a=fmtp:95 apt=99;\r\n";
@@ -1955,6 +1955,10 @@ class WebRtcSdpTest : public ::testing::Test {
     EXPECT_EQ("RTX", rtx.name);
     EXPECT_EQ(95, rtx.id);
     VerifyCodecParameter(rtx.params, "apt", vp8.id);
+    // VP9 is listed last in the m= line so should come after VP8 and RTX.
+    cricket::VideoCodec vp9 = vcd->codecs()[2];
+    EXPECT_EQ("VP9", vp9.name);
+    EXPECT_EQ(96, vp9.id);
   }
 
   void TestDeserializeRtcpFb(JsepSessionDescription* jdesc_output,
@@ -2120,17 +2124,21 @@ TEST_F(WebRtcSdpTest, SerializeSessionDescriptionWithoutCandidates) {
   EXPECT_EQ(std::string(kSdpString), message);
 }
 
-TEST_F(WebRtcSdpTest, SerializeSessionDescriptionWithBundle) {
-  ContentGroup group(cricket::GROUP_TYPE_BUNDLE);
-  group.AddContentName(kAudioContentName);
-  group.AddContentName(kVideoContentName);
-  desc_.AddGroup(group);
+TEST_F(WebRtcSdpTest, SerializeSessionDescriptionWithBundles) {
+  ContentGroup group1(cricket::GROUP_TYPE_BUNDLE);
+  group1.AddContentName(kAudioContentName);
+  group1.AddContentName(kVideoContentName);
+  desc_.AddGroup(group1);
+  ContentGroup group2(cricket::GROUP_TYPE_BUNDLE);
+  group2.AddContentName(kAudioContentName2);
+  desc_.AddGroup(group2);
   ASSERT_TRUE(jdesc_.Initialize(desc_.Clone(), jdesc_.session_id(),
                                 jdesc_.session_version()));
   std::string message = webrtc::SdpSerialize(jdesc_);
   std::string sdp_with_bundle = kSdpFullString;
   InjectAfter(kSessionTime,
-              "a=group:BUNDLE audio_content_name video_content_name\r\n",
+              "a=group:BUNDLE audio_content_name video_content_name\r\n"
+              "a=group:BUNDLE audio_content_name_2\r\n",
               &sdp_with_bundle);
   EXPECT_EQ(sdp_with_bundle, message);
 }

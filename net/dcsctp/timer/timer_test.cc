@@ -32,8 +32,13 @@ class TimerTest : public testing::Test {
   void AdvanceTimeAndRunTimers(DurationMs duration) {
     now_ = now_ + duration;
 
-    for (TimeoutID timeout_id : timeout_manager_.RunTimers()) {
-      manager_.HandleTimeout(timeout_id);
+    for (;;) {
+      absl::optional<TimeoutID> timeout_id =
+          timeout_manager_.GetNextExpiredTimeout();
+      if (!timeout_id.has_value()) {
+        break;
+      }
+      manager_.HandleTimeout(*timeout_id);
     }
   }
 
@@ -308,6 +313,77 @@ TEST_F(TimerTest, ReturningNewDurationWhenExpired) {
   AdvanceTimeAndRunTimers(DurationMs(9000));
   EXPECT_CALL(on_expired_, Call).Times(1);
   AdvanceTimeAndRunTimers(DurationMs(1000));
+}
+
+TEST_F(TimerTest, TimersHaveMaximumDuration) {
+  std::unique_ptr<Timer> t1 = manager_.CreateTimer(
+      "t1", on_expired_.AsStdFunction(),
+      TimerOptions(DurationMs(1000), TimerBackoffAlgorithm::kExponential));
+
+  t1->set_duration(DurationMs(2 * *Timer::kMaxTimerDuration));
+  EXPECT_EQ(t1->duration(), Timer::kMaxTimerDuration);
+}
+
+TEST_F(TimerTest, TimersHaveMaximumBackoffDuration) {
+  std::unique_ptr<Timer> t1 = manager_.CreateTimer(
+      "t1", on_expired_.AsStdFunction(),
+      TimerOptions(DurationMs(1000), TimerBackoffAlgorithm::kExponential));
+
+  t1->Start();
+
+  int max_exponent = static_cast<int>(log2(*Timer::kMaxTimerDuration / 1000));
+  for (int i = 0; i < max_exponent; ++i) {
+    EXPECT_CALL(on_expired_, Call).Times(1);
+    AdvanceTimeAndRunTimers(DurationMs(1000 * (1 << i)));
+  }
+
+  // Reached the maximum duration.
+  EXPECT_CALL(on_expired_, Call).Times(1);
+  AdvanceTimeAndRunTimers(Timer::kMaxTimerDuration);
+
+  EXPECT_CALL(on_expired_, Call).Times(1);
+  AdvanceTimeAndRunTimers(Timer::kMaxTimerDuration);
+
+  EXPECT_CALL(on_expired_, Call).Times(1);
+  AdvanceTimeAndRunTimers(Timer::kMaxTimerDuration);
+
+  EXPECT_CALL(on_expired_, Call).Times(1);
+  AdvanceTimeAndRunTimers(Timer::kMaxTimerDuration);
+}
+
+TEST_F(TimerTest, TimerCanBeStartedFromWithinExpirationHandler) {
+  std::unique_ptr<Timer> t1 = manager_.CreateTimer(
+      "t1", on_expired_.AsStdFunction(),
+      TimerOptions(DurationMs(1000), TimerBackoffAlgorithm::kFixed));
+
+  t1->Start();
+
+  // Start a timer, but don't return any new duration in callback.
+  EXPECT_CALL(on_expired_, Call).WillOnce([&]() {
+    EXPECT_TRUE(t1->is_running());
+    t1->set_duration(DurationMs(5000));
+    t1->Start();
+    return absl::nullopt;
+  });
+  AdvanceTimeAndRunTimers(DurationMs(1000));
+
+  EXPECT_CALL(on_expired_, Call).Times(0);
+  AdvanceTimeAndRunTimers(DurationMs(4999));
+
+  // Start a timer, and return any new duration in callback.
+  EXPECT_CALL(on_expired_, Call).WillOnce([&]() {
+    EXPECT_TRUE(t1->is_running());
+    t1->set_duration(DurationMs(5000));
+    t1->Start();
+    return absl::make_optional(DurationMs(8000));
+  });
+  AdvanceTimeAndRunTimers(DurationMs(1));
+
+  EXPECT_CALL(on_expired_, Call).Times(0);
+  AdvanceTimeAndRunTimers(DurationMs(7999));
+
+  EXPECT_CALL(on_expired_, Call).Times(1);
+  AdvanceTimeAndRunTimers(DurationMs(1));
 }
 
 }  // namespace

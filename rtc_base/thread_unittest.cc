@@ -521,7 +521,7 @@ TEST(ThreadTest, ThreeThreadsInvoke) {
 
     // Asynchronously invoke SetAndInvokeSet on |thread1| and wait until
     // |thread1| starts the call.
-    static void AsyncInvokeSetAndWait(AsyncInvoker* invoker,
+    static void AsyncInvokeSetAndWait(DEPRECATED_AsyncInvoker* invoker,
                                       Thread* thread1,
                                       Thread* thread2,
                                       LockedBool* out) {
@@ -536,7 +536,7 @@ TEST(ThreadTest, ThreeThreadsInvoke) {
     }
   };
 
-  AsyncInvoker invoker;
+  DEPRECATED_AsyncInvoker invoker;
   LockedBool thread_a_called(false);
 
   // Start the sequence A --(invoke)--> B --(async invoke)--> C --(invoke)--> A.
@@ -551,36 +551,6 @@ TEST(ThreadTest, ThreeThreadsInvoke) {
   EXPECT_FALSE(thread_a_called.Get());
 
   EXPECT_TRUE_WAIT(thread_a_called.Get(), 2000);
-}
-
-// Set the name on a thread when the underlying QueueDestroyed signal is
-// triggered. This causes an error if the object is already partially
-// destroyed.
-class SetNameOnSignalQueueDestroyedTester : public sigslot::has_slots<> {
- public:
-  SetNameOnSignalQueueDestroyedTester(Thread* thread) : thread_(thread) {
-    thread->SignalQueueDestroyed.connect(
-        this, &SetNameOnSignalQueueDestroyedTester::OnQueueDestroyed);
-  }
-
-  void OnQueueDestroyed() {
-    // Makes sure that if we access the Thread while it's being destroyed, that
-    // it doesn't cause a problem because the vtable has been modified.
-    thread_->SetName("foo", nullptr);
-  }
-
- private:
-  Thread* thread_;
-};
-
-TEST(ThreadTest, SetNameOnSignalQueueDestroyed) {
-  auto thread1 = Thread::CreateWithSocketServer();
-  SetNameOnSignalQueueDestroyedTester tester1(thread1.get());
-  thread1.reset();
-
-  Thread* thread2 = new AutoThread();
-  SetNameOnSignalQueueDestroyedTester tester2(thread2);
-  delete thread2;
 }
 
 class ThreadQueueTest : public ::testing::Test, public Thread {
@@ -791,7 +761,7 @@ class AsyncInvokeTest : public ::testing::Test {
 };
 
 TEST_F(AsyncInvokeTest, FireAndForget) {
-  AsyncInvoker invoker;
+  DEPRECATED_AsyncInvoker invoker;
   // Create and start the thread.
   auto thread = Thread::CreateWithSocketServer();
   thread->Start();
@@ -803,7 +773,7 @@ TEST_F(AsyncInvokeTest, FireAndForget) {
 }
 
 TEST_F(AsyncInvokeTest, NonCopyableFunctor) {
-  AsyncInvoker invoker;
+  DEPRECATED_AsyncInvoker invoker;
   // Create and start the thread.
   auto thread = Thread::CreateWithSocketServer();
   thread->Start();
@@ -834,7 +804,7 @@ TEST_F(AsyncInvokeTest, KillInvokerDuringExecute) {
       EXPECT_FALSE(invoker_destroyed);
       functor_finished.Set();
     };
-    AsyncInvoker invoker;
+    DEPRECATED_AsyncInvoker invoker;
     invoker.AsyncInvoke<void>(RTC_FROM_HERE, thread.get(), functor);
     functor_started.Wait(Event::kForever);
 
@@ -863,7 +833,7 @@ TEST_F(AsyncInvokeTest, KillInvokerDuringExecuteWithReentrantInvoke) {
   Thread thread(std::make_unique<NullSocketServer>());
   thread.Start();
   {
-    AsyncInvoker invoker;
+    DEPRECATED_AsyncInvoker invoker;
     auto reentrant_functor = [&reentrant_functor_run] {
       reentrant_functor_run = true;
     };
@@ -882,7 +852,7 @@ TEST_F(AsyncInvokeTest, KillInvokerDuringExecuteWithReentrantInvoke) {
 }
 
 TEST_F(AsyncInvokeTest, Flush) {
-  AsyncInvoker invoker;
+  DEPRECATED_AsyncInvoker invoker;
   AtomicBool flag1;
   AtomicBool flag2;
   // Queue two async calls to the current thread.
@@ -898,7 +868,7 @@ TEST_F(AsyncInvokeTest, Flush) {
 }
 
 TEST_F(AsyncInvokeTest, FlushWithIds) {
-  AsyncInvoker invoker;
+  DEPRECATED_AsyncInvoker invoker;
   AtomicBool flag1;
   AtomicBool flag2;
   // Queue two async calls to the current thread, one with a message id.

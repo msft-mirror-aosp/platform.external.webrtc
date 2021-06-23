@@ -29,7 +29,10 @@ rtc_source_set("call_api") {
 rtc_source_set("callfactory_api") {
   visibility = [ "*" ]
   sources = [ "call/call_factory_interface.h" ]
-  deps = [ "../rtc_base/system:rtc_export" ]
+  deps = [
+    "../call:rtp_interfaces",
+    "../rtc_base/system:rtc_export",
+  ]
 }
 
 if (!build_with_chromium) {
@@ -90,6 +93,7 @@ rtc_library("rtp_packet_info") {
     ":scoped_refptr",
     "../rtc_base:rtc_base_approved",
     "../rtc_base/system:rtc_export",
+    "units:timestamp",
   ]
   absl_deps = [ "//third_party/abseil-cpp/absl/types:optional" ]
 }
@@ -134,14 +138,8 @@ rtc_library("libjingle_peerconnection_api") {
     "jsep_ice_candidate.cc",
     "jsep_ice_candidate.h",
     "jsep_session_description.h",
-    "media_stream_proxy.h",
-    "media_stream_track_proxy.h",
-    "peer_connection_factory_proxy.h",
     "peer_connection_interface.cc",
     "peer_connection_interface.h",
-    "peer_connection_proxy.h",
-    "proxy.cc",
-    "proxy.h",
     "rtp_receiver_interface.cc",
     "rtp_receiver_interface.h",
     "rtp_sender_interface.cc",
@@ -156,7 +154,7 @@ rtc_library("libjingle_peerconnection_api") {
     "stats_types.h",
     "turn_customizer.h",
     "uma_metrics.h",
-    "video_track_source_proxy.h",
+    "video_track_source_proxy_factory.h",
   ]
   deps = [
     ":array_view",
@@ -177,6 +175,7 @@ rtc_library("libjingle_peerconnection_api") {
     ":rtp_transceiver_direction",
     ":scoped_refptr",
     ":sequence_checker",
+    "../call:rtp_interfaces",
     "../rtc_base:network_constants",
     "adaptation:resource_adaptation_api",
     "audio:audio_mixer_api",
@@ -196,6 +195,7 @@ rtc_library("libjingle_peerconnection_api") {
     "units:data_rate",
     "units:timestamp",
     "video:encoded_image",
+    "video:video_bitrate_allocator_factory",
     "video:video_frame",
     "video:video_rtp_headers",
 
@@ -561,6 +561,7 @@ rtc_source_set("rtc_stats_api") {
 
   deps = [
     ":scoped_refptr",
+    "../api:refcountedbase",
     "../rtc_base:checks",
     "../rtc_base:rtc_base_approved",
     "../rtc_base/system:rtc_export",
@@ -682,7 +683,10 @@ rtc_source_set("array_view") {
 rtc_source_set("refcountedbase") {
   visibility = [ "*" ]
   sources = [ "ref_counted_base.h" ]
-  deps = [ "../rtc_base:rtc_base_approved" ]
+  deps = [
+    "../rtc_base:macromagic",
+    "../rtc_base:refcount",
+  ]
 }
 
 rtc_library("ice_transport_factory") {
@@ -1053,6 +1057,7 @@ if (rtc_include_tests) {
       ":time_controller",
       "../call",
       "../call:call_interfaces",
+      "../call:rtp_interfaces",
       "../test/time_controller",
     ]
   }

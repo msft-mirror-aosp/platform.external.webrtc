@@ -74,15 +74,16 @@ extern "C" {
 
 // The following are available for gcc/clang x86 platforms:
 // TODO(fbarchard): Port to Visual C
-#if !defined(LIBYUV_DISABLE_X86) && \
-    (defined(__x86_64__) || (defined(__i386__) && !defined(_MSC_VER)))
+#if !defined(LIBYUV_DISABLE_X86) && (defined(__x86_64__) || defined(__i386__))
 #define HAS_SCALEUVROWDOWN2BOX_SSSE3
 #define HAS_SCALEROWUP2LINEAR_SSE2
 #define HAS_SCALEROWUP2LINEAR_SSSE3
 #define HAS_SCALEROWUP2BILINEAR_SSE2
 #define HAS_SCALEROWUP2BILINEAR_SSSE3
-#define HAS_SCALEROWUP2LINEAR_16_SSSE3
-#define HAS_SCALEROWUP2BILINEAR_16_SSSE3
+#define HAS_SCALEROWUP2LINEAR_12_SSSE3
+#define HAS_SCALEROWUP2BILINEAR_12_SSSE3
+#define HAS_SCALEROWUP2LINEAR_16_SSE2
+#define HAS_SCALEROWUP2BILINEAR_16_SSE2
 #define HAS_SCALEUVROWUP2LINEAR_SSSE3
 #define HAS_SCALEUVROWUP2BILINEAR_SSSE3
 #define HAS_SCALEUVROWUP2LINEAR_16_SSE2
@@ -92,12 +93,14 @@ extern "C" {
 // The following are available for gcc/clang x86 platforms, but
 // require clang 3.4 or gcc 4.7.
 // TODO(fbarchard): Port to Visual C
-#if !defined(LIBYUV_DISABLE_X86) &&                                     \
-    (defined(__x86_64__) || defined(__i386__)) && !defined(_MSC_VER) && \
+#if !defined(LIBYUV_DISABLE_X86) &&               \
+    (defined(__x86_64__) || defined(__i386__)) && \
     (defined(CLANG_HAS_AVX2) || defined(GCC_HAS_AVX2))
 #define HAS_SCALEUVROWDOWN2BOX_AVX2
 #define HAS_SCALEROWUP2LINEAR_AVX2
 #define HAS_SCALEROWUP2BILINEAR_AVX2
+#define HAS_SCALEROWUP2LINEAR_12_AVX2
+#define HAS_SCALEROWUP2BILINEAR_12_AVX2
 #define HAS_SCALEROWUP2LINEAR_16_AVX2
 #define HAS_SCALEROWUP2BILINEAR_16_AVX2
 #define HAS_SCALEUVROWUP2LINEAR_AVX2
@@ -134,6 +137,8 @@ extern "C" {
 #define HAS_SCALEUVROWDOWNEVEN_NEON
 #define HAS_SCALEROWUP2LINEAR_NEON
 #define HAS_SCALEROWUP2BILINEAR_NEON
+#define HAS_SCALEROWUP2LINEAR_12_NEON
+#define HAS_SCALEROWUP2BILINEAR_12_NEON
 #define HAS_SCALEROWUP2LINEAR_16_NEON
 #define HAS_SCALEROWUP2BILINEAR_16_NEON
 #define HAS_SCALEUVROWUP2LINEAR_NEON
@@ -611,14 +616,22 @@ void ScaleRowUp2_Bilinear_SSE2(const uint8_t* src_ptr,
                                uint8_t* dst_ptr,
                                ptrdiff_t dst_stride,
                                int dst_width);
-void ScaleRowUp2_Linear_16_SSSE3(const uint16_t* src_ptr,
+void ScaleRowUp2_Linear_12_SSSE3(const uint16_t* src_ptr,
                                  uint16_t* dst_ptr,
                                  int dst_width);
-void ScaleRowUp2_Bilinear_16_SSSE3(const uint16_t* src_ptr,
+void ScaleRowUp2_Bilinear_12_SSSE3(const uint16_t* src_ptr,
                                    ptrdiff_t src_stride,
                                    uint16_t* dst_ptr,
                                    ptrdiff_t dst_stride,
                                    int dst_width);
+void ScaleRowUp2_Linear_16_SSE2(const uint16_t* src_ptr,
+                                uint16_t* dst_ptr,
+                                int dst_width);
+void ScaleRowUp2_Bilinear_16_SSE2(const uint16_t* src_ptr,
+                                  ptrdiff_t src_stride,
+                                  uint16_t* dst_ptr,
+                                  ptrdiff_t dst_stride,
+                                  int dst_width);
 void ScaleRowUp2_Linear_SSSE3(const uint8_t* src_ptr,
                               uint8_t* dst_ptr,
                               int dst_width);
@@ -635,6 +648,14 @@ void ScaleRowUp2_Bilinear_AVX2(const uint8_t* src_ptr,
                                uint8_t* dst_ptr,
                                ptrdiff_t dst_stride,
                                int dst_width);
+void ScaleRowUp2_Linear_12_AVX2(const uint16_t* src_ptr,
+                                uint16_t* dst_ptr,
+                                int dst_width);
+void ScaleRowUp2_Bilinear_12_AVX2(const uint16_t* src_ptr,
+                                  ptrdiff_t src_stride,
+                                  uint16_t* dst_ptr,
+                                  ptrdiff_t dst_stride,
+                                  int dst_width);
 void ScaleRowUp2_Linear_16_AVX2(const uint16_t* src_ptr,
                                 uint16_t* dst_ptr,
                                 int dst_width);
@@ -651,9 +672,17 @@ void ScaleRowUp2_Bilinear_Any_SSE2(const uint8_t* src_ptr,
                                    uint8_t* dst_ptr,
                                    ptrdiff_t dst_stride,
                                    int dst_width);
-void ScaleRowUp2_Linear_16_Any_SSSE3(const uint16_t* src_ptr,
+void ScaleRowUp2_Linear_12_Any_SSSE3(const uint16_t* src_ptr,
                                      uint16_t* dst_ptr,
                                      int dst_width);
+void ScaleRowUp2_Bilinear_12_Any_SSSE3(const uint16_t* src_ptr,
+                                       ptrdiff_t src_stride,
+                                       uint16_t* dst_ptr,
+                                       ptrdiff_t dst_stride,
+                                       int dst_width);
+void ScaleRowUp2_Linear_16_Any_SSE2(const uint16_t* src_ptr,
+                                    uint16_t* dst_ptr,
+                                    int dst_width);
 void ScaleRowUp2_Bilinear_16_Any_SSSE3(const uint16_t* src_ptr,
                                        ptrdiff_t src_stride,
                                        uint16_t* dst_ptr,
@@ -675,6 +704,14 @@ void ScaleRowUp2_Bilinear_Any_AVX2(const uint8_t* src_ptr,
                                    uint8_t* dst_ptr,
                                    ptrdiff_t dst_stride,
                                    int dst_width);
+void ScaleRowUp2_Linear_12_Any_AVX2(const uint16_t* src_ptr,
+                                    uint16_t* dst_ptr,
+                                    int dst_width);
+void ScaleRowUp2_Bilinear_12_Any_AVX2(const uint16_t* src_ptr,
+                                      ptrdiff_t src_stride,
+                                      uint16_t* dst_ptr,
+                                      ptrdiff_t dst_stride,
+                                      int dst_width);
 void ScaleRowUp2_Linear_16_Any_AVX2(const uint16_t* src_ptr,
                                     uint16_t* dst_ptr,
                                     int dst_width);
@@ -1424,6 +1461,14 @@ void ScaleRowUp2_Bilinear_NEON(const uint8_t* src_ptr,
                                uint8_t* dst_ptr,
                                ptrdiff_t dst_stride,
                                int dst_width);
+void ScaleRowUp2_Linear_12_NEON(const uint16_t* src_ptr,
+                                uint16_t* dst_ptr,
+                                int dst_width);
+void ScaleRowUp2_Bilinear_12_NEON(const uint16_t* src_ptr,
+                                  ptrdiff_t src_stride,
+                                  uint16_t* dst_ptr,
+                                  ptrdiff_t dst_stride,
+                                  int dst_width);
 void ScaleRowUp2_Linear_16_NEON(const uint16_t* src_ptr,
                                 uint16_t* dst_ptr,
                                 int dst_width);
@@ -1440,6 +1485,14 @@ void ScaleRowUp2_Bilinear_Any_NEON(const uint8_t* src_ptr,
                                    uint8_t* dst_ptr,
                                    ptrdiff_t dst_stride,
                                    int dst_width);
+void ScaleRowUp2_Linear_12_Any_NEON(const uint16_t* src_ptr,
+                                    uint16_t* dst_ptr,
+                                    int dst_width);
+void ScaleRowUp2_Bilinear_12_Any_NEON(const uint16_t* src_ptr,
+                                      ptrdiff_t src_stride,
+                                      uint16_t* dst_ptr,
+                                      ptrdiff_t dst_stride,
+                                      int dst_width);
 void ScaleRowUp2_Linear_16_Any_NEON(const uint16_t* src_ptr,
                                     uint16_t* dst_ptr,
                                     int dst_width);

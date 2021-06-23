@@ -68,7 +68,7 @@ void PffftValidate(int fft_size, bool complex_fft) {
     }
 
     for (k = 0; k < num_floats; ++k) {
-      ref_max = std::max(ref_max, fabs(ref[k]));
+      ref_max = std::max<float>(ref_max, (float) fabs(ref[k]));
     }
 
     // Pass 0: non canonical ordering of transform coefficients.

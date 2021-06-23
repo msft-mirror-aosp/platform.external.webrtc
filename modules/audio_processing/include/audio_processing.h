@@ -59,9 +59,9 @@ class CustomProcessing;
 //
 // Must be provided through AudioProcessingBuilder().Create(config).
 #if defined(WEBRTC_CHROMIUM_BUILD)
-static const int kAgcStartupMinVolume = 85;
+static constexpr int kAgcStartupMinVolume = 85;
 #else
-static const int kAgcStartupMinVolume = 0;
+static constexpr int kAgcStartupMinVolume = 0;
 #endif  // defined(WEBRTC_CHROMIUM_BUILD)
 static constexpr int kClippedLevelMin = 70;
 
@@ -275,7 +275,7 @@ class RTC_EXPORT AudioProcessing : public rtc::RefCountInterface {
     // in the analog mode, prescribing an analog gain to be applied at the audio
     // HAL.
     // Recommended to be enabled on the client-side.
-    struct GainController1 {
+    struct RTC_EXPORT GainController1 {
       bool operator==(const GainController1& rhs) const;
       bool operator!=(const GainController1& rhs) const {
         return !(*this == rhs);
@@ -334,6 +334,43 @@ class RTC_EXPORT AudioProcessing : public rtc::RefCountInterface {
         // clipping.
         int clipped_level_min = kClippedLevelMin;
         bool enable_digital_adaptive = true;
+        // Amount the microphone level is lowered with every clipping event.
+        // Limited to (0, 255].
+        int clipped_level_step = 15;
+        // Proportion of clipped samples required to declare a clipping event.
+        // Limited to (0.f, 1.f).
+        float clipped_ratio_threshold = 0.1f;
+        // Time in frames to wait after a clipping event before checking again.
+        // Limited to values higher than 0.
+        int clipped_wait_frames = 300;
+
+        // Enables clipping prediction functionality.
+        struct ClippingPredictor {
+          bool enabled = false;
+          enum Mode {
+            // Clipping event prediction mode with fixed step estimation.
+            kClippingEventPrediction,
+            // Clipped peak estimation mode with adaptive step estimation.
+            kAdaptiveStepClippingPeakPrediction,
+            // Clipped peak estimation mode with fixed step estimation.
+            kFixedStepClippingPeakPrediction,
+          };
+          Mode mode = kClippingEventPrediction;
+          // Number of frames in the sliding analysis window.
+          int window_length = 5;
+          // Number of frames in the sliding reference window.
+          int reference_window_length = 5;
+          // Reference window delay (unit: number of frames).
+          int reference_window_delay = 5;
+          // Clipping prediction threshold (dBFS).
+          float clipping_threshold = -1.0f;
+          // Crest factor drop threshold (dB).
+          float crest_factor_margin = 3.0f;
+          // If true, the recommended clipped level step is used to modify the
+          // analog gain. Otherwise, the predictor runs without affecting the
+          // analog gain.
+          bool use_predicted_step = true;
+        } clipping_predictor;
       } analog_gain_controller;
     } gain_controller1;
 
@@ -343,7 +380,7 @@ class RTC_EXPORT AudioProcessing : public rtc::RefCountInterface {
     // setting |fixed_gain_db|, the limiter can be turned into a compressor that
     // first applies a fixed gain. The adaptive digital AGC can be turned off by
     // setting |adaptive_digital_mode=false|.
-    struct GainController2 {
+    struct RTC_EXPORT GainController2 {
       bool operator==(const GainController2& rhs) const;
       bool operator!=(const GainController2& rhs) const {
         return !(*this == rhs);
@@ -356,8 +393,15 @@ class RTC_EXPORT AudioProcessing : public rtc::RefCountInterface {
       struct FixedDigital {
         float gain_db = 0.0f;
       } fixed_digital;
-      struct AdaptiveDigital {
+      struct RTC_EXPORT AdaptiveDigital {
+        bool operator==(const AdaptiveDigital& rhs) const;
+        bool operator!=(const AdaptiveDigital& rhs) const {
+          return !(*this == rhs);
+        }
+
         bool enabled = false;
+        // Run the adaptive digital controller but the signal is not modified.
+        bool dry_run = false;
         NoiseEstimator noise_estimator = kNoiseFloor;
         int vad_reset_period_ms = 1500;
         int adjacent_speech_frames_threshold = 12;

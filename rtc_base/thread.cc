@@ -429,13 +429,11 @@ void Thread::DoDestroy() {
   // The signal is done from here to ensure
   // that it always gets called when the queue
   // is going away.
-  SignalQueueDestroyed();
-  ThreadManager::Remove(this);
-  ClearInternal(nullptr, MQID_ANY, nullptr);
-
   if (ss_) {
     ss_->SetMessageQueue(nullptr);
   }
+  ThreadManager::Remove(this);
+  ClearInternal(nullptr, MQID_ANY, nullptr);
 }
 
 SocketServer* Thread::socketserver() {
@@ -931,6 +929,7 @@ void Thread::Send(const Location& posted_from,
   msg.pdata = pdata;
   if (IsCurrent()) {
 #if RTC_DCHECK_IS_ON
+    RTC_DCHECK(this->IsInvokeToThreadAllowed(this));
     RTC_DCHECK_RUN_ON(this);
     could_be_blocking_call_count_++;
 #endif

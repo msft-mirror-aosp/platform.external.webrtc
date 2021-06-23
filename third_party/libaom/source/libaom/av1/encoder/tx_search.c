@@ -618,7 +618,7 @@ static AOM_INLINE void get_energy_distribution_fine(
     assert(bw <= 32);
     assert(bh <= 32);
     assert(((bw - 1) >> w_shift) + (((bh - 1) >> h_shift) << 2) == 15);
-    if (cpi->common.seq_params.use_highbitdepth) {
+    if (cpi->common.seq_params->use_highbitdepth) {
       const uint16_t *src16 = CONVERT_TO_SHORTPTR(src);
       const uint16_t *dst16 = CONVERT_TO_SHORTPTR(dst);
       for (int i = 0; i < bh; ++i)
@@ -643,43 +643,43 @@ static AOM_INLINE void get_energy_distribution_fine(
     const BLOCK_SIZE subsize = (BLOCK_SIZE)f_index;
     assert(block_size_wide[bsize] == 4 * block_size_wide[subsize]);
     assert(block_size_high[bsize] == 4 * block_size_high[subsize]);
-    cpi->fn_ptr[subsize].vf(src, src_stride, dst, dst_stride, &esq[0]);
-    cpi->fn_ptr[subsize].vf(src + bw / 4, src_stride, dst + bw / 4, dst_stride,
-                            &esq[1]);
-    cpi->fn_ptr[subsize].vf(src + bw / 2, src_stride, dst + bw / 2, dst_stride,
-                            &esq[2]);
-    cpi->fn_ptr[subsize].vf(src + 3 * bw / 4, src_stride, dst + 3 * bw / 4,
-                            dst_stride, &esq[3]);
+    cpi->ppi->fn_ptr[subsize].vf(src, src_stride, dst, dst_stride, &esq[0]);
+    cpi->ppi->fn_ptr[subsize].vf(src + bw / 4, src_stride, dst + bw / 4,
+                                 dst_stride, &esq[1]);
+    cpi->ppi->fn_ptr[subsize].vf(src + bw / 2, src_stride, dst + bw / 2,
+                                 dst_stride, &esq[2]);
+    cpi->ppi->fn_ptr[subsize].vf(src + 3 * bw / 4, src_stride, dst + 3 * bw / 4,
+                                 dst_stride, &esq[3]);
     src += bh / 4 * src_stride;
     dst += bh / 4 * dst_stride;
 
-    cpi->fn_ptr[subsize].vf(src, src_stride, dst, dst_stride, &esq[4]);
-    cpi->fn_ptr[subsize].vf(src + bw / 4, src_stride, dst + bw / 4, dst_stride,
-                            &esq[5]);
-    cpi->fn_ptr[subsize].vf(src + bw / 2, src_stride, dst + bw / 2, dst_stride,
-                            &esq[6]);
-    cpi->fn_ptr[subsize].vf(src + 3 * bw / 4, src_stride, dst + 3 * bw / 4,
-                            dst_stride, &esq[7]);
+    cpi->ppi->fn_ptr[subsize].vf(src, src_stride, dst, dst_stride, &esq[4]);
+    cpi->ppi->fn_ptr[subsize].vf(src + bw / 4, src_stride, dst + bw / 4,
+                                 dst_stride, &esq[5]);
+    cpi->ppi->fn_ptr[subsize].vf(src + bw / 2, src_stride, dst + bw / 2,
+                                 dst_stride, &esq[6]);
+    cpi->ppi->fn_ptr[subsize].vf(src + 3 * bw / 4, src_stride, dst + 3 * bw / 4,
+                                 dst_stride, &esq[7]);
     src += bh / 4 * src_stride;
     dst += bh / 4 * dst_stride;
 
-    cpi->fn_ptr[subsize].vf(src, src_stride, dst, dst_stride, &esq[8]);
-    cpi->fn_ptr[subsize].vf(src + bw / 4, src_stride, dst + bw / 4, dst_stride,
-                            &esq[9]);
-    cpi->fn_ptr[subsize].vf(src + bw / 2, src_stride, dst + bw / 2, dst_stride,
-                            &esq[10]);
-    cpi->fn_ptr[subsize].vf(src + 3 * bw / 4, src_stride, dst + 3 * bw / 4,
-                            dst_stride, &esq[11]);
+    cpi->ppi->fn_ptr[subsize].vf(src, src_stride, dst, dst_stride, &esq[8]);
+    cpi->ppi->fn_ptr[subsize].vf(src + bw / 4, src_stride, dst + bw / 4,
+                                 dst_stride, &esq[9]);
+    cpi->ppi->fn_ptr[subsize].vf(src + bw / 2, src_stride, dst + bw / 2,
+                                 dst_stride, &esq[10]);
+    cpi->ppi->fn_ptr[subsize].vf(src + 3 * bw / 4, src_stride, dst + 3 * bw / 4,
+                                 dst_stride, &esq[11]);
     src += bh / 4 * src_stride;
     dst += bh / 4 * dst_stride;
 
-    cpi->fn_ptr[subsize].vf(src, src_stride, dst, dst_stride, &esq[12]);
-    cpi->fn_ptr[subsize].vf(src + bw / 4, src_stride, dst + bw / 4, dst_stride,
-                            &esq[13]);
-    cpi->fn_ptr[subsize].vf(src + bw / 2, src_stride, dst + bw / 2, dst_stride,
-                            &esq[14]);
-    cpi->fn_ptr[subsize].vf(src + 3 * bw / 4, src_stride, dst + 3 * bw / 4,
-                            dst_stride, &esq[15]);
+    cpi->ppi->fn_ptr[subsize].vf(src, src_stride, dst, dst_stride, &esq[12]);
+    cpi->ppi->fn_ptr[subsize].vf(src + bw / 4, src_stride, dst + bw / 4,
+                                 dst_stride, &esq[13]);
+    cpi->ppi->fn_ptr[subsize].vf(src + bw / 2, src_stride, dst + bw / 2,
+                                 dst_stride, &esq[14]);
+    cpi->ppi->fn_ptr[subsize].vf(src + 3 * bw / 4, src_stride, dst + 3 * bw / 4,
+                                 dst_stride, &esq[15]);
   }
 
   double total = (double)esq[0] + esq[1] + esq[2] + esq[3] + esq[4] + esq[5] +
@@ -769,13 +769,13 @@ static AOM_INLINE void get_2x2_normalized_sses_and_sads(
 
         if (sse_norm_arr) {
           unsigned int this_sse;
-          cpi->fn_ptr[tx_bsize_half].vf(this_src, src_stride, this_dst,
-                                        dst_stride, &this_sse);
+          cpi->ppi->fn_ptr[tx_bsize_half].vf(this_src, src_stride, this_dst,
+                                             dst_stride, &this_sse);
           sse_norm_arr[row * 2 + col] = (double)this_sse / num_samples_half;
         }
 
         if (sad_norm_arr) {
-          const unsigned int this_sad = cpi->fn_ptr[tx_bsize_half].sdf(
+          const unsigned int this_sad = cpi->ppi->fn_ptr[tx_bsize_half].sdf(
               this_src, src_stride, this_dst, dst_stride);
           sad_norm_arr[row * 2 + col] = (double)this_sad / num_samples_half;
         }
@@ -832,11 +832,11 @@ static AOM_INLINE void PrintTransformUnitStats(
   const uint8_t *const dst =
       &pd->dst.buf[(blk_row * dst_stride + blk_col) << MI_SIZE_LOG2];
   unsigned int sse;
-  cpi->fn_ptr[tx_bsize].vf(src, src_stride, dst, dst_stride, &sse);
+  cpi->ppi->fn_ptr[tx_bsize].vf(src, src_stride, dst, dst_stride, &sse);
   const double sse_norm = (double)sse / num_samples;
 
   const unsigned int sad =
-      cpi->fn_ptr[tx_bsize].sdf(src, src_stride, dst, dst_stride);
+      cpi->ppi->fn_ptr[tx_bsize].sdf(src, src_stride, dst, dst_stride);
   const double sad_norm = (double)sad / num_samples;
 
   fprintf(fout, " %g %g", sse_norm, sad_norm);
@@ -905,8 +905,8 @@ static int64_t get_sse(const AV1_COMP *cpi, const MACROBLOCK *x) {
 
     if (x->skip_chroma_rd && plane) continue;
 
-    cpi->fn_ptr[bs].vf(p->src.buf, p->src.stride, pd->dst.buf, pd->dst.stride,
-                       &sse);
+    cpi->ppi->fn_ptr[bs].vf(p->src.buf, p->src.stride, pd->dst.buf,
+                            pd->dst.stride, &sse);
     total_sse += sse;
   }
   total_sse <<= 4;
@@ -1030,7 +1030,7 @@ static AOM_INLINE void PrintPredictionUnitStats(const AV1_COMP *const cpi,
   const double sse_norm = (double)sse / num_samples;
 
   const unsigned int sad =
-      cpi->fn_ptr[plane_bsize].sdf(src, src_stride, dst, dst_stride);
+      cpi->ppi->fn_ptr[plane_bsize].sdf(src, src_stride, dst, dst_stride);
   const double sad_norm =
       (double)sad / (1 << num_pels_log2_lookup[plane_bsize]);
 
@@ -1183,7 +1183,7 @@ static unsigned pixel_dist_visible_only(
   unsigned sse;
 
   if (txb_rows == visible_rows && txb_cols == visible_cols) {
-    cpi->fn_ptr[tx_bsize].vf(src, src_stride, dst, dst_stride, &sse);
+    cpi->ppi->fn_ptr[tx_bsize].vf(src, src_stride, dst, dst_stride, &sse);
     return sse;
   }
 
@@ -2024,9 +2024,15 @@ get_tx_mask(const AV1_COMP *cpi, MACROBLOCK *x, int plane, int block,
     assert(plane == 0);
     allowed_tx_mask = ext_tx_used_flag;
     int num_allowed = 0;
-    const FRAME_UPDATE_TYPE update_type = get_frame_update_type(&cpi->gf_group);
-    const int *tx_type_probs =
-        cpi->frame_probs.tx_type_probs[update_type][tx_size];
+    const FRAME_UPDATE_TYPE update_type =
+        get_frame_update_type(&cpi->ppi->gf_group, cpi->gf_frame_index);
+    int *tx_type_probs;
+#if CONFIG_FRAME_PARALLEL_ENCODE
+    tx_type_probs =
+        (int *)cpi->ppi->temp_frame_probs.tx_type_probs[update_type][tx_size];
+#else
+    tx_type_probs = (int *)cpi->frame_probs.tx_type_probs[update_type][tx_size];
+#endif
     int i;
 
     if (cpi->sf.tx_sf.tx_type_search.prune_tx_type_using_stats) {
@@ -2097,25 +2103,8 @@ get_tx_mask(const AV1_COMP *cpi, MACROBLOCK *x, int plane, int block,
 
 #if CONFIG_RD_DEBUG
 static INLINE void update_txb_coeff_cost(RD_STATS *rd_stats, int plane,
-                                         TX_SIZE tx_size, int blk_row,
-                                         int blk_col, int txb_coeff_cost) {
-  (void)blk_row;
-  (void)blk_col;
-  (void)tx_size;
+                                         int txb_coeff_cost) {
   rd_stats->txb_coeff_cost[plane] += txb_coeff_cost;
-
-  {
-    const int txb_h = tx_size_high_unit[tx_size];
-    const int txb_w = tx_size_wide_unit[tx_size];
-    int idx, idy;
-    for (idy = 0; idy < txb_h; ++idy)
-      for (idx = 0; idx < txb_w; ++idx)
-        rd_stats->txb_coeff_cost_map[plane][blk_row + idy][blk_col + idx] = 0;
-
-    rd_stats->txb_coeff_cost_map[plane][blk_row][blk_col] = txb_coeff_cost;
-  }
-  assert(blk_row < TXB_COEFF_COST_MAP_SIZE);
-  assert(blk_col < TXB_COEFF_COST_MAP_SIZE);
 }
 #endif
 
@@ -2674,8 +2663,7 @@ static AOM_INLINE void try_tx_block_no_split(
            RDCOST(x->rdmult, zero_blk_rate, rd_stats->sse));
   if (pick_skip_txfm) {
 #if CONFIG_RD_DEBUG
-    update_txb_coeff_cost(rd_stats, 0, tx_size, blk_row, blk_col,
-                          zero_blk_rate - rd_stats->rate);
+    update_txb_coeff_cost(rd_stats, 0, zero_blk_rate - rd_stats->rate);
 #endif  // CONFIG_RD_DEBUG
     rd_stats->rate = zero_blk_rate;
     rd_stats->dist = rd_stats->sse;
@@ -2720,11 +2708,12 @@ static AOM_INLINE void try_tx_block_split(
       x->mode_costs.txfm_partition_cost[txfm_partition_ctx][1];
 
   for (int r = 0, blk_idx = 0; r < txb_height; r += sub_txb_height) {
+    const int offsetr = blk_row + r;
+    if (offsetr >= max_blocks_high) break;
     for (int c = 0; c < txb_width; c += sub_txb_width, ++blk_idx) {
       assert(blk_idx < 4);
-      const int offsetr = blk_row + r;
       const int offsetc = blk_col + c;
-      if (offsetr >= max_blocks_high || offsetc >= max_blocks_wide) continue;
+      if (offsetc >= max_blocks_wide) continue;
 
       RD_STATS this_rd_stats;
       int this_cost_valid = 1;
@@ -3173,8 +3162,7 @@ static AOM_INLINE void block_rd_txfm(int plane, int block, int blk_row,
   }
 
 #if CONFIG_RD_DEBUG
-  update_txb_coeff_cost(&this_rd_stats, plane, tx_size, blk_row, blk_col,
-                        this_rd_stats.rate);
+  update_txb_coeff_cost(&this_rd_stats, plane, this_rd_stats.rate);
 #endif  // CONFIG_RD_DEBUG
   av1_set_txb_context(x, plane, block, tx_size, a, l);
 
@@ -3452,15 +3440,18 @@ static AOM_INLINE void tx_block_yrd(
     const int txb_width = tx_size_wide_unit[sub_txs];
     const int txb_height = tx_size_high_unit[sub_txs];
     const int step = txb_height * txb_width;
+    const int row_end =
+        AOMMIN(tx_size_high_unit[tx_size], max_blocks_high - blk_row);
+    const int col_end =
+        AOMMIN(tx_size_wide_unit[tx_size], max_blocks_wide - blk_col);
     RD_STATS pn_rd_stats;
     int64_t this_rd = 0;
     assert(txb_width > 0 && txb_height > 0);
 
-    for (int row = 0; row < tx_size_high_unit[tx_size]; row += txb_height) {
-      for (int col = 0; col < tx_size_wide_unit[tx_size]; col += txb_width) {
-        const int offsetr = blk_row + row;
+    for (int row = 0; row < row_end; row += txb_height) {
+      const int offsetr = blk_row + row;
+      for (int col = 0; col < col_end; col += txb_width) {
         const int offsetc = blk_col + col;
-        if (offsetr >= max_blocks_high || offsetc >= max_blocks_wide) continue;
 
         av1_init_rd_stats(&pn_rd_stats);
         tx_block_yrd(cpi, x, offsetr, offsetc, block, sub_txs, plane_bsize,

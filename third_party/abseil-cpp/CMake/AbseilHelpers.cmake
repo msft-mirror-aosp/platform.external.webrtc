@@ -17,7 +17,6 @@
 include(CMakeParseArguments)
 include(AbseilConfigureCopts)
 include(AbseilDll)
-include(AbseilInstallDirs)
 
 # The IDE folder for Abseil that will be used if Abseil is included in a CMake
 # project that sets
@@ -142,7 +141,8 @@ function(absl_cc_library)
   endif()
 
   # Generate a pkg-config file for every library:
-  if((_build_type STREQUAL "static" OR _build_type STREQUAL "shared") AND ABSL_ENABLE_INSTALL)
+  if((_build_type STREQUAL "static" OR _build_type STREQUAL "shared")
+     AND ABSL_ENABLE_INSTALL)
     if(NOT ABSL_CC_LIB_TESTONLY)
       if(absl_VERSION)
         set(PC_VERSION "${absl_VERSION}")
@@ -151,6 +151,10 @@ function(absl_cc_library)
       endif()
       foreach(dep ${ABSL_CC_LIB_DEPS})
         if(${dep} MATCHES "^absl::(.*)")
+	  # Join deps with commas.
+          if(PC_DEPS)
+            set(PC_DEPS "${PC_DEPS},")
+          endif()
           set(PC_DEPS "${PC_DEPS} absl_${CMAKE_MATCH_1} = ${PC_VERSION}")
         endif()
       endforeach()
@@ -167,18 +171,18 @@ function(absl_cc_library)
       FILE(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/lib/pkgconfig/absl_${_NAME}.pc" CONTENT "\
 prefix=${CMAKE_INSTALL_PREFIX}\n\
 exec_prefix=\${prefix}\n\
-libdir=\${prefix}/lib\n\
-includedir=\${prefix}/include\n\
+libdir=${CMAKE_INSTALL_FULL_LIBDIR}\n\
+includedir=${CMAKE_INSTALL_FULL_INCLUDEDIR}\n\
 \n\
 Name: absl_${_NAME}\n\
 Description: Abseil ${_NAME} library\n\
 URL: https://abseil.io/\n\
 Version: ${PC_VERSION}\n\
-Requires.private:${PC_DEPS}\n\
+Requires:${PC_DEPS}\n\
 Libs: -L\${libdir} $<JOIN:${ABSL_CC_LIB_LINKOPTS}, > $<$<NOT:$<BOOL:${ABSL_CC_LIB_IS_INTERFACE}>>:-labsl_${_NAME}>\n\
 Cflags: -I\${includedir}${PC_CFLAGS}\n")
       INSTALL(FILES "${CMAKE_BINARY_DIR}/lib/pkgconfig/absl_${_NAME}.pc"
-              DESTINATION "${CMAKE_INSTALL_PREFIX}/lib/pkgconfig")
+              DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig")
     endif()
   endif()
 
@@ -235,7 +239,7 @@ Cflags: -I\${includedir}${PC_CFLAGS}\n")
     target_include_directories(${_NAME}
       PUBLIC
         "$<BUILD_INTERFACE:${ABSL_COMMON_INCLUDE_DIRS}>"
-        $<INSTALL_INTERFACE:${ABSL_INSTALL_INCLUDEDIR}>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
     )
     target_compile_options(${_NAME}
       PRIVATE ${ABSL_CC_LIB_COPTS})
@@ -260,7 +264,6 @@ Cflags: -I\${includedir}${PC_CFLAGS}\n")
     if(ABSL_ENABLE_INSTALL)
       set_target_properties(${_NAME} PROPERTIES
         OUTPUT_NAME "absl_${_NAME}"
-        # TODO(b/173696973): Figure out how to set SOVERSION for LTS releases.
         SOVERSION 0
       )
     endif()
@@ -270,7 +273,7 @@ Cflags: -I\${includedir}${PC_CFLAGS}\n")
     target_include_directories(${_NAME}
       INTERFACE
         "$<BUILD_INTERFACE:${ABSL_COMMON_INCLUDE_DIRS}>"
-        $<INSTALL_INTERFACE:${ABSL_INSTALL_INCLUDEDIR}>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
       )
 
     if (_build_type STREQUAL "dll")
@@ -290,9 +293,9 @@ Cflags: -I\${includedir}${PC_CFLAGS}\n")
   # installed abseil can't be tested.
   if(NOT ABSL_CC_LIB_TESTONLY AND ABSL_ENABLE_INSTALL)
     install(TARGETS ${_NAME} EXPORT ${PROJECT_NAME}Targets
-          RUNTIME DESTINATION ${ABSL_INSTALL_BINDIR}
-          LIBRARY DESTINATION ${ABSL_INSTALL_LIBDIR}
-          ARCHIVE DESTINATION ${ABSL_INSTALL_LIBDIR}
+          RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+          LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+          ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     )
   endif()
 
@@ -333,8 +336,8 @@ endfunction()
 #     "awesome_test.cc"
 #   DEPS
 #     absl::awesome
-#     gmock
-#     gtest_main
+#     GTest::gmock
+#     GTest::gtest_main
 # )
 function(absl_cc_test)
   if(NOT BUILD_TESTING)

@@ -40,12 +40,7 @@
 namespace webrtc {
 class VideoDecoderFactory;
 class VideoEncoderFactory;
-struct MediaConfig;
 }  // namespace webrtc
-
-namespace rtc {
-class Thread;
-}  // namespace rtc
 
 namespace cricket {
 
@@ -402,7 +397,7 @@ class WebRtcVideoChannel : public VideoMediaChannel,
         RTC_EXCLUSIVE_LOCKS_REQUIRED(&thread_checker_);
 
     webrtc::SequenceChecker thread_checker_;
-    rtc::Thread* worker_thread_;
+    webrtc::TaskQueueBase* const worker_thread_;
     const std::vector<uint32_t> ssrcs_ RTC_GUARDED_BY(&thread_checker_);
     const std::vector<SsrcGroup> ssrc_groups_ RTC_GUARDED_BY(&thread_checker_);
     webrtc::Call* const call_;
@@ -441,7 +436,6 @@ class WebRtcVideoChannel : public VideoMediaChannel,
         webrtc::Call* call,
         const StreamParams& sp,
         webrtc::VideoReceiveStream::Config config,
-        webrtc::VideoDecoderFactory* decoder_factory,
         bool default_stream,
         const std::vector<VideoCodecSettings>& recv_codecs,
         const webrtc::FlexfecReceiveStream::Config& flexfec_config);
@@ -506,8 +500,6 @@ class WebRtcVideoChannel : public VideoMediaChannel,
     webrtc::FlexfecReceiveStream::Config flexfec_config_;
     webrtc::FlexfecReceiveStream* flexfec_stream_;
 
-    webrtc::VideoDecoderFactory* const decoder_factory_;
-
     webrtc::Mutex sink_lock_;
     rtc::VideoSinkInterface<webrtc::VideoFrame>* sink_
         RTC_GUARDED_BY(sink_lock_);
@@ -553,7 +545,7 @@ class WebRtcVideoChannel : public VideoMediaChannel,
   void FillSendAndReceiveCodecStats(VideoMediaInfo* video_media_info)
       RTC_EXCLUSIVE_LOCKS_REQUIRED(thread_checker_);
 
-  rtc::Thread* const worker_thread_;
+  webrtc::TaskQueueBase* const worker_thread_;
   webrtc::ScopedTaskSafety task_safety_;
   webrtc::SequenceChecker network_thread_checker_;
   webrtc::SequenceChecker thread_checker_;
@@ -593,6 +585,8 @@ class WebRtcVideoChannel : public VideoMediaChannel,
   //   is a risk of receiving ssrcs for other, recently added m= sections.
   uint32_t demuxer_criteria_id_ RTC_GUARDED_BY(thread_checker_) = 0;
   uint32_t demuxer_criteria_completed_id_ RTC_GUARDED_BY(thread_checker_) = 0;
+  absl::optional<int64_t> last_unsignalled_ssrc_creation_time_ms_
+      RTC_GUARDED_BY(thread_checker_);
   std::set<uint32_t> send_ssrcs_ RTC_GUARDED_BY(thread_checker_);
   std::set<uint32_t> receive_ssrcs_ RTC_GUARDED_BY(thread_checker_);
 

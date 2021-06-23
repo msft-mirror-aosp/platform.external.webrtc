@@ -44,7 +44,6 @@ namespace cricket {
 
 typedef std::vector<AudioCodec> AudioCodecs;
 typedef std::vector<VideoCodec> VideoCodecs;
-typedef std::vector<RtpDataCodec> RtpDataCodecs;
 typedef std::vector<CryptoParams> CryptoParamsVec;
 typedef std::vector<webrtc::RtpExtension> RtpHeaderExtensions;
 
@@ -144,6 +143,11 @@ class MediaContentDescription {
     cryptos_ = cryptos;
   }
 
+  // List of RTP header extensions. URIs are **NOT** guaranteed to be unique
+  // as they can appear twice when both encrypted and non-encrypted extensions
+  // are present.
+  // Use RtpExtension::FindHeaderExtensionByUri for finding and
+  // RtpExtension::DeduplicateHeaderExtensions for filtering.
   virtual const RtpHeaderExtensions& rtp_header_extensions() const {
     return rtp_header_extensions_;
   }
@@ -484,6 +488,8 @@ class ContentGroup {
   bool HasContentName(const std::string& content_name) const;
   void AddContentName(const std::string& content_name);
   bool RemoveContentName(const std::string& content_name);
+  // for debugging
+  std::string ToString() const;
 
  private:
   std::string semantics_;
@@ -568,6 +574,8 @@ class SessionDescription {
   // Group accessors.
   const ContentGroups& groups() const { return content_groups_; }
   const ContentGroup* GetGroupByName(const std::string& name) const;
+  std::vector<const ContentGroup*> GetGroupsByName(
+      const std::string& name) const;
   bool HasGroup(const std::string& name) const;
 
   // Group mutators.

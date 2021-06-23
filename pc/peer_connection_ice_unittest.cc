@@ -23,10 +23,10 @@
 #include "api/audio_codecs/builtin_audio_decoder_factory.h"
 #include "api/audio_codecs/builtin_audio_encoder_factory.h"
 #include "api/create_peerconnection_factory.h"
-#include "api/peer_connection_proxy.h"
 #include "api/uma_metrics.h"
 #include "api/video_codecs/builtin_video_decoder_factory.h"
 #include "api/video_codecs/builtin_video_encoder_factory.h"
+#include "pc/peer_connection_proxy.h"
 #include "pc/test/fake_audio_capture_module.h"
 #include "pc/test/mock_peer_connection_observers.h"
 #include "rtc_base/fake_network.h"
@@ -768,8 +768,8 @@ TEST_P(PeerConnectionIceTest,
   ASSERT_TRUE(callee->SetRemoteDescription(caller->CreateOfferAndSetAsLocal()));
 
   // Chain an operation that will block AddIceCandidate() from executing.
-  rtc::scoped_refptr<MockCreateSessionDescriptionObserver> answer_observer(
-      new rtc::RefCountedObject<MockCreateSessionDescriptionObserver>());
+  auto answer_observer =
+      rtc::make_ref_counted<MockCreateSessionDescriptionObserver>();
   callee->pc()->CreateAnswer(answer_observer, RTCOfferAnswerOptions());
 
   auto jsep_candidate =
@@ -816,8 +816,8 @@ TEST_P(PeerConnectionIceTest,
   ASSERT_TRUE(callee->SetRemoteDescription(caller->CreateOfferAndSetAsLocal()));
 
   // Chain an operation that will block AddIceCandidate() from executing.
-  rtc::scoped_refptr<MockCreateSessionDescriptionObserver> answer_observer(
-      new rtc::RefCountedObject<MockCreateSessionDescriptionObserver>());
+  auto answer_observer =
+      rtc::make_ref_counted<MockCreateSessionDescriptionObserver>();
   callee->pc()->CreateAnswer(answer_observer, RTCOfferAnswerOptions());
 
   auto jsep_candidate =

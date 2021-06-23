@@ -465,10 +465,9 @@ RTCErrorOr<rtc::scoped_refptr<PeerConnection>> PeerConnection::Create(
   }
 
   // The PeerConnection constructor consumes some, but not all, dependencies.
-  rtc::scoped_refptr<PeerConnection> pc(
-      new rtc::RefCountedObject<PeerConnection>(
-          context, options, is_unified_plan, std::move(event_log),
-          std::move(call), dependencies, dtls_enabled));
+  auto pc = rtc::make_ref_counted<PeerConnection>(
+      context, options, is_unified_plan, std::move(event_log), std::move(call),
+      dependencies, dtls_enabled);
   RTCError init_error = pc->Initialize(configuration, std::move(dependencies));
   if (!init_error.ok()) {
     RTC_LOG(LS_ERROR) << "PeerConnection initialization failed";
@@ -632,10 +631,12 @@ RTCError PeerConnection::Initialize(
   if (!IsUnifiedPlan()) {
     rtp_manager()->transceivers()->Add(
         RtpTransceiverProxyWithInternal<RtpTransceiver>::Create(
-            signaling_thread(), new RtpTransceiver(cricket::MEDIA_TYPE_AUDIO)));
+            signaling_thread(),
+            new RtpTransceiver(cricket::MEDIA_TYPE_AUDIO, channel_manager())));
     rtp_manager()->transceivers()->Add(
         RtpTransceiverProxyWithInternal<RtpTransceiver>::Create(
-            signaling_thread(), new RtpTransceiver(cricket::MEDIA_TYPE_VIDEO)));
+            signaling_thread(),
+            new RtpTransceiver(cricket::MEDIA_TYPE_VIDEO, channel_manager())));
   }
 
   int delay_ms = configuration.report_usage_pattern_delay_ms
@@ -996,9 +997,11 @@ PeerConnection::AddTransceiver(
   parameters.encodings = init.send_encodings;
 
   // Encodings are dropped from the tail if too many are provided.
-  if (parameters.encodings.size() > kMaxSimulcastStreams) {
+  size_t max_simulcast_streams =
+      media_type == cricket::MEDIA_TYPE_VIDEO ? kMaxSimulcastStreams : 1u;
+  if (parameters.encodings.size() > max_simulcast_streams) {
     parameters.encodings.erase(
-        parameters.encodings.begin() + kMaxSimulcastStreams,
+        parameters.encodings.begin() + max_simulcast_streams,
         parameters.encodings.end());
   }
 
@@ -1276,9 +1279,9 @@ absl::optional<bool> PeerConnection::can_trickle_ice_candidates() {
       "trickle");
 }
 
-rtc::scoped_refptr<DataChannelInterface> PeerConnection::CreateDataChannel(
-    const std::string& label,
-    const DataChannelInit* config) {
+RTCErrorOr<rtc::scoped_refptr<DataChannelInterface>>
+PeerConnection::CreateDataChannelOrError(const std::string& label,
+                                         const DataChannelInit* config) {
   RTC_DCHECK_RUN_ON(signaling_thread());
   TRACE_EVENT0("webrtc", "PeerConnection::CreateDataChannel");
 
@@ -1288,14 +1291,16 @@ rtc::scoped_refptr<DataChannelInterface> PeerConnection::CreateDataChannel(
   if (config) {
     internal_config.reset(new InternalDataChannelInit(*config));
   }
+  // TODO(bugs.webrtc.org/12796): Return a more specific error.
   rtc::scoped_refptr<DataChannelInterface> channel(
       data_channel_controller_.InternalCreateDataChannelWithProxy(
           label, internal_config.get()));
   if (!channel.get()) {
-    return nullptr;
+    return RTCError(RTCErrorType::INTERNAL_ERROR,
+                    "Data channel creation failed");
   }
 
-  // Trigger the onRenegotiationNeeded event for every new RTP DataChannel, or
+  // Trigger the onRenegotiationNeeded event for
   // the first SCTP DataChannel.
   if (first_datachannel) {
     sdp_handler_->UpdateNegotiationNeeded();
@@ -1878,6 +1883,16 @@ void PeerConnection::SetConnectionState(
             configuration_.ice_candidate_pool_size, 0, 255, 256);
         break;
     }
+
+    // Record whether there was a local or remote provisional answer.
+    ProvisionalAnswerUsage pranswer = kProvisionalAnswerNotUsed;
+    if (local_description()->GetType() == SdpType::kPrAnswer) {
+      pranswer = kProvisionalAnswerLocal;
+    } else if (remote_description()->GetType() == SdpType::kPrAnswer) {
+      pranswer = kProvisionalAnswerRemote;
+    }
+    RTC_HISTOGRAM_ENUMERATION("WebRTC.PeerConnection.ProvisionalAnswer",
+                              pranswer, kProvisionalAnswerMax);
   }
 }
 
@@ -2183,6 +2198,7 @@ cricket::CandidateStatsList PeerConnection::GetPooledCandidateStats() const {
 std::map<std::string, cricket::TransportStats>
 PeerConnection::GetTransportStatsByNames(
     const std::set<std::string>& transport_names) {
+  TRACE_EVENT0("webrtc", "PeerConnection::GetTransportStatsByNames");
   RTC_DCHECK_RUN_ON(network_thread());
   if (!network_thread_safety_->alive())
     return {};
@@ -2413,21 +2429,20 @@ void PeerConnection::TeardownDataChannelTransport_n() {
 }
 
 // Returns false if bundle is enabled and rtcp_mux is disabled.
-bool PeerConnection::ValidateBundleSettings(const SessionDescription* desc) {
-  bool bundle_enabled = desc->HasGroup(cricket::GROUP_TYPE_BUNDLE);
-  if (!bundle_enabled)
+bool PeerConnection::ValidateBundleSettings(
+    const SessionDescription* desc,
+    const std::map<std::string, const cricket::ContentGroup*>&
+        bundle_groups_by_mid) {
+  if (bundle_groups_by_mid.empty())
     return true;
-
-  const cricket::ContentGroup* bundle_group =
-      desc->GetGroupByName(cricket::GROUP_TYPE_BUNDLE);
-  RTC_DCHECK(bundle_group != NULL);
 
   const cricket::ContentInfos& contents = desc->contents();
   for (cricket::ContentInfos::const_iterator citer = contents.begin();
        citer != contents.end(); ++citer) {
     const cricket::ContentInfo* content = (&*citer);
     RTC_DCHECK(content != NULL);
-    if (bundle_group->HasContentName(content->name) && !content->rejected &&
+    auto it = bundle_groups_by_mid.find(content->name);
+    if (it != bundle_groups_by_mid.end() && !content->rejected &&
         content->type == MediaProtocolType::kRtp) {
       if (!HasRtcpMuxEnabled(content))
         return false;
@@ -2632,6 +2647,7 @@ void PeerConnection::OnTransportControllerGatheringState(
 
 // Runs on network_thread().
 void PeerConnection::ReportTransportStats() {
+  TRACE_EVENT0("webrtc", "PeerConnection::ReportTransportStats");
   rtc::Thread::ScopedDisallowBlockingCalls no_blocking_calls;
   std::map<std::string, std::set<cricket::MediaType>>
       media_types_by_transport_name;
@@ -2865,18 +2881,10 @@ std::function<void(const rtc::CopyOnWriteBuffer& packet,
                    int64_t packet_time_us)>
 PeerConnection::InitializeRtcpCallback() {
   RTC_DCHECK_RUN_ON(network_thread());
-  return [this, flag = worker_thread_safety_](
-             const rtc::CopyOnWriteBuffer& packet, int64_t packet_time_us) {
+  return [this](const rtc::CopyOnWriteBuffer& packet, int64_t packet_time_us) {
     RTC_DCHECK_RUN_ON(network_thread());
-    // TODO(bugs.webrtc.org/11993): We should actually be delivering this call
-    // directly to the Call class somehow directly on the network thread and not
-    // incur this hop here. The DeliverPacket() method will eventually just have
-    // to hop back over to the network thread.
-    worker_thread()->PostTask(ToQueuedTask(flag, [this, packet,
-                                                  packet_time_us] {
-      RTC_DCHECK_RUN_ON(worker_thread());
-      call_->Receiver()->DeliverPacket(MediaType::ANY, packet, packet_time_us);
-    }));
+    call_ptr_->Receiver()->DeliverPacket(MediaType::ANY, packet,
+                                         packet_time_us);
   };
 }
 

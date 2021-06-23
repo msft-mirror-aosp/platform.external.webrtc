@@ -321,6 +321,7 @@ enum { PLANE_TYPE_Y, PLANE_TYPE_UV, PLANE_TYPES } UENUM1BYTE(PLANE_TYPE);
 #define CFL_ALPHABET_SIZE_LOG2 4
 #define CFL_ALPHABET_SIZE (1 << CFL_ALPHABET_SIZE_LOG2)
 #define CFL_MAGS_SIZE ((2 << CFL_ALPHABET_SIZE_LOG2) + 1)
+#define CFL_INDEX_ZERO CFL_ALPHABET_SIZE
 #define CFL_IDX_U(idx) (idx >> CFL_ALPHABET_SIZE_LOG2)
 #define CFL_IDX_V(idx) (idx & (CFL_ALPHABET_SIZE - 1))
 
@@ -450,6 +451,14 @@ enum {
   UV_INTRA_MODES,
   UV_MODE_INVALID,  // For uv_mode in inter blocks
 } UENUM1BYTE(UV_PREDICTION_MODE);
+
+// Number of top model rd to store for pruning y modes in intra mode decision
+#define TOP_INTRA_MODEL_COUNT 4
+// Total number of luma intra prediction modes (include both directional and
+// non-directional modes)
+// 61 = PAETH_PRED - DC_PRED + 1 + 6 * 8
+// Because there are 8 directional modes, each has additional 6 delta angles.
+#define LUMA_MODE_COUNT 61
 
 enum {
   SIMPLE_TRANSLATION,
