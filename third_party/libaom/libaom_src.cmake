@@ -288,6 +288,8 @@ set(aom_av1_encoder_sources
     
   "${AOM_ROOT}/libaom/av1/encoder/extend.c" 
     
+  "${AOM_ROOT}/libaom/av1/encoder/external_partition.c" 
+    
     
   "${AOM_ROOT}/libaom/av1/encoder/hash.c" 
     
@@ -609,6 +611,8 @@ set(aom_dsp_encoder_sources
   "${AOM_ROOT}/libaom/aom_dsp/sad.c" 
   "${AOM_ROOT}/libaom/aom_dsp/sad_av1.c" 
   "${AOM_ROOT}/libaom/aom_dsp/sse.c" 
+  "${AOM_ROOT}/libaom/aom_dsp/ssim.c" 
+    
   "${AOM_ROOT}/libaom/aom_dsp/sum_squares.c" 
   "${AOM_ROOT}/libaom/aom_dsp/variance.c" 
     
@@ -649,6 +653,7 @@ set(aom_scale_sources
 )
 
 set(aom_sources    
+    
     
     
     

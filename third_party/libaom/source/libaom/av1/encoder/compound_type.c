@@ -48,31 +48,31 @@ static INLINE int is_comp_rd_match(const AV1_COMP *const cpi,
     if (is_global_mv_block(mi, wm->wmtype) != st->is_global[i]) return 0;
   }
 
-  // Store the stats for COMPOUND_AVERAGE and COMPOUND_DISTWTD
-  for (int comp_type = COMPOUND_AVERAGE; comp_type <= COMPOUND_DISTWTD;
-       comp_type++) {
-    comp_rate[comp_type] = st->rate[comp_type];
-    comp_dist[comp_type] = st->dist[comp_type];
-    comp_model_rate[comp_type] = st->model_rate[comp_type];
-    comp_model_dist[comp_type] = st->model_dist[comp_type];
-    comp_rs2[comp_type] = st->comp_rs2[comp_type];
-  }
-
-  // For compound wedge/segment, reuse data only if NEWMV is not present in
-  // either of the directions
+  int reuse_data[COMPOUND_TYPES] = { 1, 1, 0, 0 };
+  // For compound wedge, reuse data if newmv search is disabled when NEWMV is
+  // present or if NEWMV is not present in either of the directions
   if ((!have_newmv_in_inter_mode(mi->mode) &&
        !have_newmv_in_inter_mode(st->mode)) ||
-      (cpi->sf.inter_sf.disable_interinter_wedge_newmv_search)) {
-    memcpy(&comp_rate[COMPOUND_WEDGE], &st->rate[COMPOUND_WEDGE],
-           sizeof(comp_rate[COMPOUND_WEDGE]) * 2);
-    memcpy(&comp_dist[COMPOUND_WEDGE], &st->dist[COMPOUND_WEDGE],
-           sizeof(comp_dist[COMPOUND_WEDGE]) * 2);
-    memcpy(&comp_model_rate[COMPOUND_WEDGE], &st->model_rate[COMPOUND_WEDGE],
-           sizeof(comp_model_rate[COMPOUND_WEDGE]) * 2);
-    memcpy(&comp_model_dist[COMPOUND_WEDGE], &st->model_dist[COMPOUND_WEDGE],
-           sizeof(comp_model_dist[COMPOUND_WEDGE]) * 2);
-    memcpy(&comp_rs2[COMPOUND_WEDGE], &st->comp_rs2[COMPOUND_WEDGE],
-           sizeof(comp_rs2[COMPOUND_WEDGE]) * 2);
+      (cpi->sf.inter_sf.disable_interinter_wedge_newmv_search))
+    reuse_data[COMPOUND_WEDGE] = 1;
+  // For compound diffwtd, reuse data if fast search is enabled (no newmv search
+  // when NEWMV is present) or if NEWMV is not present in either of the
+  // directions
+  if (cpi->sf.inter_sf.enable_fast_compound_mode_search ||
+      (!have_newmv_in_inter_mode(mi->mode) &&
+       !have_newmv_in_inter_mode(st->mode)))
+    reuse_data[COMPOUND_DIFFWTD] = 1;
+
+  // Store the stats for the different compound types
+  for (int comp_type = COMPOUND_AVERAGE; comp_type < COMPOUND_TYPES;
+       comp_type++) {
+    if (reuse_data[comp_type]) {
+      comp_rate[comp_type] = st->rate[comp_type];
+      comp_dist[comp_type] = st->dist[comp_type];
+      comp_model_rate[comp_type] = st->model_rate[comp_type];
+      comp_model_dist[comp_type] = st->model_dist[comp_type];
+      comp_rs2[comp_type] = st->comp_rs2[comp_type];
+    }
   }
   return 1;
 }
@@ -166,14 +166,14 @@ static int8_t estimate_wedge_sign(const AV1_COMP *cpi, const MACROBLOCK *x,
   // TODO(nithya): Sign estimation assumes 45 degrees (1st and 4th quadrants)
   // for all codebooks; experiment with other quadrant combinations for
   // 0, 90 and 135 degrees also.
-  cpi->fn_ptr[f_index].vf(src, src_stride, pred0, stride0, &esq[0][0]);
-  cpi->fn_ptr[f_index].vf(src + bh_by2 * src_stride + bw_by2, src_stride,
-                          pred0 + bh_by2 * stride0 + bw_by2, stride0,
-                          &esq[0][1]);
-  cpi->fn_ptr[f_index].vf(src, src_stride, pred1, stride1, &esq[1][0]);
-  cpi->fn_ptr[f_index].vf(src + bh_by2 * src_stride + bw_by2, src_stride,
-                          pred1 + bh_by2 * stride1 + bw_by2, stride0,
-                          &esq[1][1]);
+  cpi->ppi->fn_ptr[f_index].vf(src, src_stride, pred0, stride0, &esq[0][0]);
+  cpi->ppi->fn_ptr[f_index].vf(src + bh_by2 * src_stride + bw_by2, src_stride,
+                               pred0 + bh_by2 * stride0 + bw_by2, stride0,
+                               &esq[0][1]);
+  cpi->ppi->fn_ptr[f_index].vf(src, src_stride, pred1, stride1, &esq[1][0]);
+  cpi->ppi->fn_ptr[f_index].vf(src + bh_by2 * src_stride + bw_by2, src_stride,
+                               pred1 + bh_by2 * stride1 + bw_by2, stride0,
+                               &esq[1][1]);
 
   tl = ((int64_t)esq[0][0]) - ((int64_t)esq[1][0]);
   br = ((int64_t)esq[1][1]) - ((int64_t)esq[0][1]);
@@ -314,7 +314,7 @@ static int64_t pick_interinter_wedge(
   int8_t wedge_sign = 0;
 
   assert(is_interinter_compound_used(COMPOUND_WEDGE, bsize));
-  assert(cpi->common.seq_params.enable_masked_compound);
+  assert(cpi->common.seq_params->enable_masked_compound);
 
   if (cpi->sf.inter_sf.fast_wedge_sign_estimate) {
     wedge_sign = estimate_wedge_sign(cpi, x, bsize, p0, bw, p1, bw);
@@ -392,7 +392,7 @@ static int64_t pick_interintra_wedge(const AV1_COMP *const cpi,
   const MACROBLOCKD *const xd = &x->e_mbd;
   MB_MODE_INFO *const mbmi = xd->mi[0];
   assert(av1_is_wedge_used(bsize));
-  assert(cpi->common.seq_params.enable_interintra_compound);
+  assert(cpi->common.seq_params->enable_interintra_compound);
 
   const struct buf_2d *const src = &x->plane[0].src;
   const int bw = block_size_wide[bsize];
@@ -836,7 +836,7 @@ static INLINE int compute_valid_comp_types(MACROBLOCK *x,
   const int try_average_comp = (mode_search_mask & (1 << COMPOUND_AVERAGE));
   const int try_distwtd_comp =
       ((mode_search_mask & (1 << COMPOUND_DISTWTD)) &&
-       cm->seq_params.order_hint_info.enable_dist_wtd_comp == 1 &&
+       cm->seq_params->order_hint_info.enable_dist_wtd_comp == 1 &&
        cpi->sf.inter_sf.use_dist_wtd_comp_flag != DIST_WTD_COMP_DISABLED);
 
   // Check if COMPOUND_AVERAGE and COMPOUND_DISTWTD are valid cases
@@ -1058,10 +1058,12 @@ static int64_t masked_compound_type_rd(
   if (compound_type == COMPOUND_WEDGE) {
     unsigned int sse;
     if (is_cur_buf_hbd(xd))
-      (void)cpi->fn_ptr[bsize].vf(CONVERT_TO_BYTEPTR(*preds0), *strides,
-                                  CONVERT_TO_BYTEPTR(*preds1), *strides, &sse);
+      (void)cpi->ppi->fn_ptr[bsize].vf(CONVERT_TO_BYTEPTR(*preds0), *strides,
+                                       CONVERT_TO_BYTEPTR(*preds1), *strides,
+                                       &sse);
     else
-      (void)cpi->fn_ptr[bsize].vf(*preds0, *strides, *preds1, *strides, &sse);
+      (void)cpi->ppi->fn_ptr[bsize].vf(*preds0, *strides, *preds1, *strides,
+                                       &sse);
     const unsigned int mse =
         ROUND_POWER_OF_TWO(sse, num_pels_log2_lookup[bsize]);
     // If two predictors are very similar, skip wedge compound mode search
@@ -1164,7 +1166,8 @@ static int64_t masked_compound_type_rd(
     assert(comp_dist[compound_type] != INT64_MAX);
     // When disable_interinter_wedge_newmv_search is set, motion refinement is
     // disabled. Hence rate and distortion can be reused in this case as well
-    assert(IMPLIES(have_newmv_in_inter_mode(this_mode),
+    assert(IMPLIES((have_newmv_in_inter_mode(this_mode) &&
+                    (compound_type == COMPOUND_WEDGE)),
                    cpi->sf.inter_sf.disable_interinter_wedge_newmv_search));
     assert(mbmi->mv[0].as_int == cur_mv[0].as_int);
     assert(mbmi->mv[1].as_int == cur_mv[1].as_int);
@@ -1338,11 +1341,12 @@ int av1_compound_type_rd(const AV1_COMP *const cpi, MACROBLOCK *x,
         if (have_newmv_in_inter_mode(this_mode)) {
           InterPredParams inter_pred_params;
           av1_dist_wtd_comp_weight_assign(
-              &cpi->common, mbmi, 0, &inter_pred_params.conv_params.fwd_offset,
+              &cpi->common, mbmi, &inter_pred_params.conv_params.fwd_offset,
               &inter_pred_params.conv_params.bck_offset,
               &inter_pred_params.conv_params.use_dist_wtd_comp_avg, 1);
           int mask_value = inter_pred_params.conv_params.fwd_offset * 4;
-          memset(xd->seg_mask, mask_value, sizeof(xd->seg_mask));
+          memset(xd->seg_mask, mask_value,
+                 sizeof(xd->seg_mask[0]) * 2 * MAX_SB_SQUARE);
           tmp_rate_mv = av1_interinter_compound_motion_search(cpi, x, cur_mv,
                                                               bsize, this_mode);
         }
@@ -1369,7 +1373,7 @@ int av1_compound_type_rd(const AV1_COMP *const cpi, MACROBLOCK *x,
       int_mv tmp_mv[2] = { mbmi->mv[0], mbmi->mv[1] };
       int best_rs2 = 0;
       int best_rate_mv = *rate_mv;
-      const int wedge_mask_size = get_wedge_types_lookup(bsize);
+      int wedge_mask_size = get_wedge_types_lookup(bsize);
       int need_mask_search = args->wedge_index == -1;
 
       if (need_mask_search && !have_newmv_in_inter_mode(this_mode)) {
@@ -1392,7 +1396,8 @@ int av1_compound_type_rd(const AV1_COMP *const cpi, MACROBLOCK *x,
           mode_rd = RDCOST(x->rdmult, rs2 + rd_stats->rate, 0);
           if (mode_rd >= ref_best_rd / 2) continue;
 
-          if (have_newmv_in_inter_mode(this_mode)) {
+          if (have_newmv_in_inter_mode(this_mode) &&
+              !cpi->sf.inter_sf.disable_interinter_wedge_newmv_search) {
             tmp_rate_mv = av1_interinter_compound_motion_search(
                 cpi, x, cur_mv, bsize, this_mode);
             av1_enc_build_inter_predictor(cm, xd, mi_row, mi_col, orig_dst,
@@ -1425,6 +1430,33 @@ int av1_compound_type_rd(const AV1_COMP *const cpi, MACROBLOCK *x,
             best_rs2 = rs2;
           }
         }
+        // Consider the asymmetric partitions for oblique angle only if the
+        // corresponding symmetric partition is the best so far.
+        // Note: For horizontal and vertical types, both symmetric and
+        // asymmetric partitions are always considered.
+        if (cpi->sf.inter_sf.enable_fast_wedge_mask_search) {
+          // The first 4 entries in wedge_codebook_16_heqw/hltw/hgtw[16]
+          // correspond to symmetric partitions of the 4 oblique angles, the
+          // next 4 entries correspond to the vertical/horizontal
+          // symmetric/asymmetric partitions and the last 8 entries correspond
+          // to the asymmetric partitions of oblique types.
+          const int idx_before_asym_oblique = 7;
+          const int last_oblique_sym_idx = 3;
+          if (wedge_mask == idx_before_asym_oblique) {
+            if (best_mask_index > last_oblique_sym_idx) {
+              break;
+            } else {
+              // Asymmetric (Index-1) map for the corresponding oblique masks.
+              // WEDGE_OBLIQUE27: sym - 0, asym - 8, 9
+              // WEDGE_OBLIQUE63: sym - 1, asym - 12, 13
+              // WEDGE_OBLIQUE117: sym - 2, asym - 14, 15
+              // WEDGE_OBLIQUE153: sym - 3, asym - 10, 11
+              const int asym_mask_idx[4] = { 7, 11, 13, 9 };
+              wedge_mask = asym_mask_idx[best_mask_index];
+              wedge_mask_size = wedge_mask + 3;
+            }
+          }
+        }
       }
 
       if (need_mask_search) {
@@ -1439,7 +1471,8 @@ int av1_compound_type_rd(const AV1_COMP *const cpi, MACROBLOCK *x,
         rs2 = masked_type_cost[cur_type];
         rs2 += get_interinter_compound_mask_rate(&x->mode_costs, mbmi);
 
-        if (have_newmv_in_inter_mode(this_mode)) {
+        if (have_newmv_in_inter_mode(this_mode) &&
+            !cpi->sf.inter_sf.disable_interinter_wedge_newmv_search) {
           tmp_rate_mv = av1_interinter_compound_motion_search(cpi, x, cur_mv,
                                                               bsize, this_mode);
         }
@@ -1485,7 +1518,8 @@ int av1_compound_type_rd(const AV1_COMP *const cpi, MACROBLOCK *x,
         if (have_newmv_in_inter_mode(this_mode)) {
           // hard coded number for diff wtd
           int mask_value = mask_index == 0 ? 38 : 26;
-          memset(xd->seg_mask, mask_value, sizeof(xd->seg_mask));
+          memset(xd->seg_mask, mask_value,
+                 sizeof(xd->seg_mask[0]) * 2 * MAX_SB_SQUARE);
           tmp_rate_mv = av1_interinter_compound_motion_search(cpi, x, cur_mv,
                                                               bsize, this_mode);
         }
@@ -1522,7 +1556,8 @@ int av1_compound_type_rd(const AV1_COMP *const cpi, MACROBLOCK *x,
         rs2 += get_interinter_compound_mask_rate(&x->mode_costs, mbmi);
 
         int mask_value = mbmi->interinter_comp.mask_type == 0 ? 38 : 26;
-        memset(xd->seg_mask, mask_value, sizeof(xd->seg_mask));
+        memset(xd->seg_mask, mask_value,
+               sizeof(xd->seg_mask[0]) * 2 * MAX_SB_SQUARE);
 
         if (have_newmv_in_inter_mode(this_mode)) {
           tmp_rate_mv = av1_interinter_compound_motion_search(cpi, x, cur_mv,

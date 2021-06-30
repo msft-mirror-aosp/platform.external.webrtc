@@ -93,7 +93,8 @@ class MockKeyFrameRequestSender : public KeyFrameRequestSender {
   MOCK_METHOD(void, RequestKeyFrame, (), (override));
 };
 
-class MockOnCompleteFrameCallback : public OnCompleteFrameCallback {
+class MockOnCompleteFrameCallback
+    : public RtpVideoStreamReceiver::OnCompleteFrameCallback {
  public:
   MOCK_METHOD(void, DoOnCompleteFrame, (EncodedFrame*), ());
   MOCK_METHOD(void, DoOnCompleteFrameFailNullptr, (EncodedFrame*), ());
@@ -1165,8 +1166,8 @@ TEST_F(RtpVideoStreamReceiverDeathTest, RepeatedSecondarySinkDisallowed) {
 #endif
 
 TEST_F(RtpVideoStreamReceiverTest, TransformFrame) {
-  rtc::scoped_refptr<MockFrameTransformer> mock_frame_transformer =
-      new rtc::RefCountedObject<testing::NiceMock<MockFrameTransformer>>();
+  auto mock_frame_transformer =
+      rtc::make_ref_counted<testing::NiceMock<MockFrameTransformer>>();
   EXPECT_CALL(*mock_frame_transformer,
               RegisterTransformedFrameSinkCallback(_, config_.rtp.remote_ssrc));
   auto receiver = std::make_unique<RtpVideoStreamReceiver>(

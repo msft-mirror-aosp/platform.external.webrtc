@@ -24,3 +24,7 @@ if (NOT WINDOWS_MSVC_X86_64)
     target_link_libraries(libyuv_unittest ${ly_lib_name} gtest_main
         Threads::Threads)
 endif()
+
+if (LINUX_AARCH64)
+    target_compile_definitions(${ly_lib_name} PRIVATE LIBYUV_DISABLE_NEON=1)
+endif()

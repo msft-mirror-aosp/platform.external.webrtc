@@ -32,7 +32,9 @@
 #include "rtc_base/string_encode.h"
 #include "rtc_base/string_utils.h"
 #include "rtc_base/strings/string_builder.h"
+#include "rtc_base/task_utils/to_queued_task.h"
 #include "rtc_base/third_party/base64/base64.h"
+#include "rtc_base/trace_event.h"
 #include "system_wrappers/include/field_trial.h"
 
 namespace {
@@ -104,16 +106,6 @@ std::string Port::ComputeFoundation(const std::string& type,
   return rtc::ToString(rtc::ComputeCrc32(sb.Release()));
 }
 
-CandidateStats::CandidateStats() = default;
-
-CandidateStats::CandidateStats(const CandidateStats&) = default;
-
-CandidateStats::CandidateStats(Candidate candidate) {
-  this->candidate = candidate;
-}
-
-CandidateStats::~CandidateStats() = default;
-
 Port::Port(rtc::Thread* thread,
            const std::string& type,
            rtc::PacketSocketFactory* factory,
@@ -137,6 +129,7 @@ Port::Port(rtc::Thread* thread,
       tiebreaker_(0),
       shared_socket_(true),
       weak_factory_(this) {
+  RTC_DCHECK(factory_ != NULL);
   Construct();
 }
 
@@ -181,15 +174,13 @@ void Port::Construct() {
   network_->SignalTypeChanged.connect(this, &Port::OnNetworkTypeChanged);
   network_cost_ = network_->GetCost();
 
-  thread_->PostDelayed(RTC_FROM_HERE, timeout_delay_, this,
-                       MSG_DESTROY_IF_DEAD);
+  ScheduleDelayedDestructionIfDead();
   RTC_LOG(LS_INFO) << ToString() << ": Port created with network cost "
                    << network_cost_;
 }
 
 Port::~Port() {
   RTC_DCHECK_RUN_ON(thread_);
-  CancelPendingTasks();
 
   // Delete all of the remaining connections.  We copy the list up front
   // because each deletion will cause it to be modified.
@@ -830,18 +821,11 @@ void Port::KeepAliveUntilPruned() {
 
 void Port::Prune() {
   state_ = State::PRUNED;
-  thread_->Post(RTC_FROM_HERE, this, MSG_DESTROY_IF_DEAD);
+  thread_->PostTask(webrtc::ToQueuedTask(safety_, [this] { DestroyIfDead(); }));
 }
 
-// Call to stop any currently pending operations from running.
-void Port::CancelPendingTasks() {
+void Port::DestroyIfDead() {
   RTC_DCHECK_RUN_ON(thread_);
-  thread_->Clear(this);
-}
-
-void Port::OnMessage(rtc::Message* pmsg) {
-  RTC_DCHECK_RUN_ON(thread_);
-  RTC_DCHECK(pmsg->message_id == MSG_DESTROY_IF_DEAD);
   bool dead =
       (state_ == State::INIT || state_ == State::PRUNED) &&
       connections_.empty() &&
@@ -863,6 +847,12 @@ void Port::OnNetworkTypeChanged(const rtc::Network* network) {
   RTC_DCHECK(network == network_);
 
   UpdateNetworkCost();
+}
+
+void Port::ScheduleDelayedDestructionIfDead() {
+  thread_->PostDelayedTask(
+      webrtc::ToQueuedTask(safety_, [this] { DestroyIfDead(); }),
+      timeout_delay_);
 }
 
 std::string Port::ToString() const {
@@ -915,8 +905,7 @@ void Port::OnConnectionDestroyed(Connection* conn) {
   // not cause the Port to be destroyed.
   if (connections_.empty()) {
     last_time_all_connections_removed_ = rtc::TimeMillis();
-    thread_->PostDelayed(RTC_FROM_HERE, timeout_delay_, this,
-                         MSG_DESTROY_IF_DEAD);
+    ScheduleDelayedDestructionIfDead();
   }
 }
 

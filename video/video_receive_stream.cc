@@ -332,8 +332,7 @@ void VideoReceiveStream::Start() {
 
   for (const Decoder& decoder : config_.decoders) {
     std::unique_ptr<VideoDecoder> video_decoder =
-        config_.decoder_factory->LegacyCreateVideoDecoder(decoder.video_format,
-                                                          config_.stream_id);
+        config_.decoder_factory->CreateVideoDecoder(decoder.video_format);
     // If we still have no valid decoder, we have to create a "Null" decoder
     // that ignores all calls. The reason we can get into this state is that the
     // old decoder factory interface doesn't have a way to query supported
@@ -507,6 +506,10 @@ void VideoReceiveStream::OnFrame(const VideoFrame& video_frame) {
   int64_t video_playout_ntp_ms;
   int64_t sync_offset_ms;
   double estimated_freq_khz;
+
+  // TODO(bugs.webrtc.org/10739): we should set local capture clock offset for
+  // |video_frame.packet_infos|. But VideoFrame is const qualified here.
+
   // TODO(tommi): GetStreamSyncOffsetInMs grabs three locks.  One inside the
   // function itself, another in GetChannel() and a third in
   // GetPlayoutTimestamp.  Seems excessive.  Anyhow, I'm assuming the function
@@ -759,7 +762,6 @@ VideoReceiveStream::RecordingState VideoReceiveStream::SetAndGetRecordingState(
     RTC_DCHECK_RUN_ON(&decode_queue_);
     // Save old state.
     old_state.callback = std::move(encoded_frame_buffer_function_);
-    old_state.keyframe_needed = keyframe_generation_requested_;
     old_state.last_keyframe_request_ms = last_keyframe_request_ms_;
 
     // Set new state.
@@ -768,7 +770,7 @@ VideoReceiveStream::RecordingState VideoReceiveStream::SetAndGetRecordingState(
       RequestKeyFrame(clock_->TimeInMilliseconds());
       keyframe_generation_requested_ = true;
     } else {
-      keyframe_generation_requested_ = state.keyframe_needed;
+      keyframe_generation_requested_ = false;
       last_keyframe_request_ms_ = state.last_keyframe_request_ms.value_or(0);
     }
     event.Set();

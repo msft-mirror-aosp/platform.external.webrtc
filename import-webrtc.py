@@ -46,7 +46,15 @@ PLATFORMS = {
     "Darwin": ["apple", "posix", "mac", "_all", "intel_cpu", ":cpu_x86_64"],
     "Darwin-aarch64": ["apple", "posix", "mac", "_all", "arm64", ":cpu_arm64"],
     "Linux-aarch64": ["linux", "posix", "linux_kernel", "arm64", "_all", ":cpu_arm64"],
-    "Linux": ["linux", "posix", "linux_kernel", "_all", "intel_cpu", ":cpu_x86_64"],
+    "Linux": [
+        "linux_x64",
+        "linux",
+        "posix",
+        "linux_kernel",
+        "_all",
+        "intel_cpu",
+        ":cpu_x86_64",
+    ],
     "Windows": ["windows", "windows_x64", "intel_cpu", "_all", ":cpu_x86_64"],
 }
 
@@ -67,8 +75,8 @@ PLATFORM_NAME = {
 DEP_MAP = {
     ":AppRTCMobile_lib": "unknown",
     "//testing/base/public:gunit_for_library_testonly": "gmock gtest",
-    "//third_party/absl/algorithm:container": "absl::algorithm_container",
     "//third_party/absl/algorithm": "absl::algorithm",
+    "//third_party/absl/algorithm:container": "absl::algorithm_container",
     "//third_party/absl/base:config": "absl::config",
     "//third_party/absl/base:core_headers": "absl::core_headers",
     "//third_party/absl/container:flat_hash_map": "absl::flat_hash_map",
@@ -79,18 +87,22 @@ DEP_MAP = {
     "//third_party/absl/flags:flag": "absl::flags",
     "//third_party/absl/flags:parse": "absl::flags_parse",
     "//third_party/absl/flags:usage": "absl::flags_usage",
+    "//third_party/absl/functional:bind_front": "absl::bind_front",
     "//third_party/absl/memory": "absl::memory",
     "//third_party/absl/meta:type_traits": "absl::type_traits",
     "//third_party/absl/strings": "absl::strings",
     "//third_party/absl/synchronization": "absl::synchronization",
     "//third_party/absl/types:optional": "absl::optional",
     "//third_party/absl/types:variant": "absl::variant",
+    "//third_party/catapult/tracing/tracing/proto:histogram_proto_bridge": "webrtc_histogram_proto_bridge",
     "//third_party/catapult/tracing:histogram": "webrtc_catapult_histogram",
     "//third_party/catapult/tracing:reserved_infos": "webrtc_catapult_reserved_infos",
-    "//third_party/catapult/tracing/tracing/proto:histogram_proto_bridge": "webrtc_histogram_proto_bridge",
+    "//third_party/crc32c": "crc32c",
     "//third_party/isac_fft:fft": "webrtc_fft",  # "unknown_fft",
     "//third_party/jsoncpp:json": "jsoncpp",
+    "//third_party/libaom:aom_highbd": "webrtc_libaom",  #
     "//third_party/libevent": "libevent",
+    "//third_party/libjpeg_turbo/src:jpeg": "emulator-libjpeg",
     "//third_party/libopus": "opus",
     "//third_party/libsrtp:srtp": "libsrtp",
     "//third_party/libyuv": "webrtc-yuv",
@@ -100,15 +112,14 @@ DEP_MAP = {
     "//third_party/openssl:ssl": "ssl",
     "//third_party/pffft": "webrtc_pffft",
     "//third_party/protobuf:protobuf-lite_legacy": "libprotobuf",
+    "//net/proto2/public:proto2_lite": "libprotobuf",
     "//third_party/protobuf:py_proto_runtime": "unknown_py_proto_runtime",
     "//third_party/rnnoise:rnn_vad": "webrtc_rnnoise",
     "//third_party/spl_sqrt_floor": "webrtc_spl_sqrt_floor",
     "//third_party/usrsctp": "usrsctp",
-    "//third_party/webrtc:webrtc_libvpx": "libvpx",
     "//third_party/webrtc/files/override/webrtc/rtc_base:protobuf_utils": "libprotobuf",
     "//third_party/webrtc/files/testing:fileutils_override_google3": "emulator_test_overrides",
-    "//third_party/libjpeg_turbo/src:jpeg": "emulator-libjpeg",
-    "//third_party/libaom:aom_highbd": "webrtc_libaom",  #
+    "//third_party/webrtc:webrtc_libvpx": "libvpx",
     # We rely on Qt5 to provide all these..
     "//third_party/GL:GLX_headers": "Qt5::Core",
     "//third_party/Xorg:Xorg_static": "Qt5::Core",
@@ -226,6 +237,7 @@ class Target(object):
 
     def _add_deps(self, name, deps, sort="PUBLIC"):
         common = [bazel_target_to_cmake_target(x) for x in deps]
+
         return "target_link_libraries({} {} {} {})\n".format(
             name, sort, " ".join(common), " ".join(self.lopts)
         )
@@ -310,8 +322,10 @@ class ProtobufTarget(object):
     def __init__(self, path, name, srcs, deps):
         self.path = path
         self.label = name
-        self.internal_name = "{}{}_{}".format(WEBRTC_PREFIX, path, name).replace("/", "_")
-        self.name = self.internal_name + "_bridge"
+        self.internal_name = "{}{}_{}".format(WEBRTC_PREFIX, path, name).replace(
+            "/", "_"
+        )
+        self.name = self.internal_name
         self.srcs = srcs
         self.deps = deps
 
@@ -341,7 +355,9 @@ class ProtobufTarget(object):
         snippet += "target_include_directories({} PUBLIC  ${{CMAKE_CURRENT_BINARY_DIR}}/{})\n".format(
             self.name, dest_path
         )
-        snippet += "add_library({}_lib ALIAS {})\n".format(self.internal_name, self.name)
+        snippet += "add_library({}_lib ALIAS {})\n".format(
+            self.internal_name, self.name
+        )
         snippet += "target_link_libraries({} PUBLIC libprotobuf)\n".format(self.name)
         if self.deps:
             common = [bazel_target_to_cmake_target(x) for x in self.deps]
@@ -417,6 +433,21 @@ class BuildFileFunctions(object):
         self.platforms = platforms
 
     def _add_target(self, typ, name, srcs, hdrs, defs, deps, copts, lopts, includes):
+
+        # HACK ATTACK b/191745658, the neon build has a dependency at the wrong
+        # level, so we correct it here, this should be removed once the fix is
+        # in.
+        if name == "common_audio_c" and "arm64" in self.platforms:
+            logging.error("Fixing up common_audio_c depedency b/191745658!")
+            if (
+                "//third_party/webrtc/files/stable/webrtc/common_audio:common_audio_neon"
+                in deps
+            ):
+                logging.fatal("The workaround is no longer needed! Please remove it!")
+            deps.append(
+                "//third_party/webrtc/files/stable/webrtc/common_audio:common_audio_neon"
+            )
+
         self.targets.add(
             Target(self.rel, name, typ, srcs, hdrs, defs, deps, copts, includes, lopts)
         )

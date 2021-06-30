@@ -91,22 +91,27 @@ elseif(LINUX_AARCH64)
     LICENSE
     "BSD-3-Clause"
     SRC
+    ${AOM_ROOT}/libaom/aom_ports/arm_cpudetect.c
     ${aom_av1_common_intrin_neon}
     ${aom_av1_common_sources}
     ${aom_av1_decoder_sources}
+    ${aom_av1_encoder_intrin_neon}
+    ${aom_av1_encoder_sources}
     ${aom_dsp_common_intrin_neon}
     ${aom_dsp_common_sources}
     ${aom_dsp_decoder_sources}
+    ${aom_dsp_encoder_intrin_neon}
+    ${aom_dsp_encoder_sources}
     ${aom_mem_sources}
-    ${AOM_ROOT}/libaom/aom_ports/arm_cpudetect.c
     ${aom_rtcd_sources}
     ${aom_scale_sources}
     ${aom_sources}
     ${aom_util_sources})
   target_include_directories(
     webrtc_libaom
-    PRIVATE ${AOM_ROOT}/config ${AOM_ROOT}/config/arm64
+    PRIVATE ${AOM_ROOT}/config ${AOM_ROOT}/config/linux/arm64
     PUBLIC ${AOM_ROOT}/libaom)
+# target_compile_options(webrtc_libaom PRIVATE "-mfpu=neon")
 else()
   message(FATAL_ERROR "This can only be used in linux builds")
 endif()

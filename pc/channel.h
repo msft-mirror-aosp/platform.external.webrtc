@@ -54,12 +54,10 @@
 #include "rtc_base/checks.h"
 #include "rtc_base/copy_on_write_buffer.h"
 #include "rtc_base/location.h"
-#include "rtc_base/message_handler.h"
 #include "rtc_base/network.h"
 #include "rtc_base/network/sent_packet.h"
 #include "rtc_base/network_route.h"
 #include "rtc_base/socket.h"
-#include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/task_utils/pending_task_safety_flag.h"
 #include "rtc_base/third_party/sigslot/sigslot.h"
 #include "rtc_base/thread.h"
@@ -94,8 +92,10 @@ struct CryptoParams;
 // NetworkInterface.
 
 class BaseChannel : public ChannelInterface,
-                    public rtc::MessageHandlerAutoCleanup,
+                    // TODO(tommi): Remove has_slots inheritance.
                     public sigslot::has_slots<>,
+                    // TODO(tommi): Consider implementing these interfaces
+                    // via composition.
                     public MediaChannel::NetworkInterface,
                     public webrtc::RtpPacketSinkInterface {
  public:
@@ -131,7 +131,6 @@ class BaseChannel : public ChannelInterface,
     // TODO(tommi): Delete this variable.
     return transport_name_;
   }
-  bool enabled() const override { return enabled_; }
 
   // This function returns true if using SRTP (DTLS-based keying or SDES).
   bool srtp_active() const {
@@ -167,7 +166,7 @@ class BaseChannel : public ChannelInterface,
   // actually belong to a new channel. See: crbug.com/webrtc/11477
   bool SetPayloadTypeDemuxingEnabled(bool enabled) override;
 
-  bool Enable(bool enable) override;
+  void Enable(bool enable) override;
 
   const std::vector<StreamParams>& local_streams() const override {
     return local_streams_;
@@ -177,15 +176,13 @@ class BaseChannel : public ChannelInterface,
   }
 
   // Used for latency measurements.
-  sigslot::signal1<ChannelInterface*>& SignalFirstPacketReceived() override;
+  void SetFirstPacketReceivedCallback(std::function<void()> callback) override;
 
   // From RtpTransport - public for testing only
   void OnTransportReadyToSend(bool ready);
 
   // Only public for unit tests.  Otherwise, consider protected.
   int SetOption(SocketType type, rtc::Socket::Option o, int val) override;
-  int SetOption_n(SocketType type, rtc::Socket::Option o, int val)
-      RTC_RUN_ON(network_thread());
 
   // RtpPacketSinkInterface overrides.
   void OnRtpPacket(const webrtc::RtpPacketReceived& packet) override;
@@ -220,8 +217,6 @@ class BaseChannel : public ChannelInterface,
   bool IsReadyToReceiveMedia_w() const RTC_RUN_ON(worker_thread());
   bool IsReadyToSendMedia_w() const RTC_RUN_ON(worker_thread());
   rtc::Thread* signaling_thread() const { return signaling_thread_; }
-
-  void FlushRtcpMessages_n() RTC_RUN_ON(network_thread());
 
   // NetworkInterface implementation, called by MediaEngine
   bool SendPacket(rtc::CopyOnWriteBuffer* packet,
@@ -277,21 +272,12 @@ class BaseChannel : public ChannelInterface,
                                   webrtc::SdpType type,
                                   std::string* error_desc)
       RTC_RUN_ON(worker_thread()) = 0;
-  // Return a list of RTP header extensions with the non-encrypted extensions
-  // removed depending on the current crypto_options_ and only if both the
-  // non-encrypted and encrypted extension is present for the same URI.
-  RtpHeaderExtensions GetFilteredRtpHeaderExtensions(
+
+  // Returns a list of RTP header extensions where any extension URI is unique.
+  // Encrypted extensions will be either preferred or discarded, depending on
+  // the current crypto_options_.
+  RtpHeaderExtensions GetDeduplicatedRtpHeaderExtensions(
       const RtpHeaderExtensions& extensions);
-
-  // From MessageHandler
-  void OnMessage(rtc::Message* pmsg) override;
-
-  // Helper function template for invoking methods on the worker thread.
-  template <class T>
-  T InvokeOnWorker(const rtc::Location& posted_from,
-                   rtc::FunctionView<T()> functor) {
-    return worker_thread_->Invoke<T>(posted_from, functor);
-  }
 
   // Add |payload_type| to |demuxer_criteria_| if payload type demuxing is
   // enabled.
@@ -307,12 +293,6 @@ class BaseChannel : public ChannelInterface,
   // Return description of media channel to facilitate logging
   std::string ToString() const;
 
-  void SetNegotiatedHeaderExtensions_w(const RtpHeaderExtensions& extensions)
-      RTC_RUN_ON(worker_thread());
-
-  // ChannelInterface overrides
-  RtpHeaderExtensions GetNegotiatedRtpHeaderExtensions() const override;
-
  private:
   bool ConnectToRtpTransport() RTC_RUN_ON(network_thread());
   void DisconnectFromRtpTransport() RTC_RUN_ON(network_thread());
@@ -322,12 +302,11 @@ class BaseChannel : public ChannelInterface,
   rtc::Thread* const network_thread_;
   rtc::Thread* const signaling_thread_;
   rtc::scoped_refptr<webrtc::PendingTaskSafetyFlag> alive_;
-  sigslot::signal1<ChannelInterface*> SignalFirstPacketReceived_
-      RTC_GUARDED_BY(signaling_thread_);
 
   const std::string content_name_;
 
-  bool has_received_packet_ = false;
+  std::function<void()> on_first_packet_received_
+      RTC_GUARDED_BY(network_thread());
 
   // Won't be set when using raw packet transports. SDP-specific thing.
   // TODO(bugs.webrtc.org/12230): Written on network thread, read on
@@ -348,6 +327,24 @@ class BaseChannel : public ChannelInterface,
   bool was_ever_writable_n_ RTC_GUARDED_BY(network_thread()) = false;
   bool was_ever_writable_ RTC_GUARDED_BY(worker_thread()) = false;
   const bool srtp_required_ = true;
+
+  // TODO(tommi): This field shouldn't be necessary. It's a copy of
+  // PeerConnection::GetCryptoOptions(), which is const state. It's also only
+  // used to filter header extensions when calling
+  // `rtp_transport_->UpdateRtpHeaderExtensionMap()` when the local/remote
+  // content description is updated. Since the transport is actually owned
+  // by the transport controller that also gets updated whenever the content
+  // description changes, it seems we have two paths into the transports, along
+  // with several thread hops via various classes (such as the Channel classes)
+  // that only serve as additional layers and store duplicate state. The Jsep*
+  // family of classes already apply session description updates on the network
+  // thread every time it changes.
+  // For the Channel classes, we should be able to get rid of:
+  // * crypto_options (and fewer construction parameters)_
+  // * UpdateRtpHeaderExtensionMap
+  // * GetFilteredRtpHeaderExtensions
+  // * Blocking thread hop to the network thread for every call to set
+  //   local/remote content is updated.
   const webrtc::CryptoOptions crypto_options_;
 
   // MediaChannel related members that should be accessed from the worker
@@ -356,7 +353,8 @@ class BaseChannel : public ChannelInterface,
   // Currently the |enabled_| flag is accessed from the signaling thread as
   // well, but it can be changed only when signaling thread does a synchronous
   // call to the worker thread, so it should be safe.
-  bool enabled_ = false;
+  bool enabled_ RTC_GUARDED_BY(worker_thread()) = false;
+  bool enabled_s_ RTC_GUARDED_BY(signaling_thread()) = false;
   bool payload_type_demuxing_enabled_ RTC_GUARDED_BY(worker_thread()) = true;
   std::vector<StreamParams> local_streams_ RTC_GUARDED_BY(worker_thread());
   std::vector<StreamParams> remote_streams_ RTC_GUARDED_BY(worker_thread());
@@ -381,14 +379,6 @@ class BaseChannel : public ChannelInterface,
   // like in Simulcast.
   // This object is not owned by the channel so it must outlive it.
   rtc::UniqueRandomIdGenerator* const ssrc_generator_;
-
-  // |negotiated_header_extensions_| is read on the signaling thread, but
-  // written on the worker thread while being sync-invoked from the signal
-  // thread in SdpOfferAnswerHandler::PushdownMediaDescription(). Hence the lock
-  // isn't strictly needed, but it's anyway placed here for future safeness.
-  mutable webrtc::Mutex negotiated_header_extensions_lock_;
-  RtpHeaderExtensions negotiated_header_extensions_
-      RTC_GUARDED_BY(negotiated_header_extensions_lock_);
 };
 
 // VoiceChannel is a specialization that adds support for early media, DTMF,

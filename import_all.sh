@@ -7,7 +7,7 @@
 # Next we rsync the dependencies. We expect you to have a matching gclient
 
 function generate_from_build {
-  for platform in Darwin Darwin-aarch64 Linux-aarch64 Linux Windows; do
+  for platform in Darwin Darwin-aarch64  Linux Windows; do
     echo "Generating cmake for ${platform}"
     python ./import-webrtc.py \
       --target webrtc_api_video_codecs_builtin_video_decoder_factory \
@@ -32,11 +32,28 @@ function generate_from_build {
         # --target webrtc__webrtc_perf_tests \
         # --target webrtc__webrtc_nonparallel_tests \
         # --target webrtc__voip_unittests \
-      done
-    }
+  done
+
+  # ARM64 is using gcc.. not all the tests compile
+  for platform in Linux-aarch64; do
+    echo "Generating cmake for ${platform}"
+    python ./import-webrtc.py \
+      --target webrtc_api_video_codecs_builtin_video_decoder_factory \
+      --target webrtc_api_video_codecs_builtin_video_encoder_factory \
+      --target webrtc_api_libjingle_peerconnection_api \
+      --target webrtc_pc_peerconnection \
+      --target webrtc_api_create_peerconnection_factory \
+      --target webrtc_api_audio_codecs_builtin_audio_decoder_factory \
+      --target webrtc_api_audio_codecs_builtin_audio_encoder_factory \
+      --target webrtc_common_audio_common_audio_unittests \
+      --target webrtc_modules_audio_coding_audio_decoder_unittests \
+      --root $1 \
+      --platform $platform BUILD .
+  done
+}
 
 function sync_deps {
-  for dep in libaom libvpx jsoncpp pffft opus rnnoise usrsctp libsrtp libyuv
+  for dep in libaom libvpx jsoncpp pffft opus rnnoise usrsctp libsrtp libyuv crc32c
   do
     rsync -rav  \
       --exclude 'third_party' \

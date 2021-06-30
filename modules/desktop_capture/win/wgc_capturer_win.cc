@@ -57,7 +57,8 @@ std::unique_ptr<DesktopCapturer> WgcCapturerWin::CreateRawWindowCapturer(
     const DesktopCaptureOptions& options) {
   return std::make_unique<WgcCapturerWin>(
       std::make_unique<WgcWindowSourceFactory>(),
-      std::make_unique<WindowEnumerator>());
+      std::make_unique<WindowEnumerator>(
+          options.enumerate_current_process_windows()));
 }
 
 // static
@@ -75,6 +76,13 @@ bool WgcCapturerWin::GetSourceList(SourceList* sources) {
 bool WgcCapturerWin::SelectSource(DesktopCapturer::SourceId id) {
   capture_source_ = source_factory_->CreateCaptureSource(id);
   return capture_source_->IsCapturable();
+}
+
+bool WgcCapturerWin::FocusOnSelectedSource() {
+  if (!capture_source_)
+    return false;
+
+  return capture_source_->FocusOnSource();
 }
 
 void WgcCapturerWin::Start(Callback* callback) {
@@ -192,6 +200,7 @@ void WgcCapturerWin::CaptureFrame() {
   frame->set_capture_time_ms(capture_time_ms);
   frame->set_capturer_id(DesktopCapturerId::kWgcCapturerWin);
   frame->set_may_contain_cursor(true);
+  frame->set_top_left(capture_source_->GetTopLeft());
   RecordWgcCapturerResult(WgcCapturerResult::kSuccess);
   callback_->OnCaptureResult(DesktopCapturer::Result::SUCCESS,
                              std::move(frame));

@@ -900,11 +900,11 @@ std::string SdpSerialize(const JsepSessionDescription& jdesc) {
   // Time Description.
   AddLine(kTimeDescription, &message);
 
-  // Group
-  if (desc->HasGroup(cricket::GROUP_TYPE_BUNDLE)) {
+  // BUNDLE Groups
+  std::vector<const cricket::ContentGroup*> groups =
+      desc->GetGroupsByName(cricket::GROUP_TYPE_BUNDLE);
+  for (const cricket::ContentGroup* group : groups) {
     std::string group_line = kAttrGroup;
-    const cricket::ContentGroup* group =
-        desc->GetGroupByName(cricket::GROUP_TYPE_BUNDLE);
     RTC_DCHECK(group != NULL);
     for (const std::string& content_name : group->content_names()) {
       group_line.append(" ");
@@ -3048,21 +3048,6 @@ bool ParseContent(const std::string& message,
       if (b < 0) {
         return ParseFailed(
             line, "b=" + bandwidth_type + " value can't be negative.", error);
-      }
-      // We should never use more than the default bandwidth for RTP-based
-      // data channels. Don't allow SDP to set the bandwidth, because
-      // that would give JS the opportunity to "break the Internet".
-      // See: https://code.google.com/p/chromium/issues/detail?id=280726
-      // Disallow TIAS since it shouldn't be generated for RTP data channels in
-      // the first place and provides another way to get around the limitation.
-      if (media_type == cricket::MEDIA_TYPE_DATA &&
-          cricket::IsRtpProtocol(protocol) &&
-          (b > cricket::kRtpDataMaxBandwidth / 1000 ||
-           bandwidth_type == kTransportSpecificBandwidth)) {
-        rtc::StringBuilder description;
-        description << "RTP-based data channels may not send more than "
-                    << cricket::kRtpDataMaxBandwidth / 1000 << "kbps.";
-        return ParseFailed(line, description.str(), error);
       }
       // Convert values. Prevent integer overflow.
       if (bandwidth_type == kApplicationSpecificBandwidth) {

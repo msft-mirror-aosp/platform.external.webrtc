@@ -529,6 +529,14 @@ NSUInteger GetMaxSampleRate(const webrtc::H264ProfileLevelId &profile_level_id) 
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
+- (NSInteger)resolutionAlignment {
+  return 1;
+}
+
+- (BOOL)applyAlignmentToAllSimulcastLayers {
+  return NO;
+}
+
 #pragma mark - Private
 
 - (NSInteger)releaseEncoder {
@@ -759,6 +767,10 @@ NSUInteger GetMaxSampleRate(const webrtc::H264ProfileLevelId &profile_level_id) 
            renderTimeMs:(int64_t)renderTimeMs
               timestamp:(uint32_t)timestamp
                rotation:(RTCVideoRotation)rotation {
+  RTCVideoEncoderCallback callback = _callback;
+  if (!callback) {
+    return;
+  }
   if (status != noErr) {
     RTC_LOG(LS_ERROR) << "H264 encode failed with code: " << status;
     return;
@@ -805,7 +817,7 @@ NSUInteger GetMaxSampleRate(const webrtc::H264ProfileLevelId &profile_level_id) 
   _h264BitstreamParser.ParseBitstream(*buffer);
   frame.qp = @(_h264BitstreamParser.GetLastSliceQp().value_or(-1));
 
-  BOOL res = _callback(frame, codecSpecificInfo);
+  BOOL res = callback(frame, codecSpecificInfo);
   if (!res) {
     RTC_LOG(LS_ERROR) << "Encode callback failed";
     return;

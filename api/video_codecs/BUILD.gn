@@ -25,7 +25,6 @@ rtc_library("video_codecs_api") {
     "video_codec.h",
     "video_decoder.cc",
     "video_decoder.h",
-    "video_decoder_factory.cc",
     "video_decoder_factory.h",
     "video_encoder.cc",
     "video_encoder.h",
@@ -44,6 +43,7 @@ rtc_library("video_codecs_api") {
   deps = [
     "..:fec_controller_api",
     "..:scoped_refptr",
+    "../../api:array_view",
     "../../modules/video_coding:codec_globals_headers",
     "../../rtc_base:checks",
     "../../rtc_base:rtc_base_approved",

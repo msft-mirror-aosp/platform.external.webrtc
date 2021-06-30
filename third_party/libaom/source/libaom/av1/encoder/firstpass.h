@@ -152,6 +152,18 @@ typedef struct {
    * standard deviation for (0, 0) motion prediction error
    */
   double raw_error_stdev;
+  /*!
+   * Whether the frame contains a flash
+   */
+  int64_t is_flash;
+  /*!
+   * Estimated noise variance
+   */
+  double noise_var;
+  /*!
+   * Correlation coefficient with the previous frame
+   */
+  double cor_coeff;
 } FIRSTPASS_STATS;
 
 /*!\cond */
@@ -170,8 +182,6 @@ enum {
  */
 typedef struct {
   /*!\cond */
-  // The frame processing order within a GOP
-  unsigned char index;
   // Frame update type, e.g. ARF/GF/LF/Overlay
   FRAME_UPDATE_TYPE update_type[MAX_STATIC_GF_GROUP_LENGTH];
   unsigned char arf_src_offset[MAX_STATIC_GF_GROUP_LENGTH];
@@ -191,6 +201,21 @@ typedef struct {
   REFBUF_STATE refbuf_state[MAX_STATIC_GF_GROUP_LENGTH];
   int arf_index;  // the index in the gf group of ARF, if no arf, then -1
   int size;       // The total length of a GOP
+#if CONFIG_FRAME_PARALLEL_ENCODE
+  // Indicates the level of parallelism in frame parallel encodes.
+  // 0 : frame is independently encoded (not part of parallel encodes).
+  // 1 : frame is the first in encode order in a given parallel encode set.
+  // 2 : frame occurs later in encode order in a given parallel encode set.
+  int frame_parallel_level[MAX_STATIC_GF_GROUP_LENGTH];
+  // Indicates whether a frame should act as non-reference frame.
+  // 0 : frame is a reference frame.
+  // 1 : frame is a non-reference frame.
+  int is_frame_non_ref[MAX_STATIC_GF_GROUP_LENGTH];
+
+  // The offset into lookahead_ctx for choosing
+  // source of frame parallel encodes.
+  int src_offset[MAX_STATIC_GF_GROUP_LENGTH];
+#endif  // CONFIG_FRAME_PARALLEL_ENCODE
   /*!\endcond */
 } GF_GROUP;
 /*!\cond */
@@ -326,6 +351,15 @@ struct AV1_COMP;
 struct EncodeFrameParams;
 struct AV1EncoderConfig;
 struct TileDataEnc;
+
+static INLINE int is_fp_wavelet_energy_invalid(
+    const FIRSTPASS_STATS *fp_stats) {
+  return (fp_stats->frame_avg_wavelet_energy < 0);
+}
+
+static INLINE BLOCK_SIZE get_fp_block_size(int is_screen_content_type) {
+  return (is_screen_content_type ? BLOCK_8X8 : BLOCK_16X16);
+}
 
 int av1_get_unit_rows_in_tile(TileInfo tile, const BLOCK_SIZE fp_block_size);
 int av1_get_unit_cols_in_tile(TileInfo tile, const BLOCK_SIZE fp_block_size);

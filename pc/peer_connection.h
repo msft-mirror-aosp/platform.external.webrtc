@@ -167,7 +167,7 @@ class PeerConnection : public PeerConnectionInternal,
   std::vector<rtc::scoped_refptr<RtpTransceiverInterface>> GetTransceivers()
       const override;
 
-  rtc::scoped_refptr<DataChannelInterface> CreateDataChannel(
+  RTCErrorOr<rtc::scoped_refptr<DataChannelInterface>> CreateDataChannelOrError(
       const std::string& label,
       const DataChannelInit* config) override;
   // WARNING: LEGACY. See peerconnectioninterface.h
@@ -389,7 +389,10 @@ class PeerConnection : public PeerConnectionInternal,
     RTC_DCHECK_RUN_ON(signaling_thread());
     return is_unified_plan_;
   }
-  bool ValidateBundleSettings(const cricket::SessionDescription* desc);
+  bool ValidateBundleSettings(
+      const cricket::SessionDescription* desc,
+      const std::map<std::string, const cricket::ContentGroup*>&
+          bundle_groups_by_mid);
 
   // Returns the MID for the data section associated with the
   // SCTP data channel, if it has been set. If no data
