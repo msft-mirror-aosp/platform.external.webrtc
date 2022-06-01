@@ -93,10 +93,10 @@ cc_defaults {
     },
     arch: {
         arm: {
-            cflags: ["-DWEBRTC_HAS_NEON"],
+            cflags: ["-DWEBRTC_HAS_NEON", "-DWEBRTC_ARCH_ARM"],
         },
         arm64: {
-            cflags: ["-DWEBRTC_HAS_NEON"],
+            cflags: ["-DWEBRTC_HAS_NEON", "-DWEBRTC_ARCH_ARM64"],
         },
     },
     visibility: [
