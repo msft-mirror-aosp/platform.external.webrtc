@@ -14,7 +14,11 @@
 #include <string>
 #include <vector>
 
+#if !defined(WEBRTC_EXTERNAL_JSON)
 #include "json/json.h"
+#else
+#include "third_party/jsoncpp/json.h"
+#endif
 
 namespace rtc {
 
