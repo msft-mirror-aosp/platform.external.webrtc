@@ -47,6 +47,7 @@ cc_defaults {
     cflags: [
         "-Wno-unused-parameter",
         "-Wno-missing-field-initializers",
+        "-Wno-implicit-const-int-float-conversion",
         "-DUSE_UDEV",
         "-DUSE_AURA=1",
         "-DUSE_GLIB=1",
