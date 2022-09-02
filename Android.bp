@@ -47,6 +47,7 @@ cc_defaults {
     cflags: [
         "-Wno-unused-parameter",
         "-Wno-missing-field-initializers",
+        "-Wno-implicit-const-int-float-conversion",
         "-DUSE_UDEV",
         "-DUSE_AURA=1",
         "-DUSE_GLIB=1",
@@ -93,10 +94,10 @@ cc_defaults {
     },
     arch: {
         arm: {
-            cflags: ["-DWEBRTC_HAS_NEON"],
+            cflags: ["-DWEBRTC_HAS_NEON", "-DWEBRTC_ARCH_ARM"],
         },
         arm64: {
-            cflags: ["-DWEBRTC_HAS_NEON"],
+            cflags: ["-DWEBRTC_HAS_NEON", "-DWEBRTC_ARCH_ARM64"],
         },
     },
     visibility: [
@@ -2919,19 +2920,6 @@ cc_library_static {
         "modules/audio_device/audio_device_impl.cc",
         "modules/audio_device/dummy/file_audio_device_factory.cc",
     ],
-    target: {
-        linux_glibc: {
-            srcs: [
-                "modules/audio_device/linux/alsasymboltable_linux.cc",
-                "modules/audio_device/linux/audio_device_alsa_linux.cc",
-                "modules/audio_device/linux/audio_mixer_manager_alsa_linux.cc",
-                "modules/audio_device/linux/latebindingsymboltable_linux.cc",
-                "modules/audio_device/linux/audio_device_pulse_linux.cc",
-                "modules/audio_device/linux/audio_mixer_manager_pulse_linux.cc",
-                "modules/audio_device/linux/pulseaudiosymboltable_linux.cc",
-            ],
-        },
-    },
     host_supported: true,
     cflags: ["-DWEBRTC_DUMMY_FILE_DEVICES"],
     static_libs: [
