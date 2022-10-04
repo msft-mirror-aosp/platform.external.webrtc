@@ -40,7 +40,8 @@ android_add_library(TARGET emulator_test_overrides NODISTRIBUTE SRC
                     emu_file_utils_override.cc)
 target_link_libraries(
   emulator_test_overrides
-  PRIVATE android-emu-base webrtc_test_fileutils_override_api absl::optional)
+  PRIVATE android-emu-base android-emu-base-headers webrtc_test_fileutils_override_api
+          absl::optional)
 target_compile_definitions(
   emulator_test_overrides
   PRIVATE "EMU_THIRD_PARTY_WEBRTC=\"${CMAKE_CURRENT_LIST_DIR}\""
