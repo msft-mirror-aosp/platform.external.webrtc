@@ -32,6 +32,7 @@ license {
 
 cc_defaults {
     name: "libwebrtc_absl_defaults",
+    cflags: ["-Wno-deprecated-builtins"],
     visibility: [
         "//external/webrtc:__subpackages__",
         "//device/google/cuttlefish/host/frontend/webrtc:__subpackages__",
