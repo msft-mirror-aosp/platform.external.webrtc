@@ -74,6 +74,7 @@ def FilterFlags(flags, to_skip = set()):
         '-Wno-unreachable-code-break',
         '-fuse-ctor-homing',
         '-fno-rtti',
+        '-gsplit-dwarf', # TODO(b/266468464): breaks riscv
         ]).union(to_skip)
     return [x for x in flags if not any([x.startswith(y) for y in skipped_opts])]
 
