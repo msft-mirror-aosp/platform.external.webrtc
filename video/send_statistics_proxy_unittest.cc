@@ -21,15 +21,21 @@
 #include "api/video/video_adaptation_reason.h"
 #include "api/video/video_bitrate_allocation.h"
 #include "api/video/video_codec_type.h"
+#include "api/video_codecs/scalability_mode.h"
 #include "api/video_codecs/video_codec.h"
-#include "api/video_codecs/video_encoder_config.h"
 #include "rtc_base/fake_clock.h"
 #include "system_wrappers/include/metrics.h"
-#include "test/field_trial.h"
+#include "test/gmock.h"
 #include "test/gtest.h"
+#include "test/scoped_key_value_config.h"
+#include "video/config/video_encoder_config.h"
+#include "video/video_stream_encoder_observer.h"
 
 namespace webrtc {
 namespace {
+
+using ::testing::Optional;
+
 const uint32_t kFirstSsrc = 17;
 const uint32_t kSecondSsrc = 42;
 const uint32_t kFirstRtxSsrc = 18;
@@ -70,9 +76,10 @@ class SendStatisticsProxyTest : public ::testing::Test {
  protected:
   virtual void SetUp() {
     metrics::Reset();
-    statistics_proxy_.reset(new SendStatisticsProxy(
-        &fake_clock_, GetTestConfig(),
-        VideoEncoderConfig::ContentType::kRealtimeVideo));
+    statistics_proxy_.reset(
+        new SendStatisticsProxy(&fake_clock_, GetTestConfig(),
+                                VideoEncoderConfig::ContentType::kRealtimeVideo,
+                                override_field_trials_));
     expected_ = VideoSendStream::Stats();
     for (const auto& ssrc : config_.rtp.ssrcs) {
       expected_.substreams[ssrc].type =
@@ -175,7 +182,7 @@ class SendStatisticsProxyTest : public ::testing::Test {
     }
   }
 
-  test::ScopedFieldTrials override_field_trials_;
+  test::ScopedKeyValueConfig override_field_trials_;
   SimulatedClock fake_clock_;
   std::unique_ptr<SendStatisticsProxy> statistics_proxy_;
   VideoSendStream::Config config_;
@@ -321,26 +328,18 @@ TEST_F(SendStatisticsProxyTest, SendSideDelay) {
     // stream.
     int avg_delay_ms = ssrc;
     int max_delay_ms = ssrc + 1;
-    uint64_t total_packet_send_delay_ms = ssrc + 2;
-    observer->SendSideDelayUpdated(avg_delay_ms, max_delay_ms,
-                                   total_packet_send_delay_ms, ssrc);
+    observer->SendSideDelayUpdated(avg_delay_ms, max_delay_ms, ssrc);
     expected_.substreams[ssrc].avg_delay_ms = avg_delay_ms;
     expected_.substreams[ssrc].max_delay_ms = max_delay_ms;
-    expected_.substreams[ssrc].total_packet_send_delay_ms =
-        total_packet_send_delay_ms;
   }
   for (const auto& ssrc : config_.rtp.rtx.ssrcs) {
     // Use ssrc as avg_delay_ms and max_delay_ms to get a unique value for each
     // stream.
     int avg_delay_ms = ssrc;
     int max_delay_ms = ssrc + 1;
-    uint64_t total_packet_send_delay_ms = ssrc + 2;
-    observer->SendSideDelayUpdated(avg_delay_ms, max_delay_ms,
-                                   total_packet_send_delay_ms, ssrc);
+    observer->SendSideDelayUpdated(avg_delay_ms, max_delay_ms, ssrc);
     expected_.substreams[ssrc].avg_delay_ms = avg_delay_ms;
     expected_.substreams[ssrc].max_delay_ms = max_delay_ms;
-    expected_.substreams[ssrc].total_packet_send_delay_ms =
-        total_packet_send_delay_ms;
   }
   VideoSendStream::Stats stats = statistics_proxy_->GetStats();
   ExpectEqual(expected_, stats);
@@ -402,6 +401,34 @@ TEST_F(SendStatisticsProxyTest, OnSendEncodedImageWithoutQpQpSumWontExist) {
             statistics_proxy_->GetStats().substreams[ssrc].qp_sum);
 }
 
+TEST_F(SendStatisticsProxyTest,
+       OnSendEncodedImageSetsScalabilityModeOfCurrentLayer) {
+  EncodedImage encoded_image;
+  CodecSpecificInfo codec_info;
+  ScalabilityMode layer0_mode = ScalabilityMode::kL1T1;
+  ScalabilityMode layer1_mode = ScalabilityMode::kL1T3;
+  auto ssrc0 = config_.rtp.ssrcs[0];
+  auto ssrc1 = config_.rtp.ssrcs[1];
+  EXPECT_EQ(absl::nullopt,
+            statistics_proxy_->GetStats().substreams[ssrc0].scalability_mode);
+  EXPECT_EQ(absl::nullopt,
+            statistics_proxy_->GetStats().substreams[ssrc1].scalability_mode);
+  encoded_image.SetSpatialIndex(0);
+  codec_info.scalability_mode = layer0_mode;
+  statistics_proxy_->OnSendEncodedImage(encoded_image, &codec_info);
+  EXPECT_THAT(statistics_proxy_->GetStats().substreams[ssrc0].scalability_mode,
+              layer0_mode);
+  EXPECT_EQ(absl::nullopt,
+            statistics_proxy_->GetStats().substreams[ssrc1].scalability_mode);
+  encoded_image.SetSpatialIndex(1);
+  codec_info.scalability_mode = layer1_mode;
+  statistics_proxy_->OnSendEncodedImage(encoded_image, &codec_info);
+  EXPECT_THAT(statistics_proxy_->GetStats().substreams[ssrc0].scalability_mode,
+              layer0_mode);
+  EXPECT_THAT(statistics_proxy_->GetStats().substreams[ssrc1].scalability_mode,
+              layer1_mode);
+}
+
 TEST_F(SendStatisticsProxyTest, TotalEncodedBytesTargetFirstFrame) {
   const uint32_t kTargetBytesPerSecond = 100000;
   statistics_proxy_->OnSetEncoderTargetRate(kTargetBytesPerSecond * 8);
@@ -411,7 +438,7 @@ TEST_F(SendStatisticsProxyTest, TotalEncodedBytesTargetFirstFrame) {
   statistics_proxy_->OnSendEncodedImage(encoded_image, nullptr);
   // On the first frame we don't know the frame rate yet, calculation yields
   // zero. Our estimate assumes at least 1 FPS, so we expect the frame size to
-  // increment by a full |kTargetBytesPerSecond|.
+  // increment by a full `kTargetBytesPerSecond`.
   EXPECT_EQ(kTargetBytesPerSecond,
             statistics_proxy_->GetStats().total_encoded_bytes_target);
 }
@@ -422,7 +449,7 @@ TEST_F(SendStatisticsProxyTest,
   const int kInterframeDelayMs = 100;
 
   // SendStatisticsProxy uses a RateTracker internally. SendStatisticsProxy uses
-  // |fake_clock_| for testing, but the RateTracker relies on a global clock.
+  // `fake_clock_` for testing, but the RateTracker relies on a global clock.
   // This test relies on rtc::ScopedFakeClock to synchronize these two clocks.
   // TODO(https://crbug.com/webrtc/10640): When the RateTracker uses a Clock
   // this test can stop relying on rtc::ScopedFakeClock.
@@ -447,7 +474,7 @@ TEST_F(SendStatisticsProxyTest,
 
   auto stats = statistics_proxy_->GetStats();
   // By the time the second frame arrives, one frame has previously arrived
-  // during a |kInterframeDelayMs| interval. The estimated encode frame rate at
+  // during a `kInterframeDelayMs` interval. The estimated encode frame rate at
   // the second frame's arrival should be 10 FPS.
   uint64_t delta_encoded_bytes_target =
       stats.total_encoded_bytes_target - first_total_encoded_bytes_target;
@@ -456,25 +483,116 @@ TEST_F(SendStatisticsProxyTest,
 
 TEST_F(SendStatisticsProxyTest, EncodeFrameRateInSubStream) {
   const int kInterframeDelayMs = 100;
-  auto ssrc = config_.rtp.ssrcs[0];
+  const auto ssrc = config_.rtp.ssrcs[0];
   rtc::ScopedFakeClock fake_global_clock;
   fake_global_clock.SetTime(
       Timestamp::Millis(fake_clock_.TimeInMilliseconds()));
 
-  EncodedImage encoded_image;
-
   // First frame
+  EncodedImage encoded_image;
   statistics_proxy_->OnSendEncodedImage(encoded_image, nullptr);
-  // Second frame
   fake_clock_.AdvanceTimeMilliseconds(kInterframeDelayMs);
   fake_global_clock.SetTime(
       Timestamp::Millis(fake_clock_.TimeInMilliseconds()));
+  // Second frame
   encoded_image.SetTimestamp(encoded_image.Timestamp() +
                              90 * kInterframeDelayMs);
   statistics_proxy_->OnSendEncodedImage(encoded_image, nullptr);
+  fake_clock_.AdvanceTimeMilliseconds(kInterframeDelayMs);
+  fake_global_clock.SetTime(
+      Timestamp::Millis(fake_clock_.TimeInMilliseconds()));
 
   auto stats = statistics_proxy_->GetStats();
   EXPECT_EQ(stats.substreams[ssrc].encode_frame_rate, 10);
+}
+
+TEST_F(SendStatisticsProxyTest, EncodeFrameRateInSubStreamsVp8Simulcast) {
+  const int kInterframeDelayMs = 100;
+  rtc::ScopedFakeClock fake_global_clock;
+  fake_global_clock.SetTime(
+      Timestamp::Millis(fake_clock_.TimeInMilliseconds()));
+  EncodedImage encoded_image;
+  CodecSpecificInfo codec_info;
+  codec_info.codecType = kVideoCodecVP8;
+
+  for (int i = 0; i < 10; ++i) {
+    encoded_image.SetTimestamp(encoded_image.Timestamp() +
+                               90 * kInterframeDelayMs);
+    encoded_image.SetSpatialIndex(0);
+    statistics_proxy_->OnSendEncodedImage(encoded_image, &codec_info);
+    encoded_image.SetSpatialIndex(1);
+    statistics_proxy_->OnSendEncodedImage(encoded_image, &codec_info);
+    fake_clock_.AdvanceTimeMilliseconds(kInterframeDelayMs);
+    fake_global_clock.SetTime(
+        Timestamp::Millis(fake_clock_.TimeInMilliseconds()));
+  }
+
+  VideoSendStream::Stats stats = statistics_proxy_->GetStats();
+  EXPECT_EQ(2u, stats.substreams.size());
+  EXPECT_EQ(stats.substreams[config_.rtp.ssrcs[0]].encode_frame_rate, 10);
+  EXPECT_EQ(stats.substreams[config_.rtp.ssrcs[1]].encode_frame_rate, 10);
+
+  // Stop encoding second stream, expect framerate to be zero.
+  for (int i = 0; i < 10; ++i) {
+    encoded_image.SetTimestamp(encoded_image.Timestamp() +
+                               90 * kInterframeDelayMs);
+    encoded_image.SetSpatialIndex(0);
+    statistics_proxy_->OnSendEncodedImage(encoded_image, &codec_info);
+    fake_clock_.AdvanceTimeMilliseconds(kInterframeDelayMs);
+    fake_global_clock.SetTime(
+        Timestamp::Millis(fake_clock_.TimeInMilliseconds()));
+  }
+
+  stats = statistics_proxy_->GetStats();
+  EXPECT_EQ(2u, stats.substreams.size());
+  EXPECT_EQ(stats.substreams[config_.rtp.ssrcs[0]].encode_frame_rate, 10);
+  EXPECT_EQ(stats.substreams[config_.rtp.ssrcs[1]].encode_frame_rate, 0);
+
+  // Start encoding second stream.
+  for (int i = 0; i < 10; ++i) {
+    encoded_image.SetTimestamp(encoded_image.Timestamp() +
+                               90 * kInterframeDelayMs);
+    encoded_image.SetSpatialIndex(0);
+    statistics_proxy_->OnSendEncodedImage(encoded_image, &codec_info);
+    encoded_image.SetSpatialIndex(1);
+    statistics_proxy_->OnSendEncodedImage(encoded_image, &codec_info);
+    fake_clock_.AdvanceTimeMilliseconds(kInterframeDelayMs);
+    fake_global_clock.SetTime(
+        Timestamp::Millis(fake_clock_.TimeInMilliseconds()));
+  }
+
+  stats = statistics_proxy_->GetStats();
+  EXPECT_EQ(2u, stats.substreams.size());
+  EXPECT_EQ(stats.substreams[config_.rtp.ssrcs[0]].encode_frame_rate, 10);
+  EXPECT_EQ(stats.substreams[config_.rtp.ssrcs[1]].encode_frame_rate, 10);
+}
+
+TEST_F(SendStatisticsProxyTest, EncodeFrameRateInSubStreamsVp9Svc) {
+  const int kInterframeDelayMs = 100;
+  rtc::ScopedFakeClock fake_global_clock;
+  fake_global_clock.SetTime(
+      Timestamp::Millis(fake_clock_.TimeInMilliseconds()));
+  EncodedImage encoded_image;
+  CodecSpecificInfo codec_info;
+  codec_info.codecType = kVideoCodecVP9;
+
+  for (int i = 0; i < 10; ++i) {
+    encoded_image.SetTimestamp(encoded_image.Timestamp() +
+                               90 * kInterframeDelayMs);
+    encoded_image.SetSpatialIndex(0);
+    codec_info.end_of_picture = false;
+    statistics_proxy_->OnSendEncodedImage(encoded_image, &codec_info);
+    encoded_image.SetSpatialIndex(1);
+    codec_info.end_of_picture = true;
+    statistics_proxy_->OnSendEncodedImage(encoded_image, &codec_info);
+    fake_clock_.AdvanceTimeMilliseconds(kInterframeDelayMs);
+    fake_global_clock.SetTime(
+        Timestamp::Millis(fake_clock_.TimeInMilliseconds()));
+  }
+
+  VideoSendStream::Stats stats = statistics_proxy_->GetStats();
+  EXPECT_EQ(1u, stats.substreams.size());
+  EXPECT_EQ(stats.substreams[config_.rtp.ssrcs[0]].encode_frame_rate, 10);
 }
 
 TEST_F(SendStatisticsProxyTest, GetCpuAdaptationStats) {
@@ -1834,10 +1952,12 @@ TEST_F(SendStatisticsProxyTest, VerifyQpHistogramStats_Vp8) {
 }
 
 TEST_F(SendStatisticsProxyTest, VerifyQpHistogramStats_Vp8OneSsrc) {
+  test::ScopedKeyValueConfig field_trials;
   VideoSendStream::Config config(nullptr);
   config.rtp.ssrcs.push_back(kFirstSsrc);
   statistics_proxy_.reset(new SendStatisticsProxy(
-      &fake_clock_, config, VideoEncoderConfig::ContentType::kRealtimeVideo));
+      &fake_clock_, config, VideoEncoderConfig::ContentType::kRealtimeVideo,
+      field_trials));
 
   EncodedImage encoded_image;
   CodecSpecificInfo codec_info;
@@ -1878,10 +1998,12 @@ TEST_F(SendStatisticsProxyTest, VerifyQpHistogramStats_Vp9) {
 }
 
 TEST_F(SendStatisticsProxyTest, VerifyQpHistogramStats_Vp9OneSpatialLayer) {
+  test::ScopedKeyValueConfig field_trials;
   VideoSendStream::Config config(nullptr);
   config.rtp.ssrcs.push_back(kFirstSsrc);
   statistics_proxy_.reset(new SendStatisticsProxy(
-      &fake_clock_, config, VideoEncoderConfig::ContentType::kRealtimeVideo));
+      &fake_clock_, config, VideoEncoderConfig::ContentType::kRealtimeVideo,
+      field_trials));
 
   EncodedImage encoded_image;
   CodecSpecificInfo codec_info;
@@ -2305,7 +2427,6 @@ TEST_F(SendStatisticsProxyTest, ResetsRtcpCountersOnContentChange) {
   RtcpPacketTypeCounterObserver* proxy =
       static_cast<RtcpPacketTypeCounterObserver*>(statistics_proxy_.get());
   RtcpPacketTypeCounter counters;
-  counters.first_packet_time_ms = fake_clock_.TimeInMilliseconds();
   proxy->RtcpPacketTypesCounterUpdated(kFirstSsrc, counters);
   proxy->RtcpPacketTypesCounterUpdated(kSecondSsrc, counters);
 
@@ -2413,9 +2534,10 @@ TEST_F(SendStatisticsProxyTest, GetStatsReportsIsRtx) {
 }
 
 TEST_F(SendStatisticsProxyTest, GetStatsReportsIsFlexFec) {
-  statistics_proxy_.reset(
-      new SendStatisticsProxy(&fake_clock_, GetTestConfigWithFlexFec(),
-                              VideoEncoderConfig::ContentType::kRealtimeVideo));
+  test::ScopedKeyValueConfig field_trials;
+  statistics_proxy_.reset(new SendStatisticsProxy(
+      &fake_clock_, GetTestConfigWithFlexFec(),
+      VideoEncoderConfig::ContentType::kRealtimeVideo, field_trials));
 
   StreamDataCountersCallback* proxy =
       static_cast<StreamDataCountersCallback*>(statistics_proxy_.get());
@@ -2432,9 +2554,10 @@ TEST_F(SendStatisticsProxyTest, GetStatsReportsIsFlexFec) {
 }
 
 TEST_F(SendStatisticsProxyTest, SendBitratesAreReportedWithFlexFecEnabled) {
-  statistics_proxy_.reset(
-      new SendStatisticsProxy(&fake_clock_, GetTestConfigWithFlexFec(),
-                              VideoEncoderConfig::ContentType::kRealtimeVideo));
+  test::ScopedKeyValueConfig field_trials;
+  statistics_proxy_.reset(new SendStatisticsProxy(
+      &fake_clock_, GetTestConfigWithFlexFec(),
+      VideoEncoderConfig::ContentType::kRealtimeVideo, field_trials));
 
   StreamDataCountersCallback* proxy =
       static_cast<StreamDataCountersCallback*>(statistics_proxy_.get());
@@ -2639,10 +2762,12 @@ TEST_F(SendStatisticsProxyTest, RtxBitrateIsZeroWhenEnabledAndNoRtxDataIsSent) {
 }
 
 TEST_F(SendStatisticsProxyTest, RtxBitrateNotReportedWhenNotEnabled) {
+  test::ScopedKeyValueConfig field_trials;
   VideoSendStream::Config config(nullptr);
   config.rtp.ssrcs.push_back(kFirstSsrc);  // RTX not configured.
   statistics_proxy_.reset(new SendStatisticsProxy(
-      &fake_clock_, config, VideoEncoderConfig::ContentType::kRealtimeVideo));
+      &fake_clock_, config, VideoEncoderConfig::ContentType::kRealtimeVideo,
+      field_trials));
 
   StreamDataCountersCallback* proxy =
       static_cast<StreamDataCountersCallback*>(statistics_proxy_.get());
@@ -2690,10 +2815,12 @@ TEST_F(SendStatisticsProxyTest, FecBitrateIsZeroWhenEnabledAndNoFecDataIsSent) {
 }
 
 TEST_F(SendStatisticsProxyTest, FecBitrateNotReportedWhenNotEnabled) {
+  test::ScopedKeyValueConfig field_trials;
   VideoSendStream::Config config(nullptr);
   config.rtp.ssrcs.push_back(kFirstSsrc);  // FEC not configured.
   statistics_proxy_.reset(new SendStatisticsProxy(
-      &fake_clock_, config, VideoEncoderConfig::ContentType::kRealtimeVideo));
+      &fake_clock_, config, VideoEncoderConfig::ContentType::kRealtimeVideo,
+      field_trials));
 
   StreamDataCountersCallback* proxy =
       static_cast<StreamDataCountersCallback*>(statistics_proxy_.get());
@@ -2718,8 +2845,13 @@ TEST_F(SendStatisticsProxyTest, FecBitrateNotReportedWhenNotEnabled) {
 
 TEST_F(SendStatisticsProxyTest, GetStatsReportsEncoderImplementationName) {
   const std::string kName = "encoderName";
-  statistics_proxy_->OnEncoderImplementationChanged(kName);
+  statistics_proxy_->OnEncoderImplementationChanged(EncoderImplementation{
+      .name = kName,
+      .is_hardware_accelerated = true,
+  });
   EXPECT_EQ(kName, statistics_proxy_->GetStats().encoder_implementation_name);
+  EXPECT_THAT(statistics_proxy_->GetStats().power_efficient_encoder,
+              ::testing::IsTrue());
 }
 
 TEST_F(SendStatisticsProxyTest, Vp9SvcLowSpatialLayerDoesNotUpdateResolution) {
@@ -2774,7 +2906,8 @@ class ForcedFallbackTest : public SendStatisticsProxyTest {
 
  protected:
   void InsertEncodedFrames(int num_frames, int interval_ms) {
-    statistics_proxy_->OnEncoderImplementationChanged(codec_name_);
+    statistics_proxy_->OnEncoderImplementationChanged(
+        {.name = codec_name_, .is_hardware_accelerated = false});
 
     // First frame is not updating stats, insert initial frame.
     if (statistics_proxy_->GetStats().frames_encoded == 0) {

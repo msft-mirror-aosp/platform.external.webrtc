@@ -79,6 +79,8 @@ class EventGenerator {
   std::unique_ptr<RtcEventGenericPacketSent> NewGenericPacketSent();
   std::unique_ptr<RtcEventIceCandidatePair> NewIceCandidatePair();
   std::unique_ptr<RtcEventIceCandidatePairConfig> NewIceCandidatePairConfig();
+  std::unique_ptr<RtcEventNetEqSetMinimumDelay> NewNetEqSetMinimumDelay(
+      uint32_t ssrc);
   std::unique_ptr<RtcEventProbeClusterCreated> NewProbeClusterCreated();
   std::unique_ptr<RtcEventProbeResultFailure> NewProbeResultFailure();
   std::unique_ptr<RtcEventProbeResultSuccess> NewProbeResultSuccess();
@@ -98,7 +100,7 @@ class EventGenerator {
   rtcp::TransportFeedback NewTransportFeedback();
   rtcp::LossNotification NewLossNotification();
 
-  // |all_configured_exts| determines whether the RTP packet exhibits all
+  // `all_configured_exts` determines whether the RTP packet exhibits all
   // configured extensions, or a random subset thereof.
   void RandomizeRtpPacket(size_t payload_size,
                           size_t padding_size,
@@ -107,21 +109,21 @@ class EventGenerator {
                           RtpPacket* rtp_packet,
                           bool all_configured_exts);
 
-  // |all_configured_exts| determines whether the RTP packet exhibits all
+  // `all_configured_exts` determines whether the RTP packet exhibits all
   // configured extensions, or a random subset thereof.
   std::unique_ptr<RtcEventRtpPacketIncoming> NewRtpPacketIncoming(
       uint32_t ssrc,
       const RtpHeaderExtensionMap& extension_map,
       bool all_configured_exts = true);
 
-  // |all_configured_exts| determines whether the RTP packet exhibits all
+  // `all_configured_exts` determines whether the RTP packet exhibits all
   // configured extensions, or a random subset thereof.
   std::unique_ptr<RtcEventRtpPacketOutgoing> NewRtpPacketOutgoing(
       uint32_t ssrc,
       const RtpHeaderExtensionMap& extension_map,
       bool all_configured_exts = true);
 
-  // |configure_all| determines whether all supported extensions are configured,
+  // `configure_all` determines whether all supported extensions are configured,
   // or a random subset.
   RtpHeaderExtensionMap NewRtpHeaderExtensionMap(bool configure_all = false);
 
@@ -316,6 +318,10 @@ class EventVerifier {
   void VerifyLoggedVideoSendConfig(
       const RtcEventVideoSendStreamConfig& original_event,
       const LoggedVideoSendConfig& logged_event) const;
+
+  void VerifyLoggedNetEqSetMinimumDelay(
+      const RtcEventNetEqSetMinimumDelay& original_event,
+      const LoggedNetEqSetMinimumDelayEvent& logged_event) const;
 
  private:
   void VerifyReportBlock(const rtcp::ReportBlock& original_report_block,

@@ -129,7 +129,14 @@ bool CopyVideoFrameToNV12PixelBuffer(id<RTC_OBJC_TYPE(RTCI420Buffer)> frameBuffe
   return true;
 }
 
-CVPixelBufferRef CreatePixelBuffer(CVPixelBufferPoolRef pixel_buffer_pool) {
+CVPixelBufferRef CreatePixelBuffer(VTCompressionSessionRef compression_session) {
+  if (!compression_session) {
+    RTC_LOG(LS_ERROR) << "Failed to get compression session.";
+    return nullptr;
+  }
+  CVPixelBufferPoolRef pixel_buffer_pool =
+      VTCompressionSessionGetPixelBufferPool(compression_session);
+
   if (!pixel_buffer_pool) {
     RTC_LOG(LS_ERROR) << "Failed to get pixel buffer pool.";
     return nullptr;
@@ -240,6 +247,7 @@ CFStringRef ExtractProfile(const webrtc::H264ProfileLevelId &profile_level_id) {
 
     case webrtc::H264Profile::kProfileConstrainedHigh:
     case webrtc::H264Profile::kProfileHigh:
+    case webrtc::H264Profile::kProfilePredictiveHigh444:
       switch (profile_level_id.level) {
         case webrtc::H264Level::kLevel3:
           return kVTProfileLevel_H264_High_3_0;
@@ -273,7 +281,7 @@ CFStringRef ExtractProfile(const webrtc::H264ProfileLevelId &profile_level_id) {
 }
 
 // The function returns the max allowed sample rate (pixels per second) that
-// can be processed by given encoder with |profile_level_id|.
+// can be processed by given encoder with `profile_level_id`.
 // See https://www.itu.int/rec/dologin_pub.asp?lang=e&id=T-REC-H.264-201610-S!!PDF-E&type=items
 // for details.
 NSUInteger GetMaxSampleRate(const webrtc::H264ProfileLevelId &profile_level_id) {
@@ -322,7 +330,6 @@ NSUInteger GetMaxSampleRate(const webrtc::H264ProfileLevelId &profile_level_id) 
   int32_t _width;
   int32_t _height;
   VTCompressionSessionRef _compressionSession;
-  CVPixelBufferPoolRef _pixelBufferPool;
   RTCVideoCodecMode _mode;
 
   webrtc::H264BitstreamParser _h264BitstreamParser;
@@ -387,8 +394,6 @@ NSUInteger GetMaxSampleRate(const webrtc::H264ProfileLevelId &profile_level_id) 
 - (NSInteger)encode:(RTC_OBJC_TYPE(RTCVideoFrame) *)frame
     codecSpecificInfo:(nullable id<RTC_OBJC_TYPE(RTCCodecSpecificInfo)>)codecSpecificInfo
            frameTypes:(NSArray<NSNumber *> *)frameTypes {
-  RTC_DCHECK_EQ(frame.width, _width);
-  RTC_DCHECK_EQ(frame.height, _height);
   if (!_callback || !_compressionSession) {
     return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
   }
@@ -413,7 +418,7 @@ NSUInteger GetMaxSampleRate(const webrtc::H264ProfileLevelId &profile_level_id) 
       CVBufferRetain(pixelBuffer);
     } else {
       // Cropping required, we need to crop and scale to a new pixel buffer.
-      pixelBuffer = CreatePixelBuffer(_pixelBufferPool);
+      pixelBuffer = CreatePixelBuffer(_compressionSession);
       if (!pixelBuffer) {
         return WEBRTC_VIDEO_CODEC_ERROR;
       }
@@ -436,7 +441,10 @@ NSUInteger GetMaxSampleRate(const webrtc::H264ProfileLevelId &profile_level_id) 
 
   if (!pixelBuffer) {
     // We did not have a native frame buffer
-    pixelBuffer = CreatePixelBuffer(_pixelBufferPool);
+    RTC_DCHECK_EQ(frame.width, _width);
+    RTC_DCHECK_EQ(frame.height, _height);
+
+    pixelBuffer = CreatePixelBuffer(_compressionSession);
     if (!pixelBuffer) {
       return WEBRTC_VIDEO_CODEC_ERROR;
     }
@@ -537,6 +545,10 @@ NSUInteger GetMaxSampleRate(const webrtc::H264ProfileLevelId &profile_level_id) 
   return NO;
 }
 
+- (BOOL)supportsNativeHandle {
+  return YES;
+}
+
 #pragma mark - Private
 
 - (NSInteger)releaseEncoder {
@@ -569,8 +581,15 @@ NSUInteger GetMaxSampleRate(const webrtc::H264ProfileLevelId &profile_level_id) 
   if (_compressionSession) {
     // The pool attribute `kCVPixelBufferPixelFormatTypeKey` can contain either an array of pixel
     // formats or a single pixel format.
+
+    CVPixelBufferPoolRef pixelBufferPool =
+        VTCompressionSessionGetPixelBufferPool(_compressionSession);
+    if (!pixelBufferPool) {
+      return NO;
+    }
+
     NSDictionary *poolAttributes =
-        (__bridge NSDictionary *)CVPixelBufferPoolGetPixelBufferAttributes(_pixelBufferPool);
+        (__bridge NSDictionary *)CVPixelBufferPoolGetPixelBufferAttributes(pixelBufferPool);
     id pixelFormats =
         [poolAttributes objectForKey:(__bridge NSString *)kCVPixelBufferPixelFormatTypeKey];
     NSArray<NSNumber *> *compressionSessionPixelFormats = nil;
@@ -600,58 +619,38 @@ NSUInteger GetMaxSampleRate(const webrtc::H264ProfileLevelId &profile_level_id) 
 
   // Set source image buffer attributes. These attributes will be present on
   // buffers retrieved from the encoder's pixel buffer pool.
-  const size_t attributesSize = 3;
-  CFTypeRef keys[attributesSize] = {
-#if defined(WEBRTC_IOS)
-    kCVPixelBufferOpenGLESCompatibilityKey,
-#elif defined(WEBRTC_MAC)
-    kCVPixelBufferOpenGLCompatibilityKey,
+  NSDictionary *sourceAttributes = @{
+#if defined(WEBRTC_IOS) && (TARGET_OS_MACCATALYST || TARGET_OS_SIMULATOR)
+    (NSString *)kCVPixelBufferMetalCompatibilityKey : @(YES),
+#elif defined(WEBRTC_IOS)
+    (NSString *)kCVPixelBufferOpenGLESCompatibilityKey : @(YES),
+#elif defined(WEBRTC_MAC) && !defined(WEBRTC_ARCH_ARM64)
+    (NSString *)kCVPixelBufferOpenGLCompatibilityKey : @(YES),
 #endif
-    kCVPixelBufferIOSurfacePropertiesKey,
-    kCVPixelBufferPixelFormatTypeKey
+    (NSString *)kCVPixelBufferIOSurfacePropertiesKey : @{},
+    (NSString *)kCVPixelBufferPixelFormatTypeKey : @(framePixelFormat),
   };
-  CFDictionaryRef ioSurfaceValue = CreateCFTypeDictionary(nullptr, nullptr, 0);
-  int64_t pixelFormatType = framePixelFormat;
-  CFNumberRef pixelFormat = CFNumberCreate(nullptr, kCFNumberLongType, &pixelFormatType);
-  CFTypeRef values[attributesSize] = {kCFBooleanTrue, ioSurfaceValue, pixelFormat};
-  CFDictionaryRef sourceAttributes = CreateCFTypeDictionary(keys, values, attributesSize);
-  if (ioSurfaceValue) {
-    CFRelease(ioSurfaceValue);
-    ioSurfaceValue = nullptr;
-  }
-  if (pixelFormat) {
-    CFRelease(pixelFormat);
-    pixelFormat = nullptr;
-  }
-  CFMutableDictionaryRef encoder_specs = nullptr;
+
+  NSDictionary *encoder_specs;
 #if defined(WEBRTC_MAC) && !defined(WEBRTC_IOS)
   // Currently hw accl is supported above 360p on mac, below 360p
   // the compression session will be created with hw accl disabled.
-  encoder_specs = CFDictionaryCreateMutable(
-      nullptr, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-  CFDictionarySetValue(encoder_specs,
-                       kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder,
-                       kCFBooleanTrue);
+  encoder_specs = @{
+    (NSString *)kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder : @(YES),
+  };
+
 #endif
-  OSStatus status =
-      VTCompressionSessionCreate(nullptr,  // use default allocator
-                                 _width,
-                                 _height,
-                                 kCMVideoCodecType_H264,
-                                 encoder_specs,  // use hardware accelerated encoder if available
-                                 sourceAttributes,
-                                 nullptr,  // use default compressed data allocator
-                                 compressionOutputCallback,
-                                 nullptr,
-                                 &_compressionSession);
-  if (sourceAttributes) {
-    CFRelease(sourceAttributes);
-    sourceAttributes = nullptr;
-  }
-  if (encoder_specs) {
-    CFRelease(encoder_specs);
-    encoder_specs = nullptr;
-  }
+  OSStatus status = VTCompressionSessionCreate(
+      nullptr,  // use default allocator
+      _width,
+      _height,
+      kCMVideoCodecType_H264,
+      (__bridge CFDictionaryRef)encoder_specs,  // use hardware accelerated encoder if available
+      (__bridge CFDictionaryRef)sourceAttributes,
+      nullptr,  // use default compressed data allocator
+      compressionOutputCallback,
+      nullptr,
+      &_compressionSession);
   if (status != noErr) {
     RTC_LOG(LS_ERROR) << "Failed to create compression session: " << status;
     return WEBRTC_VIDEO_CODEC_ERROR;
@@ -669,10 +668,6 @@ NSUInteger GetMaxSampleRate(const webrtc::H264ProfileLevelId &profile_level_id) 
   }
 #endif
   [self configureCompressionSession];
-
-  // The pixel buffer pool is dependent on the compression session so if the session is reset, the
-  // pool should be reset as well.
-  _pixelBufferPool = VTCompressionSessionGetPixelBufferPool(_compressionSession);
 
   return WEBRTC_VIDEO_CODEC_OK;
 }
@@ -704,7 +699,6 @@ NSUInteger GetMaxSampleRate(const webrtc::H264ProfileLevelId &profile_level_id) 
     VTCompressionSessionInvalidate(_compressionSession);
     CFRelease(_compressionSession);
     _compressionSession = nullptr;
-    _pixelBufferPool = nullptr;
   }
 }
 
@@ -722,7 +716,7 @@ NSUInteger GetMaxSampleRate(const webrtc::H264ProfileLevelId &profile_level_id) 
   if (_compressionSession) {
     SetVTSessionProperty(_compressionSession, kVTCompressionPropertyKey_AverageBitRate, bitrateBps);
 
-    // With zero |_maxAllowedFrameRate|, we fall back to automatic frame rate detection.
+    // With zero `_maxAllowedFrameRate`, we fall back to automatic frame rate detection.
     if (_maxAllowedFrameRate > 0) {
       SetVTSessionProperty(
           _compressionSession, kVTCompressionPropertyKey_ExpectedFrameRate, frameRate);

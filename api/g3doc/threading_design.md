@@ -1,5 +1,6 @@
-<?% config.freshness.owner = 'hta' %?>
-<?% config.freshness.reviewed = '2021-04-12' %?>
+<!-- go/cmark -->
+<!--* freshness: {owner: 'hta' reviewed: '2021-04-12'} *-->
+
 # API Threading Design considerations
 
 The header files in this directory form the API to the WebRTC library
@@ -37,7 +38,7 @@ and sequenced task queues.
 At the moment, the API does not give any guarantee on which thread* the
 callbacks and events are called on. So it's best to write all callback
 and event handlers like this (pseudocode):
-<pre>
+```
 void ObserverClass::Handler(event) {
   if (!called_on_client_thread()) {
     dispatch_to_client_thread(bind(handler(event)));
@@ -45,7 +46,7 @@ void ObserverClass::Handler(event) {
   }
   // Process event, we're now on the right thread
 }
-</pre>
+```
 In the future, the implementation may change to always call the callbacks
 and event handlers on the client thread.
 

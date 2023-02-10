@@ -20,6 +20,7 @@ constexpr DurationMs kMaxRtt = DurationMs(8'000);
 constexpr DurationMs kInitialRto = DurationMs(200);
 constexpr DurationMs kMaxRto = DurationMs(800);
 constexpr DurationMs kMinRto = DurationMs(120);
+constexpr DurationMs kMinRttVariance = DurationMs(220);
 
 DcSctpOptions MakeOptions() {
   DcSctpOptions options;
@@ -27,12 +28,18 @@ DcSctpOptions MakeOptions() {
   options.rto_initial = kInitialRto;
   options.rto_max = kMaxRto;
   options.rto_min = kMinRto;
+  options.min_rtt_variance = kMinRttVariance;
   return options;
 }
 
 TEST(RetransmissionTimeoutTest, HasValidInitialRto) {
   RetransmissionTimeout rto_(MakeOptions());
   EXPECT_EQ(rto_.rto(), kInitialRto);
+}
+
+TEST(RetransmissionTimeoutTest, HasValidInitialSrtt) {
+  RetransmissionTimeout rto_(MakeOptions());
+  EXPECT_EQ(rto_.srtt(), kInitialRto);
 }
 
 TEST(RetransmissionTimeoutTest, NegativeValuesDoNotAffectRTO) {
@@ -82,13 +89,13 @@ TEST(RetransmissionTimeoutTest, CalculatesRtoForStableRtt) {
   rto_.ObserveRTT(DurationMs(124));
   EXPECT_EQ(*rto_.rto(), 372);
   rto_.ObserveRTT(DurationMs(128));
-  EXPECT_EQ(*rto_.rto(), 314);
+  EXPECT_EQ(*rto_.rto(), 344);
   rto_.ObserveRTT(DurationMs(123));
-  EXPECT_EQ(*rto_.rto(), 268);
+  EXPECT_EQ(*rto_.rto(), 344);
   rto_.ObserveRTT(DurationMs(125));
-  EXPECT_EQ(*rto_.rto(), 233);
+  EXPECT_EQ(*rto_.rto(), 344);
   rto_.ObserveRTT(DurationMs(127));
-  EXPECT_EQ(*rto_.rto(), 208);
+  EXPECT_EQ(*rto_.rto(), 344);
 }
 
 TEST(RetransmissionTimeoutTest, CalculatesRtoForUnstableRtt) {
@@ -116,21 +123,21 @@ TEST(RetransmissionTimeoutTest, WillStabilizeAfterAWhile) {
   rto_.ObserveRTT(DurationMs(124));
   EXPECT_EQ(*rto_.rto(), 800);
   rto_.ObserveRTT(DurationMs(122));
-  EXPECT_EQ(*rto_.rto(), 709);
+  EXPECT_EQ(*rto_.rto(), 710);
   rto_.ObserveRTT(DurationMs(123));
-  EXPECT_EQ(*rto_.rto(), 630);
+  EXPECT_EQ(*rto_.rto(), 631);
   rto_.ObserveRTT(DurationMs(124));
-  EXPECT_EQ(*rto_.rto(), 561);
+  EXPECT_EQ(*rto_.rto(), 562);
   rto_.ObserveRTT(DurationMs(122));
-  EXPECT_EQ(*rto_.rto(), 504);
+  EXPECT_EQ(*rto_.rto(), 505);
   rto_.ObserveRTT(DurationMs(124));
-  EXPECT_EQ(*rto_.rto(), 453);
+  EXPECT_EQ(*rto_.rto(), 454);
   rto_.ObserveRTT(DurationMs(124));
-  EXPECT_EQ(*rto_.rto(), 409);
+  EXPECT_EQ(*rto_.rto(), 410);
   rto_.ObserveRTT(DurationMs(124));
   EXPECT_EQ(*rto_.rto(), 372);
   rto_.ObserveRTT(DurationMs(124));
-  EXPECT_EQ(*rto_.rto(), 339);
+  EXPECT_EQ(*rto_.rto(), 367);
 }
 
 TEST(RetransmissionTimeoutTest, WillAlwaysStayAboveRTT) {
@@ -141,10 +148,32 @@ TEST(RetransmissionTimeoutTest, WillAlwaysStayAboveRTT) {
   // any jitter will increase the RTO.
   RetransmissionTimeout rto_(MakeOptions());
 
-  for (int i = 0; i < 100; ++i) {
+  for (int i = 0; i < 1000; ++i) {
     rto_.ObserveRTT(DurationMs(124));
   }
-  EXPECT_GT(*rto_.rto(), 124);
+  EXPECT_EQ(*rto_.rto(), 344);
+}
+
+TEST(RetransmissionTimeoutTest, CanSpecifySmallerMinimumRttVariance) {
+  DcSctpOptions options = MakeOptions();
+  options.min_rtt_variance = kMinRttVariance - DurationMs(100);
+  RetransmissionTimeout rto_(options);
+
+  for (int i = 0; i < 1000; ++i) {
+    rto_.ObserveRTT(DurationMs(124));
+  }
+  EXPECT_EQ(*rto_.rto(), 244);
+}
+
+TEST(RetransmissionTimeoutTest, CanSpecifyLargerMinimumRttVariance) {
+  DcSctpOptions options = MakeOptions();
+  options.min_rtt_variance = kMinRttVariance + DurationMs(100);
+  RetransmissionTimeout rto_(options);
+
+  for (int i = 0; i < 1000; ++i) {
+    rto_.ObserveRTT(DurationMs(124));
+  }
+  EXPECT_EQ(*rto_.rto(), 444);
 }
 
 }  // namespace

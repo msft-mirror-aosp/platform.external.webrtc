@@ -14,7 +14,6 @@
 #include "av1/encoder/tune_butteraugli.h"
 
 #include "aom_dsp/butteraugli.h"
-#include "aom_ports/system_state.h"
 #include "av1/encoder/encodeframe.h"
 #include "av1/encoder/encoder_utils.h"
 #include "av1/encoder/extend.h"
@@ -148,7 +147,6 @@ void av1_set_butteraugli_rdmult(const AV1_COMP *cpi, MACROBLOCK *x,
   double num_of_mi = 0.0;
   double geom_mean_of_scale = 0.0;
 
-  aom_clear_system_state();
   for (int row = mi_row / num_mi_w;
        row < num_rows && row < mi_row / num_mi_w + num_brows; ++row) {
     for (int col = mi_col / num_mi_h;
@@ -164,7 +162,6 @@ void av1_set_butteraugli_rdmult(const AV1_COMP *cpi, MACROBLOCK *x,
   *rdmult = (int)((double)(*rdmult) * geom_mean_of_scale + 0.5);
   *rdmult = AOMMAX(*rdmult, 0);
   av1_set_error_per_bit(&x->errorperbit, *rdmult);
-  aom_clear_system_state();
 }
 
 static void copy_plane(const uint8_t *src, int src_stride, uint8_t *dst,
@@ -202,7 +199,6 @@ static void zero_img(YV12_BUFFER_CONFIG *dst) {
 }
 
 void av1_setup_butteraugli_source(AV1_COMP *cpi) {
-  aom_clear_system_state();
   YV12_BUFFER_CONFIG *const dst = &cpi->butteraugli_info.source;
   AV1_COMMON *const cm = &cpi->common;
   const int width = cpi->source->y_crop_width;
@@ -213,7 +209,7 @@ void av1_setup_butteraugli_source(AV1_COMP *cpi) {
   if (dst->buffer_alloc_sz == 0) {
     aom_alloc_frame_buffer(
         dst, width, height, ss_x, ss_y, cm->seq_params->use_highbitdepth,
-        cpi->oxcf.border_in_pixels, cm->features.byte_alignment);
+        cpi->oxcf.border_in_pixels, cm->features.byte_alignment, 0, 0);
   }
   av1_copy_and_extend_frame(cpi->source, dst);
 
@@ -222,7 +218,7 @@ void av1_setup_butteraugli_source(AV1_COMP *cpi) {
     aom_alloc_frame_buffer(
         resized_dst, width / resize_factor, height / resize_factor, ss_x, ss_y,
         cm->seq_params->use_highbitdepth, cpi->oxcf.border_in_pixels,
-        cm->features.byte_alignment);
+        cm->features.byte_alignment, 0, 0);
   }
   av1_resize_and_extend_frame_nonnormative(cpi->source, resized_dst, bit_depth,
                                            av1_num_planes(cm));
@@ -230,11 +226,9 @@ void av1_setup_butteraugli_source(AV1_COMP *cpi) {
   zero_img(cpi->source);
   copy_img(resized_dst, cpi->source, width / resize_factor,
            height / resize_factor);
-  aom_clear_system_state();
 }
 
 void av1_setup_butteraugli_rdmult_and_restore_source(AV1_COMP *cpi, double K) {
-  aom_clear_system_state();
   av1_copy_and_extend_frame(&cpi->butteraugli_info.source, cpi->source);
   AV1_COMMON *const cm = &cpi->common;
   const int width = cpi->source->y_crop_width;
@@ -247,7 +241,7 @@ void av1_setup_butteraugli_rdmult_and_restore_source(AV1_COMP *cpi, double K) {
   aom_alloc_frame_buffer(
       &resized_recon, width / resize_factor, height / resize_factor, ss_x, ss_y,
       cm->seq_params->use_highbitdepth, cpi->oxcf.border_in_pixels,
-      cm->features.byte_alignment);
+      cm->features.byte_alignment, 0, 0);
   copy_img(&cpi->common.cur_frame->buf, &resized_recon, width / resize_factor,
            height / resize_factor);
 
@@ -255,7 +249,6 @@ void av1_setup_butteraugli_rdmult_and_restore_source(AV1_COMP *cpi, double K) {
                                     &resized_recon, K);
   cpi->butteraugli_info.recon_set = true;
   aom_free_frame_buffer(&resized_recon);
-  aom_clear_system_state();
 }
 
 void av1_setup_butteraugli_rdmult(AV1_COMP *cpi) {
@@ -263,20 +256,20 @@ void av1_setup_butteraugli_rdmult(AV1_COMP *cpi) {
   const AV1EncoderConfig *const oxcf = &cpi->oxcf;
   const QuantizationCfg *const q_cfg = &oxcf->q_cfg;
   const int q_index = 96;
-  aom_clear_system_state();
 
   // Setup necessary params for encoding, including frame source, etc.
   if (cm->current_frame.frame_type == KEY_FRAME) copy_frame_prob_info(cpi);
   av1_set_frame_size(cpi, cm->superres_upscaled_width,
                      cm->superres_upscaled_height);
 
-  cpi->source =
-      av1_scale_if_required(cm, cpi->unscaled_source, &cpi->scaled_source,
-                            cm->features.interp_filter, 0, false, false);
+  cpi->source = av1_realloc_and_scale_if_required(
+      cm, cpi->unscaled_source, &cpi->scaled_source, cm->features.interp_filter,
+      0, false, false, cpi->oxcf.border_in_pixels, cpi->image_pyramid_levels);
   if (cpi->unscaled_last_source != NULL) {
-    cpi->last_source = av1_scale_if_required(
+    cpi->last_source = av1_realloc_and_scale_if_required(
         cm, cpi->unscaled_last_source, &cpi->scaled_last_source,
-        cm->features.interp_filter, 0, false, false);
+        cm->features.interp_filter, 0, false, false, cpi->oxcf.border_in_pixels,
+        cpi->image_pyramid_levels);
   }
 
   av1_setup_butteraugli_source(cpi);
@@ -303,11 +296,10 @@ void av1_setup_butteraugli_rdmult(AV1_COMP *cpi) {
   // cpi->sf.part_sf.fixed_partition_size = BLOCK_32X32;
 
   av1_set_quantizer(cm, q_cfg->qm_minlevel, q_cfg->qm_maxlevel, q_index,
-                    q_cfg->enable_chroma_deltaq);
+                    q_cfg->enable_chroma_deltaq, q_cfg->enable_hdr_deltaq);
   av1_set_speed_features_qindex_dependent(cpi, oxcf->speed);
-  if (q_cfg->deltaq_mode != NO_DELTA_Q || q_cfg->enable_chroma_deltaq)
-    av1_init_quantizer(&cpi->enc_quant_dequant_params, &cm->quant_params,
-                       cm->seq_params->bit_depth);
+  av1_init_quantizer(&cpi->enc_quant_dequant_params, &cm->quant_params,
+                     cm->seq_params->bit_depth);
 
   av1_set_variance_partition_thresholds(cpi, q_index, 0);
   av1_encode_frame(cpi);

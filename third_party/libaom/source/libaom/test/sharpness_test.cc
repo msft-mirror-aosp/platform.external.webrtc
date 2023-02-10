@@ -32,9 +32,9 @@ const std::unordered_map<
                            { 4, { { 2, 37.5 }, { 5, 37.5 } } },
                            { 6, { { 2, 37.5 }, { 5, 37.5 } } } } },
                        { static_cast<int>(::libaom_test::kAllIntra),
-                         { { 3, { { 2, 42.3 }, { 5, 42.4 } } },
+                         { { 3, { { 2, 42.2 }, { 5, 42.2 } } },
                            { 6, { { 2, 41.8 }, { 4, 41.9 }, { 5, 41.9 } } },
-                           { 9, { { 2, 41.4 }, { 5, 41.4 } } } } } };
+                           { 9, { { 2, 41.0 }, { 5, 41.0 } } } } } };
 
 // This class is used to test sharpness parameter configured through control
 // call using AOME_SET_SHARPNESS for different encoder configurations.
@@ -97,7 +97,7 @@ class SharpnessTest
 
     std::unique_ptr<libaom_test::VideoSource> video(
         new libaom_test::Y4mVideoSource("paris_352_288_30.y4m", 0, kFrames));
-    ASSERT_TRUE(video.get() != NULL);
+    ASSERT_NE(video, nullptr);
 
     ASSERT_NO_FATAL_FAILURE(RunLoop(video.get()));
     const double psnr = GetAveragePsnr();

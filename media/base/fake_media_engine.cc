@@ -15,6 +15,7 @@
 
 #include "absl/algorithm/container.h"
 #include "absl/strings/match.h"
+#include "absl/types/optional.h"
 #include "rtc_base/checks.h"
 
 namespace cricket {
@@ -49,10 +50,11 @@ AudioSource* FakeVoiceMediaChannel::VoiceChannelAudioSink::source() const {
   return source_;
 }
 
-FakeVoiceMediaChannel::FakeVoiceMediaChannel(FakeVoiceEngine* engine,
+FakeVoiceMediaChannel::FakeVoiceMediaChannel(MediaChannel::Role role,
+                                             FakeVoiceEngine* engine,
                                              const AudioOptions& options,
                                              TaskQueueBase* network_thread)
-    : RtpHelper<VoiceMediaChannel>(network_thread),
+    : RtpHelper<VoiceMediaChannel>(role, network_thread),
       engine_(engine),
       max_bps_(-1) {
   output_scalings_[0] = 1.0;  // For default channel.
@@ -187,8 +189,11 @@ absl::optional<int> FakeVoiceMediaChannel::GetBaseMinimumPlayoutDelayMs(
   }
   return absl::nullopt;
 }
-bool FakeVoiceMediaChannel::GetStats(VoiceMediaInfo* info,
-                                     bool get_and_clear_legacy_stats) {
+bool FakeVoiceMediaChannel::GetSendStats(VoiceMediaSendInfo* info) {
+  return false;
+}
+bool FakeVoiceMediaChannel::GetReceiveStats(VoiceMediaReceiveInfo* info,
+                                            bool get_and_clear_legacy_stats) {
   return false;
 }
 void FakeVoiceMediaChannel::SetRawAudioSink(
@@ -256,10 +261,11 @@ bool CompareDtmfInfo(const FakeVoiceMediaChannel::DtmfInfo& info,
           info.ssrc == ssrc);
 }
 
-FakeVideoMediaChannel::FakeVideoMediaChannel(FakeVideoEngine* engine,
+FakeVideoMediaChannel::FakeVideoMediaChannel(MediaChannel::Role role,
+                                             FakeVideoEngine* engine,
                                              const VideoOptions& options,
                                              TaskQueueBase* network_thread)
-    : RtpHelper<VideoMediaChannel>(network_thread),
+    : RtpHelper<VideoMediaChannel>(role, network_thread),
       engine_(engine),
       max_bps_(-1) {
   SetOptions(options);
@@ -367,7 +373,10 @@ bool FakeVideoMediaChannel::RemoveRecvStream(uint32_t ssrc) {
 }
 void FakeVideoMediaChannel::FillBitrateInfo(BandwidthEstimationInfo* bwe_info) {
 }
-bool FakeVideoMediaChannel::GetStats(VideoMediaInfo* info) {
+bool FakeVideoMediaChannel::GetSendStats(VideoMediaSendInfo* info) {
+  return false;
+}
+bool FakeVideoMediaChannel::GetReceiveStats(VideoMediaReceiveInfo* info) {
   return false;
 }
 std::vector<webrtc::RtpSource> FakeVideoMediaChannel::GetSources(
@@ -427,7 +436,10 @@ void FakeVideoMediaChannel::SetRecordableEncodedFrameCallback(
 void FakeVideoMediaChannel::ClearRecordableEncodedFrameCallback(uint32_t ssrc) {
 }
 
-void FakeVideoMediaChannel::GenerateKeyFrame(uint32_t ssrc) {}
+void FakeVideoMediaChannel::RequestRecvKeyFrame(uint32_t ssrc) {}
+void FakeVideoMediaChannel::GenerateSendKeyFrame(
+    uint32_t ssrc,
+    const std::vector<std::string>& rids) {}
 
 FakeVoiceEngine::FakeVoiceEngine() : fail_create_channel_(false) {
   // Add a fake audio codec. Note that the name must not be "" as there are
@@ -439,6 +451,7 @@ rtc::scoped_refptr<webrtc::AudioState> FakeVoiceEngine::GetAudioState() const {
   return rtc::scoped_refptr<webrtc::AudioState>();
 }
 VoiceMediaChannel* FakeVoiceEngine::CreateMediaChannel(
+    MediaChannel::Role role,
     webrtc::Call* call,
     const MediaConfig& config,
     const AudioOptions& options,
@@ -448,7 +461,7 @@ VoiceMediaChannel* FakeVoiceEngine::CreateMediaChannel(
   }
 
   FakeVoiceMediaChannel* ch =
-      new FakeVoiceMediaChannel(this, options, call->network_thread());
+      new FakeVoiceMediaChannel(role, this, options, call->network_thread());
   channels_.push_back(ch);
   return ch;
 }
@@ -481,6 +494,10 @@ bool FakeVoiceEngine::StartAecDump(webrtc::FileWrapper file,
                                    int64_t max_size_bytes) {
   return false;
 }
+absl::optional<webrtc::AudioDeviceModule::Stats>
+FakeVoiceEngine::GetAudioDeviceStats() {
+  return absl::nullopt;
+}
 void FakeVoiceEngine::StopAecDump() {}
 
 std::vector<webrtc::RtpHeaderExtensionCapability>
@@ -505,6 +522,7 @@ bool FakeVideoEngine::SetOptions(const VideoOptions& options) {
   return true;
 }
 VideoMediaChannel* FakeVideoEngine::CreateMediaChannel(
+    MediaChannel::Role role,
     webrtc::Call* call,
     const MediaConfig& config,
     const VideoOptions& options,
@@ -515,7 +533,7 @@ VideoMediaChannel* FakeVideoEngine::CreateMediaChannel(
   }
 
   FakeVideoMediaChannel* ch =
-      new FakeVideoMediaChannel(this, options, call->network_thread());
+      new FakeVideoMediaChannel(role, this, options, call->network_thread());
   channels_.emplace_back(ch);
   return ch;
 }
@@ -527,11 +545,11 @@ void FakeVideoEngine::UnregisterChannel(VideoMediaChannel* channel) {
   RTC_DCHECK(it != channels_.end());
   channels_.erase(it);
 }
-std::vector<VideoCodec> FakeVideoEngine::send_codecs() const {
+std::vector<VideoCodec> FakeVideoEngine::send_codecs(bool use_rtx) const {
   return send_codecs_;
 }
 
-std::vector<VideoCodec> FakeVideoEngine::recv_codecs() const {
+std::vector<VideoCodec> FakeVideoEngine::recv_codecs(bool use_rtx) const {
   return recv_codecs_;
 }
 

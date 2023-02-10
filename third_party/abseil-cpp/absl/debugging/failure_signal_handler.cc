@@ -135,10 +135,11 @@ static bool SetupAlternateStackOnce() {
 #if defined(__wasm__) || defined (__asjms__)
   const size_t page_mask = getpagesize() - 1;
 #else
-  const size_t page_mask = sysconf(_SC_PAGESIZE) - 1;
+  const size_t page_mask = static_cast<size_t>(sysconf(_SC_PAGESIZE)) - 1;
 #endif
   size_t stack_size =
-      (std::max<size_t>(SIGSTKSZ, 65536) + page_mask) & ~page_mask;
+      (std::max(static_cast<size_t>(SIGSTKSZ), size_t{65536}) + page_mask) &
+      ~page_mask;
 #if defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
     defined(ABSL_HAVE_MEMORY_SANITIZER) || defined(ABSL_HAVE_THREAD_SANITIZER)
   // Account for sanitizer instrumentation requiring additional stack space.
@@ -356,7 +357,7 @@ static void AbslFailureSignalHandler(int signo, siginfo_t*, void* ucontext) {
   if (fsh_options.alarm_on_failure_secs > 0) {
     alarm(0);  // Cancel any existing alarms.
     signal(SIGALRM, ImmediateAbortSignalHandler);
-    alarm(fsh_options.alarm_on_failure_secs);
+    alarm(static_cast<unsigned int>(fsh_options.alarm_on_failure_secs));
   }
 #endif
 

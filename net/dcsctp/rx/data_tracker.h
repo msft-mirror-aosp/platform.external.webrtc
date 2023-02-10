@@ -24,6 +24,7 @@
 #include "net/dcsctp/packet/chunk/data_common.h"
 #include "net/dcsctp/packet/chunk/sack_chunk.h"
 #include "net/dcsctp/packet/data.h"
+#include "net/dcsctp/public/dcsctp_handover_state.h"
 #include "net/dcsctp/timer/timer.h"
 
 namespace dcsctp {
@@ -51,10 +52,11 @@ class DataTracker {
   // cumulative acked TSN.
   static constexpr uint32_t kMaxAcceptedOutstandingFragments = 100000;
 
-  explicit DataTracker(absl::string_view log_prefix,
-                       Timer* delayed_ack_timer,
-                       TSN peer_initial_tsn)
+  DataTracker(absl::string_view log_prefix,
+              Timer* delayed_ack_timer,
+              TSN peer_initial_tsn)
       : log_prefix_(std::string(log_prefix) + "dtrack: "),
+        seen_packet_(false),
         delayed_ack_timer_(*delayed_ack_timer),
         last_cumulative_acked_tsn_(
             tsn_unwrapper_.Unwrap(TSN(*peer_initial_tsn - 1))) {}
@@ -64,8 +66,9 @@ class DataTracker {
   // means that there is intentional packet loss.
   bool IsTSNValid(TSN tsn) const;
 
-  // Call for every incoming data chunk.
-  void Observe(TSN tsn,
+  // Call for every incoming data chunk. Returns `true` if `tsn` was seen for
+  // the first time, and `false` if it has been seen before (a duplicate `tsn`).
+  bool Observe(TSN tsn,
                AnyDataChunk::ImmediateAckFlag immediate_ack =
                    AnyDataChunk::ImmediateAckFlag(false));
   // Called at the end of processing an SCTP packet.
@@ -100,6 +103,11 @@ class DataTracker {
   SackChunk CreateSelectiveAck(size_t a_rwnd);
 
   void HandleDelayedAckTimerExpiry();
+
+  HandoverReadinessStatus GetHandoverReadiness() const;
+
+  void AddHandoverState(DcSctpSocketHandoverState& state);
+  void RestoreFromState(const DcSctpSocketHandoverState& state);
 
  private:
   enum class AckState {
@@ -166,7 +174,7 @@ class DataTracker {
 
   const std::string log_prefix_;
   // If a packet has ever been seen.
-  bool seen_packet_ = false;
+  bool seen_packet_;
   Timer& delayed_ack_timer_;
   AckState ack_state_ = AckState::kIdle;
   UnwrappedTSN::Unwrapper tsn_unwrapper_;
