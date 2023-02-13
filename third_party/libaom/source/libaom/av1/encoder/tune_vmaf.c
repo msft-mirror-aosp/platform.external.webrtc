@@ -12,7 +12,6 @@
 #include "av1/encoder/tune_vmaf.h"
 
 #include "aom_dsp/psnr.h"
-#include "aom_ports/system_state.h"
 #include "av1/encoder/extend.h"
 #include "av1/encoder/rdopt.h"
 #include "config/aom_scale_rtcd.h"
@@ -95,6 +94,7 @@ static unsigned int residual_variance(const AV1_COMP *cpi,
 
 static double frame_average_variance(const AV1_COMP *const cpi,
                                      const YV12_BUFFER_CONFIG *const frame) {
+  const MACROBLOCKD *const xd = &cpi->td.mb.e_mbd;
   const uint8_t *const y_buffer = frame->y_buffer;
   const int y_stride = frame->y_stride;
   const BLOCK_SIZE block_size = BLOCK_64X64;
@@ -102,8 +102,8 @@ static double frame_average_variance(const AV1_COMP *const cpi,
   const int block_w = mi_size_wide[block_size] * 4;
   const int block_h = mi_size_high[block_size] * 4;
   int row, col;
-  const int bit_depth = cpi->td.mb.e_mbd.bd;
   double var = 0.0, var_count = 0.0;
+  const int use_hbd = frame->flags & YV12_FLAG_HIGHBITDEPTH;
 
   // Loop through each block.
   for (row = 0; row < frame->y_height / block_h; ++row) {
@@ -115,13 +115,8 @@ static double frame_average_variance(const AV1_COMP *const cpi,
       buf.buf = (uint8_t *)y_buffer + row_offset_y * y_stride + col_offset_y;
       buf.stride = y_stride;
 
-      if (cpi->common.seq_params->use_highbitdepth) {
-        assert(frame->flags & YV12_FLAG_HIGHBITDEPTH);
-        var += av1_high_get_sby_perpixel_variance(cpi, &buf, block_size,
-                                                  bit_depth);
-      } else {
-        var += av1_get_sby_perpixel_variance(cpi, &buf, block_size);
-      }
+      var += av1_get_perpixel_variance(cpi, xd, &buf, block_size, AOM_PLANE_Y,
+                                       use_hbd);
       var_count += 1.0;
     }
   }
@@ -158,8 +153,8 @@ static double residual_frame_average_variance(AV1_COMP *cpi,
   bool do_motion_search = false;
   if (mvs == NULL) {
     do_motion_search = true;
-    mvs = (FULLPEL_MV *)aom_malloc(sizeof(*mvs) * mb_rows * mb_cols);
-    memset(mvs, 0, sizeof(*mvs) * mb_rows * mb_cols);
+    CHECK_MEM_ERROR(&cpi->common, mvs,
+                    (FULLPEL_MV *)aom_calloc(mb_rows * mb_cols, sizeof(*mvs)));
   }
 
   unsigned int variance = 0;
@@ -346,7 +341,7 @@ static double find_best_frame_unsharp_amount(const AV1_COMP *const cpi,
   aom_alloc_frame_buffer(
       &sharpened, width, height, source->subsampling_x, source->subsampling_y,
       cm->seq_params->use_highbitdepth, cpi->oxcf.border_in_pixels,
-      cm->features.byte_alignment);
+      cm->features.byte_alignment, 0, 0);
 
   const double baseline_variance = frame_average_variance(cpi, source);
   double unsharp_amount;
@@ -380,7 +375,6 @@ static double find_best_frame_unsharp_amount(const AV1_COMP *const cpi,
 
 void av1_vmaf_neg_preprocessing(AV1_COMP *const cpi,
                                 YV12_BUFFER_CONFIG *const source) {
-  aom_clear_system_state();
   const AV1_COMMON *const cm = &cpi->common;
   const int bit_depth = cpi->td.mb.e_mbd.bd;
   const int width = source->y_width;
@@ -399,17 +393,15 @@ void av1_vmaf_neg_preprocessing(AV1_COMP *const cpi,
   aom_alloc_frame_buffer(
       &blurred, width, height, source->subsampling_x, source->subsampling_y,
       cm->seq_params->use_highbitdepth, cpi->oxcf.border_in_pixels,
-      cm->features.byte_alignment);
+      cm->features.byte_alignment, 0, 0);
 
   gaussian_blur(bit_depth, source, &blurred);
   unsharp(cpi, source, &blurred, source, best_frame_unsharp_amount);
   aom_free_frame_buffer(&blurred);
-  aom_clear_system_state();
 }
 
 void av1_vmaf_frame_preprocessing(AV1_COMP *const cpi,
                                   YV12_BUFFER_CONFIG *const source) {
-  aom_clear_system_state();
   const AV1_COMMON *const cm = &cpi->common;
   const int bit_depth = cpi->td.mb.e_mbd.bd;
   const int width = source->y_width;
@@ -421,11 +413,11 @@ void av1_vmaf_frame_preprocessing(AV1_COMP *const cpi,
   aom_alloc_frame_buffer(
       &source_extended, width, height, source->subsampling_x,
       source->subsampling_y, cm->seq_params->use_highbitdepth,
-      cpi->oxcf.border_in_pixels, cm->features.byte_alignment);
+      cpi->oxcf.border_in_pixels, cm->features.byte_alignment, 0, 0);
   aom_alloc_frame_buffer(
       &blurred, width, height, source->subsampling_x, source->subsampling_y,
       cm->seq_params->use_highbitdepth, cpi->oxcf.border_in_pixels,
-      cm->features.byte_alignment);
+      cm->features.byte_alignment, 0, 0);
 
   av1_copy_and_extend_frame(source, &source_extended);
   gaussian_blur(bit_depth, &source_extended, &blurred);
@@ -445,12 +437,10 @@ void av1_vmaf_frame_preprocessing(AV1_COMP *const cpi,
 
   unsharp(cpi, source, &blurred, source, best_frame_unsharp_amount);
   aom_free_frame_buffer(&blurred);
-  aom_clear_system_state();
 }
 
 void av1_vmaf_blk_preprocessing(AV1_COMP *const cpi,
                                 YV12_BUFFER_CONFIG *const source) {
-  aom_clear_system_state();
   const AV1_COMMON *const cm = &cpi->common;
   const int width = source->y_width;
   const int height = source->y_height;
@@ -463,11 +453,11 @@ void av1_vmaf_blk_preprocessing(AV1_COMP *const cpi,
   memset(&source_extended, 0, sizeof(source_extended));
   aom_alloc_frame_buffer(
       &blurred, width, height, ss_x, ss_y, cm->seq_params->use_highbitdepth,
-      cpi->oxcf.border_in_pixels, cm->features.byte_alignment);
+      cpi->oxcf.border_in_pixels, cm->features.byte_alignment, 0, 0);
   aom_alloc_frame_buffer(&source_extended, width, height, ss_x, ss_y,
                          cm->seq_params->use_highbitdepth,
                          cpi->oxcf.border_in_pixels,
-                         cm->features.byte_alignment);
+                         cm->features.byte_alignment, 0, 0);
 
   av1_copy_and_extend_frame(source, &source_extended);
   gaussian_blur(bit_depth, &source_extended, &blurred);
@@ -491,9 +481,11 @@ void av1_vmaf_blk_preprocessing(AV1_COMP *const cpi,
   const int num_cols = (source->y_width + block_w - 1) / block_w;
   const int num_rows = (source->y_height + block_h - 1) / block_h;
   double *best_unsharp_amounts =
-      aom_malloc(sizeof(*best_unsharp_amounts) * num_cols * num_rows);
-  memset(best_unsharp_amounts, 0,
-         sizeof(*best_unsharp_amounts) * num_cols * num_rows);
+      aom_calloc(num_cols * num_rows, sizeof(*best_unsharp_amounts));
+  if (!best_unsharp_amounts) {
+    aom_internal_error(cm->error, AOM_CODEC_MEM_ERROR,
+                       "Error allocating vmaf data");
+  }
 
   YV12_BUFFER_CONFIG source_block, blurred_block;
   memset(&source_block, 0, sizeof(source_block));
@@ -501,11 +493,11 @@ void av1_vmaf_blk_preprocessing(AV1_COMP *const cpi,
   aom_alloc_frame_buffer(&source_block, block_w, block_h, ss_x, ss_y,
                          cm->seq_params->use_highbitdepth,
                          cpi->oxcf.border_in_pixels,
-                         cm->features.byte_alignment);
+                         cm->features.byte_alignment, 0, 0);
   aom_alloc_frame_buffer(&blurred_block, block_w, block_h, ss_x, ss_y,
                          cm->seq_params->use_highbitdepth,
                          cpi->oxcf.border_in_pixels,
-                         cm->features.byte_alignment);
+                         cm->features.byte_alignment, 0, 0);
 
   for (int row = 0; row < num_rows; ++row) {
     for (int col = 0; col < num_cols; ++col) {
@@ -611,7 +603,6 @@ void av1_vmaf_blk_preprocessing(AV1_COMP *const cpi,
   aom_free_frame_buffer(&blurred_block);
   aom_free_frame_buffer(&blurred);
   aom_free(best_unsharp_amounts);
-  aom_clear_system_state();
 }
 
 void av1_set_mb_vmaf_rdmult_scaling(AV1_COMP *cpi) {
@@ -624,13 +615,12 @@ void av1_set_mb_vmaf_rdmult_scaling(AV1_COMP *cpi) {
   const int ss_x = cpi->source->subsampling_x;
   const int ss_y = cpi->source->subsampling_y;
 
-  aom_clear_system_state();
   YV12_BUFFER_CONFIG resized_source;
   memset(&resized_source, 0, sizeof(resized_source));
   aom_alloc_frame_buffer(
       &resized_source, y_width / resize_factor, y_height / resize_factor, ss_x,
       ss_y, cm->seq_params->use_highbitdepth, cpi->oxcf.border_in_pixels,
-      cm->features.byte_alignment);
+      cm->features.byte_alignment, 0, 0);
   av1_resize_and_extend_frame_nonnormative(cpi->source, &resized_source,
                                            bit_depth, av1_num_planes(cm));
 
@@ -648,7 +638,7 @@ void av1_set_mb_vmaf_rdmult_scaling(AV1_COMP *cpi) {
   aom_alloc_frame_buffer(&blurred, resized_y_width, resized_y_height, ss_x,
                          ss_y, cm->seq_params->use_highbitdepth,
                          cpi->oxcf.border_in_pixels,
-                         cm->features.byte_alignment);
+                         cm->features.byte_alignment, 0, 0);
   gaussian_blur(bit_depth, &resized_source, &blurred);
 
   YV12_BUFFER_CONFIG recon;
@@ -656,15 +646,18 @@ void av1_set_mb_vmaf_rdmult_scaling(AV1_COMP *cpi) {
   aom_alloc_frame_buffer(&recon, resized_y_width, resized_y_height, ss_x, ss_y,
                          cm->seq_params->use_highbitdepth,
                          cpi->oxcf.border_in_pixels,
-                         cm->features.byte_alignment);
+                         cm->features.byte_alignment, 0, 0);
   aom_yv12_copy_frame(&resized_source, &recon, 1);
 
   VmafContext *vmaf_context;
   const bool cal_vmaf_neg =
       cpi->oxcf.tune_cfg.tuning == AOM_TUNE_VMAF_NEG_MAX_GAIN;
   aom_init_vmaf_context(&vmaf_context, cpi->vmaf_info.vmaf_model, cal_vmaf_neg);
-  unsigned int *sses = aom_malloc(sizeof(*sses) * (num_rows * num_cols));
-  memset(sses, 0, sizeof(*sses) * (num_rows * num_cols));
+  unsigned int *sses = aom_calloc(num_rows * num_cols, sizeof(*sses));
+  if (!sses) {
+    aom_internal_error(cm->error, AOM_CODEC_MEM_ERROR,
+                       "Error allocating vmaf data");
+  }
 
   // Loop through each 'block_size' block.
   for (int row = 0; row < num_rows; ++row) {
@@ -742,7 +735,6 @@ void av1_set_mb_vmaf_rdmult_scaling(AV1_COMP *cpi) {
   aom_free_frame_buffer(&blurred);
   aom_close_vmaf_context(vmaf_context);
   aom_free(sses);
-  aom_clear_system_state();
 }
 
 void av1_set_vmaf_rdmult(const AV1_COMP *const cpi, MACROBLOCK *const x,
@@ -761,7 +753,6 @@ void av1_set_vmaf_rdmult(const AV1_COMP *const cpi, MACROBLOCK *const x,
   double num_of_mi = 0.0;
   double geom_mean_of_scale = 0.0;
 
-  aom_clear_system_state();
   for (row = mi_row / num_mi_w;
        row < num_rows && row < mi_row / num_mi_w + num_brows; ++row) {
     for (col = mi_col / num_mi_h;
@@ -776,7 +767,6 @@ void av1_set_vmaf_rdmult(const AV1_COMP *const cpi, MACROBLOCK *const x,
   *rdmult = (int)((double)(*rdmult) * geom_mean_of_scale + 0.5);
   *rdmult = AOMMAX(*rdmult, 0);
   av1_set_error_per_bit(&x->errorperbit, *rdmult);
-  aom_clear_system_state();
 }
 
 // TODO(sdeng): replace them with the SIMD versions.
@@ -835,15 +825,15 @@ static double calc_vmaf_motion_score(const AV1_COMP *const cpi,
   aom_alloc_frame_buffer(&blurred_cur, y_width, y_height, ss_x, ss_y,
                          cm->seq_params->use_highbitdepth,
                          cpi->oxcf.border_in_pixels,
-                         cm->features.byte_alignment);
+                         cm->features.byte_alignment, 0, 0);
   aom_alloc_frame_buffer(&blurred_last, y_width, y_height, ss_x, ss_y,
                          cm->seq_params->use_highbitdepth,
                          cpi->oxcf.border_in_pixels,
-                         cm->features.byte_alignment);
+                         cm->features.byte_alignment, 0, 0);
   aom_alloc_frame_buffer(&blurred_next, y_width, y_height, ss_x, ss_y,
                          cm->seq_params->use_highbitdepth,
                          cpi->oxcf.border_in_pixels,
-                         cm->features.byte_alignment);
+                         cm->features.byte_alignment, 0, 0);
 
   gaussian_blur(bit_depth, cur, &blurred_cur);
   gaussian_blur(bit_depth, last, &blurred_last);
@@ -908,7 +898,6 @@ int av1_get_vmaf_base_qindex(const AV1_COMP *const cpi, int current_qindex) {
   if (cm->current_frame.frame_number == 0 || cpi->oxcf.pass == 1) {
     return current_qindex;
   }
-  aom_clear_system_state();
   const GF_GROUP *const gf_group = &cpi->ppi->gf_group;
   const int layer_depth =
       AOMMIN(gf_group->layer_depth[cpi->gf_frame_index], MAX_ARF_LAYERS - 1);
@@ -954,7 +943,6 @@ int av1_get_vmaf_base_qindex(const AV1_COMP *const cpi, int current_qindex) {
   qindex = AOMMIN(qindex, MAXQ);
   qindex = AOMMAX(qindex, MINQ);
 
-  aom_clear_system_state();
   return qindex;
 }
 
@@ -1029,18 +1017,18 @@ static double find_best_frame_unsharp_amount_neg(
   aom_alloc_frame_buffer(&recon_sharpened, width, height, ss_x, ss_y,
                          cm->seq_params->use_highbitdepth,
                          cpi->oxcf.border_in_pixels,
-                         cm->features.byte_alignment);
+                         cm->features.byte_alignment, 0, 0);
   aom_alloc_frame_buffer(&src_sharpened, width, height, ss_x, ss_y,
                          cm->seq_params->use_highbitdepth,
                          cpi->oxcf.border_in_pixels,
-                         cm->features.byte_alignment);
+                         cm->features.byte_alignment, 0, 0);
   aom_alloc_frame_buffer(&recon_blurred, width, height, ss_x, ss_y,
                          cm->seq_params->use_highbitdepth,
                          cpi->oxcf.border_in_pixels,
-                         cm->features.byte_alignment);
+                         cm->features.byte_alignment, 0, 0);
   aom_alloc_frame_buffer(
       &src_blurred, width, height, ss_x, ss_y, cm->seq_params->use_highbitdepth,
-      cpi->oxcf.border_in_pixels, cm->features.byte_alignment);
+      cpi->oxcf.border_in_pixels, cm->features.byte_alignment, 0, 0);
 
   gaussian_blur(bit_depth, recon, &recon_blurred);
   gaussian_blur(bit_depth, src, &src_blurred);

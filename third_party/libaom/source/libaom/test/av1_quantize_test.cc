@@ -16,7 +16,6 @@
 #include "config/av1_rtcd.h"
 
 #include "test/acm_random.h"
-#include "test/clear_system_state.h"
 #include "test/register_state_check.h"
 #include "av1/common/scan.h"
 #include "av1/encoder/av1_quantize.h"
@@ -31,8 +30,8 @@ typedef void (*QuantizeFpFunc)(
     const int16_t *scan, const int16_t *iscan, int log_scale);
 
 struct QuantizeFuncParams {
-  QuantizeFuncParams(QuantizeFpFunc qF = NULL, QuantizeFpFunc qRefF = NULL,
-                     int count = 16)
+  QuantizeFuncParams(QuantizeFpFunc qF = nullptr,
+                     QuantizeFpFunc qRefF = nullptr, int count = 16)
       : qFunc(qF), qFuncRef(qRefF), coeffCount(count) {}
   QuantizeFpFunc qFunc;
   QuantizeFpFunc qFuncRef;
@@ -80,8 +79,8 @@ class AV1QuantizeTest : public ::testing::TestWithParam<QuantizeFuncParams> {
       }
 
       for (int j = 0; j < 2; j++) {
-        zbin_ptr[j] = rnd.Rand16();
-        quant_shift_ptr[j] = rnd.Rand16();
+        zbin_ptr[j] = rnd.Rand16Signed();
+        quant_shift_ptr[j] = rnd.Rand16Signed();
         // int16_t positive
         dequant_ptr[j] = abs(rnd(dequantRange));
         quant_ptr[j] = static_cast<int16_t>((1 << 16) / dequant_ptr[j]);
@@ -98,7 +97,7 @@ class AV1QuantizeTest : public ::testing::TestWithParam<QuantizeFuncParams> {
                   quant_shift_ptr, ref_qcoeff_ptr, ref_dqcoeff_ptr, dequant_ptr,
                   &ref_eob, scanOrder.scan, scanOrder.iscan, log_scale);
 
-      ASM_REGISTER_STATE_CHECK(
+      API_REGISTER_STATE_CHECK(
           quanFunc(coeff_ptr, count, zbin_ptr, round_ptr, quant_ptr,
                    quant_shift_ptr, qcoeff_ptr, dqcoeff_ptr, dequant_ptr, &eob,
                    scanOrder.scan, scanOrder.iscan, log_scale));
@@ -156,8 +155,8 @@ class AV1QuantizeTest : public ::testing::TestWithParam<QuantizeFuncParams> {
       coeff_ptr[rnd(count)] = rnd(coeffRange);
 
       for (int j = 0; j < 2; j++) {
-        zbin_ptr[j] = rnd.Rand16();
-        quant_shift_ptr[j] = rnd.Rand16();
+        zbin_ptr[j] = rnd.Rand16Signed();
+        quant_shift_ptr[j] = rnd.Rand16Signed();
         // int16_t positive
         dequant_ptr[j] = abs(rnd(dequantRange));
         quant_ptr[j] = (1 << 16) / dequant_ptr[j];
@@ -175,7 +174,7 @@ class AV1QuantizeTest : public ::testing::TestWithParam<QuantizeFuncParams> {
                   quant_shift_ptr, ref_qcoeff_ptr, ref_dqcoeff_ptr, dequant_ptr,
                   &ref_eob, scanOrder.scan, scanOrder.iscan, log_scale);
 
-      ASM_REGISTER_STATE_CHECK(
+      API_REGISTER_STATE_CHECK(
           quanFunc(coeff_ptr, count, zbin_ptr, round_ptr, quant_ptr,
                    quant_shift_ptr, qcoeff_ptr, dqcoeff_ptr, dequant_ptr, &eob,
                    scanOrder.scan, scanOrder.iscan, log_scale));
@@ -186,7 +185,7 @@ class AV1QuantizeTest : public ::testing::TestWithParam<QuantizeFuncParams> {
 
   virtual void SetUp() { params_ = GetParam(); }
 
-  virtual void TearDown() { libaom_test::ClearSystemState(); }
+  virtual void TearDown() {}
 
   virtual ~AV1QuantizeTest() {}
 

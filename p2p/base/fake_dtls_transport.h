@@ -16,6 +16,7 @@
 #include <utility>
 #include <vector>
 
+#include "absl/strings/string_view.h"
 #include "api/crypto/crypto_options.h"
 #include "api/dtls_transport_interface.h"
 #include "p2p/base/dtls_transport_internal.h"
@@ -96,8 +97,8 @@ class FakeDtlsTransport : public DtlsTransportInternal {
   }
 
   // Simulates the two DTLS transports connecting to each other.
-  // If |asymmetric| is true this method only affects this FakeDtlsTransport.
-  // If false, it affects |dest| as well.
+  // If `asymmetric` is true this method only affects this FakeDtlsTransport.
+  // If false, it affects `dest` as well.
   void SetDestination(FakeDtlsTransport* dest, bool asymmetric = false) {
     if (dest == dest_) {
       return;
@@ -118,7 +119,7 @@ class FakeDtlsTransport : public DtlsTransportInternal {
       if (!asymmetric) {
         dest->SetDestination(this, true);
       }
-      // If the |dtls_role_| is unset, set it to SSL_CLIENT by default.
+      // If the `dtls_role_` is unset, set it to SSL_CLIENT by default.
       if (!dtls_role_) {
         dtls_role_ = std::move(rtc::SSL_CLIENT);
       }
@@ -140,9 +141,19 @@ class FakeDtlsTransport : public DtlsTransportInternal {
   const rtc::SSLFingerprint& dtls_fingerprint() const {
     return dtls_fingerprint_;
   }
-  bool SetRemoteFingerprint(const std::string& alg,
+  webrtc::RTCError SetRemoteParameters(absl::string_view alg,
+                                       const uint8_t* digest,
+                                       size_t digest_len,
+                                       absl::optional<rtc::SSLRole> role) {
+    if (role) {
+      SetDtlsRole(*role);
+    }
+    SetRemoteFingerprint(alg, digest, digest_len);
+    return webrtc::RTCError::OK();
+  }
+  bool SetRemoteFingerprint(absl::string_view alg,
                             const uint8_t* digest,
-                            size_t digest_len) override {
+                            size_t digest_len) {
     dtls_fingerprint_ =
         rtc::SSLFingerprint(alg, rtc::MakeArrayView(digest, digest_len));
     return true;
@@ -203,7 +214,7 @@ class FakeDtlsTransport : public DtlsTransportInternal {
     }
     return std::make_unique<rtc::SSLCertChain>(remote_cert_->Clone());
   }
-  bool ExportKeyingMaterial(const std::string& label,
+  bool ExportKeyingMaterial(absl::string_view label,
                             const uint8_t* context,
                             size_t context_len,
                             bool use_context,
@@ -293,7 +304,7 @@ class FakeDtlsTransport : public DtlsTransportInternal {
   rtc::SSLProtocolVersion ssl_max_version_ = rtc::SSL_PROTOCOL_DTLS_12;
   rtc::SSLFingerprint dtls_fingerprint_;
   absl::optional<rtc::SSLRole> dtls_role_;
-  int crypto_suite_ = rtc::SRTP_AES128_CM_SHA1_80;
+  int crypto_suite_ = rtc::kSrtpAes128CmSha1_80;
   absl::optional<int> ssl_cipher_suite_;
 
   webrtc::DtlsTransportState dtls_state_ = webrtc::DtlsTransportState::kNew;

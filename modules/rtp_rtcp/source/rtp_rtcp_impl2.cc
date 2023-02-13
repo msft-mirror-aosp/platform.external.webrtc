@@ -19,6 +19,7 @@
 #include <string>
 #include <utility>
 
+#include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
 #include "api/sequence_checker.h"
 #include "api/transport/field_trial_based_config.h"
@@ -28,7 +29,6 @@
 #include "modules/rtp_rtcp/source/rtp_rtcp_config.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
-#include "rtc_base/task_utils/to_queued_task.h"
 #include "rtc_base/time_utils.h"
 #include "system_wrappers/include/ntp_time.h"
 
@@ -39,7 +39,6 @@
 
 namespace webrtc {
 namespace {
-const int64_t kRtpRtcpMaxIdleTimeProcessMs = 5;
 const int64_t kDefaultExpectedRetransmissionTimeMs = 125;
 
 constexpr TimeDelta kRttUpdateInterval = TimeDelta::Millis(1000);
@@ -52,28 +51,21 @@ RTCPSender::Configuration AddRtcpSendEvaluationCallback(
   return config;
 }
 
-int DelayMillisForDuration(TimeDelta duration) {
-  // TimeDelta::ms() rounds downwards sometimes which leads to too little time
-  // slept. Account for this, unless |duration| is exactly representable in
-  // millisecs.
-  return (duration.us() + rtc::kNumMillisecsPerSec - 1) /
-         rtc::kNumMicrosecsPerMillisec;
-}
 }  // namespace
 
 ModuleRtpRtcpImpl2::RtpSenderContext::RtpSenderContext(
     const RtpRtcpInterface::Configuration& config)
     : packet_history(config.clock, config.enable_rtx_padding_prioritization),
+      sequencer(config.local_media_ssrc,
+                config.rtx_send_ssrc,
+                /*require_marker_before_media_padding=*/!config.audio,
+                config.clock),
       packet_sender(config, &packet_history),
-      non_paced_sender(&packet_sender, this),
+      non_paced_sender(&packet_sender, &sequencer),
       packet_generator(
           config,
           &packet_history,
           config.paced_sender ? config.paced_sender : &non_paced_sender) {}
-void ModuleRtpRtcpImpl2::RtpSenderContext::AssignSequenceNumber(
-    RtpPacketToSend* packet) {
-  packet_generator.AssignSequenceNumber(packet);
-}
 
 ModuleRtpRtcpImpl2::ModuleRtpRtcpImpl2(const Configuration& configuration)
     : worker_queue_(TaskQueueBase::Current()),
@@ -84,22 +76,20 @@ ModuleRtpRtcpImpl2::ModuleRtpRtcpImpl2(const Configuration& configuration)
           })),
       rtcp_receiver_(configuration, this),
       clock_(configuration.clock),
-      last_rtt_process_time_(clock_->TimeInMilliseconds()),
-      next_process_time_(clock_->TimeInMilliseconds() +
-                         kRtpRtcpMaxIdleTimeProcessMs),
       packet_overhead_(28),  // IPV4 UDP.
       nack_last_time_sent_full_ms_(0),
       nack_last_seq_number_sent_(0),
-      remote_bitrate_(configuration.remote_bitrate_estimator),
       rtt_stats_(configuration.rtt_stats),
       rtt_ms_(0) {
   RTC_DCHECK(worker_queue_);
-  process_thread_checker_.Detach();
-  packet_sequence_checker_.Detach();
+  rtcp_thread_checker_.Detach();
   if (!configuration.receiver_only) {
     rtp_sender_ = std::make_unique<RtpSenderContext>(configuration);
+    rtp_sender_->sequencing_checker.Detach();
     // Make sure rtcp sender use same timestamp offset as rtp sender.
     rtcp_sender_.SetTimestampOffset(
+        rtp_sender_->packet_generator.TimestampOffset());
+    rtp_sender_->packet_sender.SetTimestampOffset(
         rtp_sender_->packet_generator.TimestampOffset());
   }
 
@@ -108,14 +98,11 @@ ModuleRtpRtcpImpl2::ModuleRtpRtcpImpl2(const Configuration& configuration)
   // webrtc::VideoSendStream::Config::Rtp::kDefaultMaxPacketSize.
   const size_t kTcpOverIpv4HeaderSize = 40;
   SetMaxRtpPacketSize(IP_PACKET_SIZE - kTcpOverIpv4HeaderSize);
-
-  if (rtt_stats_) {
-    rtt_update_task_ = RepeatingTaskHandle::DelayedStart(
-        worker_queue_, kRttUpdateInterval, [this]() {
-          PeriodicUpdate();
-          return kRttUpdateInterval;
-        });
-  }
+  rtt_update_task_ = RepeatingTaskHandle::DelayedStart(
+      worker_queue_, kRttUpdateInterval, [this]() {
+        PeriodicUpdate();
+        return kRttUpdateInterval;
+      });
 }
 
 ModuleRtpRtcpImpl2::~ModuleRtpRtcpImpl2() {
@@ -129,39 +116,6 @@ std::unique_ptr<ModuleRtpRtcpImpl2> ModuleRtpRtcpImpl2::Create(
   RTC_DCHECK(configuration.clock);
   RTC_DCHECK(TaskQueueBase::Current());
   return std::make_unique<ModuleRtpRtcpImpl2>(configuration);
-}
-
-// Returns the number of milliseconds until the module want a worker thread
-// to call Process.
-int64_t ModuleRtpRtcpImpl2::TimeUntilNextProcess() {
-  RTC_DCHECK_RUN_ON(&process_thread_checker_);
-  return std::max<int64_t>(0,
-                           next_process_time_ - clock_->TimeInMilliseconds());
-}
-
-// Process any pending tasks such as timeouts (non time critical events).
-void ModuleRtpRtcpImpl2::Process() {
-  RTC_DCHECK_RUN_ON(&process_thread_checker_);
-
-  const Timestamp now = clock_->CurrentTime();
-
-  // TODO(bugs.webrtc.org/11581): Figure out why we need to call Process() 200
-  // times a second.
-  next_process_time_ = now.ms() + kRtpRtcpMaxIdleTimeProcessMs;
-
-  // TODO(bugs.webrtc.org/11581): once we don't use Process() to trigger
-  // calls to SendRTCP(), the only remaining timer will require remote_bitrate_
-  // to be not null. In that case, we can disable the timer when it is null.
-  if (remote_bitrate_ && rtcp_sender_.Sending() && rtcp_sender_.TMMBR()) {
-    unsigned int target_bitrate = 0;
-    std::vector<unsigned int> ssrcs;
-    if (remote_bitrate_->LatestEstimate(&ssrcs, &target_bitrate)) {
-      if (!ssrcs.empty()) {
-        target_bitrate = target_bitrate / ssrcs.size();
-      }
-      rtcp_sender_.SetTargetBitrate(target_bitrate);
-    }
-  }
 }
 
 void ModuleRtpRtcpImpl2::SetRtxSendStatus(int mode) {
@@ -189,10 +143,10 @@ absl::optional<uint32_t> ModuleRtpRtcpImpl2::FlexfecSsrc() const {
   return absl::nullopt;
 }
 
-void ModuleRtpRtcpImpl2::IncomingRtcpPacket(const uint8_t* rtcp_packet,
-                                            const size_t length) {
-  RTC_DCHECK_RUN_ON(&packet_sequence_checker_);
-  rtcp_receiver_.IncomingPacket(rtcp_packet, length);
+void ModuleRtpRtcpImpl2::IncomingRtcpPacket(
+    rtc::ArrayView<const uint8_t> rtcp_packet) {
+  RTC_DCHECK_RUN_ON(&rtcp_thread_checker_);
+  rtcp_receiver_.IncomingPacket(rtcp_packet);
 }
 
 void ModuleRtpRtcpImpl2::RegisterSendPayloadFrequency(int payload_type,
@@ -216,55 +170,64 @@ void ModuleRtpRtcpImpl2::SetStartTimestamp(const uint32_t timestamp) {
 }
 
 uint16_t ModuleRtpRtcpImpl2::SequenceNumber() const {
-  return rtp_sender_->packet_generator.SequenceNumber();
+  RTC_DCHECK_RUN_ON(&rtp_sender_->sequencing_checker);
+  return rtp_sender_->sequencer.media_sequence_number();
 }
 
 // Set SequenceNumber, default is a random number.
 void ModuleRtpRtcpImpl2::SetSequenceNumber(const uint16_t seq_num) {
-  rtp_sender_->packet_generator.SetSequenceNumber(seq_num);
+  RTC_DCHECK_RUN_ON(&rtp_sender_->sequencing_checker);
+  if (rtp_sender_->sequencer.media_sequence_number() != seq_num) {
+    rtp_sender_->sequencer.set_media_sequence_number(seq_num);
+    rtp_sender_->packet_history.Clear();
+  }
 }
 
 void ModuleRtpRtcpImpl2::SetRtpState(const RtpState& rtp_state) {
+  RTC_DCHECK_RUN_ON(&rtp_sender_->sequencing_checker);
   rtp_sender_->packet_generator.SetRtpState(rtp_state);
+  rtp_sender_->sequencer.SetRtpState(rtp_state);
   rtcp_sender_.SetTimestampOffset(rtp_state.start_timestamp);
+  rtp_sender_->packet_sender.SetTimestampOffset(rtp_state.start_timestamp);
 }
 
 void ModuleRtpRtcpImpl2::SetRtxState(const RtpState& rtp_state) {
+  RTC_DCHECK_RUN_ON(&rtp_sender_->sequencing_checker);
   rtp_sender_->packet_generator.SetRtxRtpState(rtp_state);
+  rtp_sender_->sequencer.set_rtx_sequence_number(rtp_state.sequence_number);
 }
 
 RtpState ModuleRtpRtcpImpl2::GetRtpState() const {
+  RTC_DCHECK_RUN_ON(&rtp_sender_->sequencing_checker);
   RtpState state = rtp_sender_->packet_generator.GetRtpState();
+  rtp_sender_->sequencer.PopulateRtpState(state);
   return state;
 }
 
 RtpState ModuleRtpRtcpImpl2::GetRtxState() const {
-  return rtp_sender_->packet_generator.GetRtxRtpState();
+  RTC_DCHECK_RUN_ON(&rtp_sender_->sequencing_checker);
+  RtpState state = rtp_sender_->packet_generator.GetRtxRtpState();
+  state.sequence_number = rtp_sender_->sequencer.rtx_sequence_number();
+  return state;
+}
+
+void ModuleRtpRtcpImpl2::SetNonSenderRttMeasurement(bool enabled) {
+  rtcp_sender_.SetNonSenderRttMeasurement(enabled);
+  rtcp_receiver_.SetNonSenderRttMeasurement(enabled);
 }
 
 uint32_t ModuleRtpRtcpImpl2::local_media_ssrc() const {
-  RTC_DCHECK_RUN_ON(&packet_sequence_checker_);
+  RTC_DCHECK_RUN_ON(&rtcp_thread_checker_);
   RTC_DCHECK_EQ(rtcp_receiver_.local_media_ssrc(), rtcp_sender_.SSRC());
   return rtcp_receiver_.local_media_ssrc();
 }
 
-void ModuleRtpRtcpImpl2::SetRid(const std::string& rid) {
-  if (rtp_sender_) {
-    rtp_sender_->packet_generator.SetRid(rid);
-  }
-}
-
-void ModuleRtpRtcpImpl2::SetMid(const std::string& mid) {
+void ModuleRtpRtcpImpl2::SetMid(absl::string_view mid) {
   if (rtp_sender_) {
     rtp_sender_->packet_generator.SetMid(mid);
   }
   // TODO(bugs.webrtc.org/4050): If we end up supporting the MID SDES item for
   // RTCP, this will need to be passed down to the RTCPSender also.
-}
-
-void ModuleRtpRtcpImpl2::SetCsrcs(const std::vector<uint32_t>& csrcs) {
-  rtcp_sender_.SetCsrcs(csrcs);
-  rtp_sender_->packet_generator.SetCsrcs(csrcs);
 }
 
 // TODO(pbos): Handle media and RTX streams separately (separate RTCP
@@ -309,9 +272,6 @@ RTCPSender::FeedbackState ModuleRtpRtcpImpl2::GetFeedbackState() {
   return state;
 }
 
-// TODO(nisse): This method shouldn't be called for a receive-only
-// stream. Delete rtp_sender_ check as soon as all applications are
-// updated.
 int32_t ModuleRtpRtcpImpl2::SetSendingStatus(const bool sending) {
   if (rtcp_sender_.Sending() != sending) {
     // Sends RTCP BYE when going from true to false
@@ -324,15 +284,8 @@ bool ModuleRtpRtcpImpl2::Sending() const {
   return rtcp_sender_.Sending();
 }
 
-// TODO(nisse): This method shouldn't be called for a receive-only
-// stream. Delete rtp_sender_ check as soon as all applications are
-// updated.
 void ModuleRtpRtcpImpl2::SetSendingMediaStatus(const bool sending) {
-  if (rtp_sender_) {
-    rtp_sender_->packet_generator.SetSendingMediaStatus(sending);
-  } else {
-    RTC_DCHECK(!sending);
-  }
+  rtp_sender_->packet_generator.SetSendingMediaStatus(sending);
 }
 
 bool ModuleRtpRtcpImpl2::SendingMedia() const {
@@ -377,10 +330,23 @@ bool ModuleRtpRtcpImpl2::OnSendingRtpFrame(uint32_t timestamp,
 bool ModuleRtpRtcpImpl2::TrySendPacket(RtpPacketToSend* packet,
                                        const PacedPacketInfo& pacing_info) {
   RTC_DCHECK(rtp_sender_);
-  // TODO(sprang): Consider if we can remove this check.
+  RTC_DCHECK_RUN_ON(&rtp_sender_->sequencing_checker);
   if (!rtp_sender_->packet_generator.SendingMedia()) {
     return false;
   }
+  if (packet->packet_type() == RtpPacketMediaType::kPadding &&
+      packet->Ssrc() == rtp_sender_->packet_generator.SSRC() &&
+      !rtp_sender_->sequencer.CanSendPaddingOnMediaSsrc()) {
+    // New media packet preempted this generated padding packet, discard it.
+    return false;
+  }
+  bool is_flexfec =
+      packet->packet_type() == RtpPacketMediaType::kForwardErrorCorrection &&
+      packet->Ssrc() == rtp_sender_->packet_generator.FlexfecSsrc();
+  if (!is_flexfec) {
+    rtp_sender_->sequencer.Sequence(*packet);
+  }
+
   rtp_sender_->packet_sender.SendPacket(packet, pacing_info);
   return true;
 }
@@ -396,18 +362,15 @@ void ModuleRtpRtcpImpl2::SetFecProtectionParams(
 std::vector<std::unique_ptr<RtpPacketToSend>>
 ModuleRtpRtcpImpl2::FetchFecPackets() {
   RTC_DCHECK(rtp_sender_);
-  auto fec_packets = rtp_sender_->packet_sender.FetchFecPackets();
-  if (!fec_packets.empty()) {
-    // Don't assign sequence numbers for FlexFEC packets.
-    const bool generate_sequence_numbers =
-        !rtp_sender_->packet_sender.FlexFecSsrc().has_value();
-    if (generate_sequence_numbers) {
-      for (auto& fec_packet : fec_packets) {
-        rtp_sender_->packet_generator.AssignSequenceNumber(fec_packet.get());
-      }
-    }
-  }
-  return fec_packets;
+  RTC_DCHECK_RUN_ON(&rtp_sender_->sequencing_checker);
+  return rtp_sender_->packet_sender.FetchFecPackets();
+}
+
+void ModuleRtpRtcpImpl2::OnAbortedRetransmissions(
+    rtc::ArrayView<const uint16_t> sequence_numbers) {
+  RTC_DCHECK(rtp_sender_);
+  RTC_DCHECK_RUN_ON(&rtp_sender_->sequencing_checker);
+  rtp_sender_->packet_sender.OnAbortedRetransmissions(sequence_numbers);
 }
 
 void ModuleRtpRtcpImpl2::OnPacketsAcknowledged(
@@ -429,8 +392,11 @@ bool ModuleRtpRtcpImpl2::SupportsRtxPayloadPadding() const {
 std::vector<std::unique_ptr<RtpPacketToSend>>
 ModuleRtpRtcpImpl2::GeneratePadding(size_t target_size_bytes) {
   RTC_DCHECK(rtp_sender_);
+  RTC_DCHECK_RUN_ON(&rtp_sender_->sequencing_checker);
+
   return rtp_sender_->packet_generator.GeneratePadding(
-      target_size_bytes, rtp_sender_->packet_sender.MediaHasBeenSent());
+      target_size_bytes, rtp_sender_->packet_sender.MediaHasBeenSent(),
+      rtp_sender_->sequencer.CanSendPaddingOnMediaSsrc());
 }
 
 std::vector<RtpSequenceNumberMap::Info>
@@ -445,6 +411,11 @@ size_t ModuleRtpRtcpImpl2::ExpectedPerPacketOverhead() const {
     return 0;
   }
   return rtp_sender_->packet_generator.ExpectedPerPacketOverhead();
+}
+
+void ModuleRtpRtcpImpl2::OnPacketSendingThreadSwitched() {
+  // Ownership of sequencing is being transferred to another thread.
+  rtp_sender_->sequencing_checker.Detach();
 }
 
 size_t ModuleRtpRtcpImpl2::MaxRtpPacketSize() const {
@@ -473,7 +444,7 @@ void ModuleRtpRtcpImpl2::SetRTCPStatus(const RtcpMode method) {
   rtcp_sender_.SetRTCPStatus(method);
 }
 
-int32_t ModuleRtpRtcpImpl2::SetCNAME(const char* c_name) {
+int32_t ModuleRtpRtcpImpl2::SetCNAME(absl::string_view c_name) {
   return rtcp_sender_.SetCNAME(c_name);
 }
 
@@ -492,9 +463,9 @@ int32_t ModuleRtpRtcpImpl2::RemoteNTP(uint32_t* received_ntpsecs,
              : -1;
 }
 
-// TODO(tommi): Check if |avg_rtt_ms|, |min_rtt_ms|, |max_rtt_ms| params are
+// TODO(tommi): Check if `avg_rtt_ms`, `min_rtt_ms`, `max_rtt_ms` params are
 // actually used in practice (some callers ask for it but don't use it). It
-// could be that only |rtt| is needed and if so, then the fast path could be to
+// could be that only `rtt` is needed and if so, then the fast path could be to
 // just call rtt_ms() and rely on the calculation being done periodically.
 int32_t ModuleRtpRtcpImpl2::RTT(const uint32_t remote_ssrc,
                                 int64_t* rtt,
@@ -514,7 +485,7 @@ int64_t ModuleRtpRtcpImpl2::ExpectedRetransmissionTimeMs() const {
   if (expected_retransmission_time_ms > 0) {
     return expected_retransmission_time_ms;
   }
-  // No rtt available (|kRttUpdateInterval| not yet passed?), so try to
+  // No rtt available (`kRttUpdateInterval` not yet passed?), so try to
   // poll avg_rtt_ms directly from rtcp receiver.
   if (rtcp_receiver_.RTT(rtcp_receiver_.RemoteSSRC(), nullptr,
                          &expected_retransmission_time_ms, nullptr,
@@ -562,6 +533,17 @@ ModuleRtpRtcpImpl2::GetSenderReportStats() const {
   return absl::nullopt;
 }
 
+absl::optional<RtpRtcpInterface::NonSenderRttStats>
+ModuleRtpRtcpImpl2::GetNonSenderRttStats() const {
+  RTCPReceiver::NonSenderRttStats non_sender_rtt_stats =
+      rtcp_receiver_.GetNonSenderRTT();
+  return {{
+      non_sender_rtt_stats.round_trip_time(),
+      non_sender_rtt_stats.total_round_trip_time(),
+      non_sender_rtt_stats.round_trip_time_measurements(),
+  }};
+}
+
 // (REMB) Receiver Estimated Max Bitrate.
 void ModuleRtpRtcpImpl2::SetRemb(int64_t bitrate_bps,
                                  std::vector<uint32_t> ssrcs) {
@@ -583,10 +565,6 @@ void ModuleRtpRtcpImpl2::RegisterRtpHeaderExtension(absl::string_view uri,
   RTC_CHECK(registered);
 }
 
-int32_t ModuleRtpRtcpImpl2::DeregisterSendRtpHeaderExtension(
-    const RTPExtensionType type) {
-  return rtp_sender_->packet_generator.DeregisterRtpHeaderExtension(type);
-}
 void ModuleRtpRtcpImpl2::DeregisterSendRtpHeaderExtension(
     absl::string_view uri) {
   rtp_sender_->packet_generator.DeregisterRtpHeaderExtension(uri);
@@ -650,7 +628,7 @@ bool ModuleRtpRtcpImpl2::TimeToSendFullNackList(int64_t now) const {
     wait_time = kStartUpRttMs;
   }
 
-  // Send a full NACK list once within every |wait_time|.
+  // Send a full NACK list once within every `wait_time`.
   return now - nack_last_time_sent_full_ms_ > wait_time;
 }
 
@@ -689,7 +667,7 @@ void ModuleRtpRtcpImpl2::SetRemoteSSRC(const uint32_t ssrc) {
 }
 
 void ModuleRtpRtcpImpl2::SetLocalSsrc(uint32_t local_ssrc) {
-  RTC_DCHECK_RUN_ON(&packet_sequence_checker_);
+  RTC_DCHECK_RUN_ON(&rtcp_thread_checker_);
   rtcp_receiver_.set_local_media_ssrc(local_ssrc);
   rtcp_sender_.SetSsrc(local_ssrc);
 }
@@ -748,7 +726,7 @@ void ModuleRtpRtcpImpl2::set_rtt_ms(int64_t rtt_ms) {
     rtt_ms_ = rtt_ms;
   }
   if (rtp_sender_) {
-    rtp_sender_->packet_history.SetRtt(rtt_ms);
+    rtp_sender_->packet_history.SetRtt(TimeDelta::Millis(rtt_ms));
   }
 }
 
@@ -777,39 +755,38 @@ void ModuleRtpRtcpImpl2::PeriodicUpdate() {
   absl::optional<TimeDelta> rtt =
       rtcp_receiver_.OnPeriodicRttUpdate(check_since, rtcp_sender_.Sending());
   if (rtt) {
-    rtt_stats_->OnRttUpdate(rtt->ms());
+    if (rtt_stats_) {
+      rtt_stats_->OnRttUpdate(rtt->ms());
+    }
     set_rtt_ms(rtt->ms());
   }
-
-  // kTmmbrTimeoutIntervalMs is 25 seconds, so an order of seconds.
-  // Instead of this polling approach, consider having an optional timer in the
-  // RTCPReceiver class that is started/stopped based on the state of
-  // rtcp_sender_.TMMBR().
-  if (rtcp_sender_.TMMBR() && rtcp_receiver_.UpdateTmmbrTimers())
-    rtcp_receiver_.NotifyTmmbrUpdated();
 }
 
-// RTC_RUN_ON(worker_queue_);
 void ModuleRtpRtcpImpl2::MaybeSendRtcp() {
+  RTC_DCHECK_RUN_ON(worker_queue_);
   if (rtcp_sender_.TimeToSendRTCPReport())
     rtcp_sender_.SendRTCP(GetFeedbackState(), kRtcpReport);
 }
 
 // TODO(bugs.webrtc.org/12889): Consider removing this function when the issue
 // is resolved.
-// RTC_RUN_ON(worker_queue_);
 void ModuleRtpRtcpImpl2::MaybeSendRtcpAtOrAfterTimestamp(
     Timestamp execution_time) {
+  RTC_DCHECK_RUN_ON(worker_queue_);
   Timestamp now = clock_->CurrentTime();
   if (now >= execution_time) {
     MaybeSendRtcp();
     return;
   }
 
-  RTC_DLOG(LS_WARNING)
-      << "BUGBUG: Task queue scheduled delayed call too early.";
+  TimeDelta delta = execution_time - now;
+  // TaskQueue may run task 1ms earlier, so don't print warning if in this case.
+  if (delta > TimeDelta::Millis(1)) {
+    RTC_DLOG(LS_WARNING) << "BUGBUG: Task queue scheduled delayed call "
+                         << delta << " too early.";
+  }
 
-  ScheduleMaybeSendRtcpAtOrAfterTimestamp(execution_time, execution_time - now);
+  ScheduleMaybeSendRtcpAtOrAfterTimestamp(execution_time, delta);
 }
 
 void ModuleRtpRtcpImpl2::ScheduleRtcpSendEvaluation(TimeDelta duration) {
@@ -819,7 +796,7 @@ void ModuleRtpRtcpImpl2::ScheduleRtcpSendEvaluation(TimeDelta duration) {
   // than the worker queue on which it's created on implies that external
   // synchronization is present and removes this activity before destruction.
   if (duration.IsZero()) {
-    worker_queue_->PostTask(ToQueuedTask(task_safety_, [this] {
+    worker_queue_->PostTask(SafeTask(task_safety_.flag(), [this] {
       RTC_DCHECK_RUN_ON(worker_queue_);
       MaybeSendRtcp();
     }));
@@ -834,15 +811,15 @@ void ModuleRtpRtcpImpl2::ScheduleMaybeSendRtcpAtOrAfterTimestamp(
     TimeDelta duration) {
   // We end up here under various sequences including the worker queue, and
   // the RTCPSender lock is held.
-  // See note in ScheduleRtcpSendEvaluation about why |worker_queue_| can be
+  // See note in ScheduleRtcpSendEvaluation about why `worker_queue_` can be
   // accessed.
   worker_queue_->PostDelayedTask(
-      ToQueuedTask(task_safety_,
-                   [this, execution_time] {
-                     RTC_DCHECK_RUN_ON(worker_queue_);
-                     MaybeSendRtcpAtOrAfterTimestamp(execution_time);
-                   }),
-      DelayMillisForDuration(duration));
+      SafeTask(task_safety_.flag(),
+               [this, execution_time] {
+                 RTC_DCHECK_RUN_ON(worker_queue_);
+                 MaybeSendRtcpAtOrAfterTimestamp(execution_time);
+               }),
+      duration.RoundUpTo(TimeDelta::Millis(1)));
 }
 
 }  // namespace webrtc

@@ -14,9 +14,15 @@
 #include <vector>
 
 #include "absl/memory/memory.h"
+#include "absl/types/optional.h"
 #include "api/dtls_transport_interface.h"
+#include "api/transport/data_channel_transport_interface.h"
+#include "media/base/media_channel.h"
 #include "p2p/base/fake_dtls_transport.h"
+#include "p2p/base/p2p_constants.h"
+#include "p2p/base/packet_transport_internal.h"
 #include "pc/dtls_transport.h"
+#include "rtc_base/copy_on_write_buffer.h"
 #include "rtc_base/gunit.h"
 #include "test/gmock.h"
 #include "test/gtest.h"
@@ -33,6 +39,10 @@ namespace {
 
 class FakeCricketSctpTransport : public cricket::SctpTransportInternal {
  public:
+  void SetOnConnectedCallback(std::function<void()> callback) override {
+    on_connected_callback_ = std::move(callback);
+  }
+  void SetDataChannelSink(DataChannelSink* sink) override {}
   void SetDtlsTransport(rtc::PacketTransportInternal* transport) override {}
   bool Start(int local_port, int remote_port, int max_message_size) override {
     return true;
@@ -54,20 +64,12 @@ class FakeCricketSctpTransport : public cricket::SctpTransportInternal {
   absl::optional<int> max_inbound_streams() const override {
     return max_inbound_streams_;
   }
-  // Methods exposed for testing
-  void SendSignalReadyToSendData() { SignalReadyToSendData(); }
 
   void SendSignalAssociationChangeCommunicationUp() {
-    SignalAssociationChangeCommunicationUp();
+    ASSERT_TRUE(on_connected_callback_);
+    on_connected_callback_();
   }
 
-  void SendSignalClosingProcedureStartedRemotely() {
-    SignalClosingProcedureStartedRemotely(1);
-  }
-
-  void SendSignalClosingProcedureComplete() {
-    SignalClosingProcedureComplete(1);
-  }
   void set_max_outbound_streams(int streams) {
     max_outbound_streams_ = streams;
   }
@@ -76,6 +78,7 @@ class FakeCricketSctpTransport : public cricket::SctpTransportInternal {
  private:
   absl::optional<int> max_outbound_streams_;
   absl::optional<int> max_inbound_streams_;
+  std::function<void()> on_connected_callback_;
 };
 
 }  // namespace
@@ -128,7 +131,6 @@ class SctpTransportTest : public ::testing::Test {
   }
 
   void CompleteSctpHandshake() {
-    CricketSctpTransport()->SendSignalReadyToSendData();
     // The computed MaxChannels shall be the minimum of the outgoing
     // and incoming # of streams.
     CricketSctpTransport()->set_max_outbound_streams(kTestMaxSctpStreams);
@@ -140,12 +142,14 @@ class SctpTransportTest : public ::testing::Test {
     return static_cast<FakeCricketSctpTransport*>(transport_->internal());
   }
 
+  rtc::AutoThread main_thread_;
   rtc::scoped_refptr<SctpTransport> transport_;
   rtc::scoped_refptr<DtlsTransport> dtls_transport_;
   TestSctpTransportObserver observer_;
 };
 
 TEST(SctpTransportSimpleTest, CreateClearDelete) {
+  rtc::AutoThread main_thread;
   std::unique_ptr<cricket::SctpTransportInternal> fake_cricket_sctp_transport =
       absl::WrapUnique(new FakeCricketSctpTransport());
   rtc::scoped_refptr<SctpTransport> sctp_transport =

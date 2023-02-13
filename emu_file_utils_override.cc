@@ -62,6 +62,7 @@ std::string WorkingDir() {
     return System::get()->getCurrentDirectory();
 }
 
+
 std::string ResourcePath(const std::string& name,
                          const std::string& extension) {
 
@@ -72,6 +73,10 @@ std::string ResourcePath(const std::string& name,
       LOG(ERROR) << "File not found " << fname;
   }
   return fname;
+}
+
+std::string ResourcePath(absl::string_view name, absl::string_view extension) {
+  return ResourcePath(std::string(name), std::string(extension));
 }
 
 }  // namespace internal

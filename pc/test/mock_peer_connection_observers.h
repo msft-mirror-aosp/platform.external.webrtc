@@ -74,7 +74,9 @@ class MockPeerConnectionObserver : public PeerConnectionObserver {
   MediaStreamInterface* RemoteStream(const std::string& label) {
     return remote_streams_->find(label);
   }
-  StreamCollectionInterface* remote_streams() const { return remote_streams_; }
+  StreamCollectionInterface* remote_streams() const {
+    return remote_streams_.get();
+  }
   void OnAddStream(rtc::scoped_refptr<MediaStreamInterface> stream) override {
     last_added_stream_ = stream;
     remote_streams_->AddStream(stream);
@@ -82,7 +84,7 @@ class MockPeerConnectionObserver : public PeerConnectionObserver {
   void OnRemoveStream(
       rtc::scoped_refptr<MediaStreamInterface> stream) override {
     last_removed_stream_ = stream;
-    remote_streams_->RemoveStream(stream);
+    remote_streams_->RemoveStream(stream.get());
   }
   void OnRenegotiationNeeded() override { renegotiation_needed_ = true; }
   void OnNegotiationNeededEvent(uint32_t event_id) override {
@@ -116,8 +118,6 @@ class MockPeerConnectionObserver : public PeerConnectionObserver {
   }
   void OnIceCandidate(const IceCandidateInterface* candidate) override {
     RTC_DCHECK(pc_);
-    RTC_DCHECK(PeerConnectionInterface::kIceGatheringNew !=
-               pc_->ice_gathering_state());
     candidates_.push_back(std::make_unique<JsepIceCandidate>(
         candidate->sdp_mid(), candidate->sdp_mline_index(),
         candidate->candidate()));
@@ -261,25 +261,38 @@ class MockCreateSessionDescriptionObserver
         error_("MockCreateSessionDescriptionObserver not called") {}
   virtual ~MockCreateSessionDescriptionObserver() {}
   void OnSuccess(SessionDescriptionInterface* desc) override {
+    MutexLock lock(&mutex_);
     called_ = true;
     error_ = "";
     desc_.reset(desc);
   }
   void OnFailure(webrtc::RTCError error) override {
+    MutexLock lock(&mutex_);
     called_ = true;
     error_ = error.message();
   }
-  bool called() const { return called_; }
-  bool result() const { return error_.empty(); }
-  const std::string& error() const { return error_; }
+  bool called() const {
+    MutexLock lock(&mutex_);
+    return called_;
+  }
+  bool result() const {
+    MutexLock lock(&mutex_);
+    return error_.empty();
+  }
+  const std::string& error() const {
+    MutexLock lock(&mutex_);
+    return error_;
+  }
   std::unique_ptr<SessionDescriptionInterface> MoveDescription() {
+    MutexLock lock(&mutex_);
     return std::move(desc_);
   }
 
  private:
-  bool called_;
-  std::string error_;
-  std::unique_ptr<SessionDescriptionInterface> desc_;
+  mutable Mutex mutex_;
+  bool called_ RTC_GUARDED_BY(mutex_);
+  std::string error_ RTC_GUARDED_BY(mutex_);
+  std::unique_ptr<SessionDescriptionInterface> desc_ RTC_GUARDED_BY(mutex_);
 };
 
 class MockSetSessionDescriptionObserver
@@ -294,25 +307,38 @@ class MockSetSessionDescriptionObserver
         error_("MockSetSessionDescriptionObserver not called") {}
   ~MockSetSessionDescriptionObserver() override {}
   void OnSuccess() override {
+    MutexLock lock(&mutex_);
+
     called_ = true;
     error_ = "";
   }
   void OnFailure(webrtc::RTCError error) override {
+    MutexLock lock(&mutex_);
     called_ = true;
     error_ = error.message();
   }
 
-  bool called() const { return called_; }
-  bool result() const { return error_.empty(); }
-  const std::string& error() const { return error_; }
+  bool called() const {
+    MutexLock lock(&mutex_);
+    return called_;
+  }
+  bool result() const {
+    MutexLock lock(&mutex_);
+    return error_.empty();
+  }
+  const std::string& error() const {
+    MutexLock lock(&mutex_);
+    return error_;
+  }
 
  private:
+  mutable Mutex mutex_;
   bool called_;
   std::string error_;
 };
 
 class FakeSetLocalDescriptionObserver
-    : public rtc::RefCountedObject<SetLocalDescriptionObserverInterface> {
+    : public SetLocalDescriptionObserverInterface {
  public:
   bool called() const { return error_.has_value(); }
   RTCError& error() {
@@ -331,7 +357,7 @@ class FakeSetLocalDescriptionObserver
 };
 
 class FakeSetRemoteDescriptionObserver
-    : public rtc::RefCountedObject<SetRemoteDescriptionObserverInterface> {
+    : public SetRemoteDescriptionObserverInterface {
  public:
   bool called() const { return error_.has_value(); }
   RTCError& error() {

@@ -24,12 +24,16 @@
 
 namespace webrtc {
 
+bool HasActiveDisplay() {
+  DesktopCapturer::SourceList screens;
+
+  return GetScreenList(&screens) && !screens.empty();
+}
+
 bool GetScreenList(DesktopCapturer::SourceList* screens,
                    std::vector<std::string>* device_names /* = nullptr */) {
-  RTC_DCHECK_EQ(screens->size(), 0U);
-  if (device_names) {
-    RTC_DCHECK_EQ(device_names->size(), 0U);
-  }
+  RTC_DCHECK(screens->empty());
+  RTC_DCHECK(!device_names || device_names->empty());
 
   BOOL enum_result = TRUE;
   for (int device_index = 0;; ++device_index) {
@@ -37,7 +41,7 @@ bool GetScreenList(DesktopCapturer::SourceList* screens,
     device.cb = sizeof(device);
     enum_result = EnumDisplayDevicesW(NULL, device_index, &device, 0);
 
-    // |enum_result| is 0 if we have enumerated all devices.
+    // `enum_result` is 0 if we have enumerated all devices.
     if (!enum_result) {
       break;
     }
@@ -57,7 +61,7 @@ bool GetScreenList(DesktopCapturer::SourceList* screens,
 
 bool GetHmonitorFromDeviceIndex(const DesktopCapturer::SourceId device_index,
                                 HMONITOR* hmonitor) {
-  // A device index of |kFullDesktopScreenId| or -1 represents all screens, an
+  // A device index of `kFullDesktopScreenId` or -1 represents all screens, an
   // HMONITOR of 0 indicates the same.
   if (device_index == kFullDesktopScreenId) {
     *hmonitor = 0;
@@ -91,6 +95,12 @@ bool IsMonitorValid(const HMONITOR monitor) {
   // An HMONITOR of 0 refers to a virtual monitor that spans all physical
   // monitors.
   if (monitor == 0) {
+    // There is a bug in a Windows OS API that causes a crash when capturing if
+    // there are no active displays. We must ensure there is an active display
+    // before returning true.
+    if (!HasActiveDisplay())
+      return false;
+
     return true;
   }
 

@@ -13,10 +13,7 @@
 
 #include <cstdint>
 #include "absl/types/optional.h"
-
-namespace rtc {
-class BitBuffer;
-}
+#include "rtc_base/bitstream_reader.h"
 
 namespace webrtc {
 
@@ -47,9 +44,9 @@ class SpsParser {
   static absl::optional<SpsState> ParseSps(const uint8_t* data, size_t length);
 
  protected:
-  // Parse the SPS state, up till the VUI part, for a bit buffer where RBSP
+  // Parse the SPS state, up till the VUI part, for a buffer where RBSP
   // decoding has already been performed.
-  static absl::optional<SpsState> ParseSpsUpToVui(rtc::BitBuffer* buffer);
+  static absl::optional<SpsState> ParseSpsUpToVui(BitstreamReader& reader);
 };
 
 }  // namespace webrtc

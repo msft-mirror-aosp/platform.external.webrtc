@@ -39,6 +39,12 @@ extern "C" {
 
 #define INTERINTRA_WEDGE_SIGN 0
 
+#define DEFAULT_INTER_TX_TYPE DCT_DCT
+
+#define MAX_PALETTE_BLOCK_WIDTH 64
+
+#define MAX_PALETTE_BLOCK_HEIGHT 64
+
 /*!\cond */
 
 // DIFFWTD_MASK_TYPES should not surpass 1 << MAX_DIFFWTD_MASK_BITS
@@ -182,6 +188,7 @@ static const PREDICTION_MODE fimode_to_intradir[FILTER_INTRA_MODES] = {
 
 typedef struct RD_STATS {
   int rate;
+  int zero_rate;
   int64_t dist;
   // Please be careful of using rdcost, it's not guaranteed to be set all the
   // time.
@@ -190,8 +197,7 @@ typedef struct RD_STATS {
   // rate/dist.
   int64_t rdcost;
   int64_t sse;
-  int skip_txfm;  // sse should equal to dist when skip_txfm == 1
-  int zero_rate;
+  uint8_t skip_txfm;  // sse should equal to dist when skip_txfm == 1
 #if CONFIG_RD_DEBUG
   int txb_coeff_cost[MAX_MB_PLANE];
 #endif  // CONFIG_RD_DEBUG
@@ -279,7 +285,7 @@ typedef struct MB_MODE_INFO {
    ****************************************************************************/
   /**@{*/
   /*! \brief Whether to skip transforming and sending. */
-  int8_t skip_txfm;
+  uint8_t skip_txfm;
   /*! \brief Transform size when fixed size txfm is used (e.g. intra modes). */
   TX_SIZE tx_size;
   /*! \brief Transform size when recursive txfm tree is on. */
@@ -319,9 +325,6 @@ typedef struct MB_MODE_INFO {
   /*! \brief CDEF strength per BLOCK_64X64 */
   int8_t cdef_strength : 4;
   /**@}*/
-
-  /*! \brief Skip CDEF for this superblock */
-  uint8_t skip_cdef_curr_sb;
 
 #if CONFIG_RD_DEBUG
   /*! \brief RD info used for debugging */
@@ -1177,7 +1180,7 @@ static INLINE TX_TYPE get_default_tx_type(PLANE_TYPE plane_type,
   if (is_inter_block(mbmi) || plane_type != PLANE_TYPE_Y ||
       xd->lossless[mbmi->segment_id] || tx_size >= TX_32X32 ||
       use_screen_content_tools)
-    return DCT_DCT;
+    return DEFAULT_INTER_TX_TYPE;
 
   return intra_mode_to_tx_type(mbmi, plane_type);
 }
@@ -1190,7 +1193,7 @@ static INLINE BLOCK_SIZE get_plane_block_size(BLOCK_SIZE bsize,
   assert(bsize < BLOCK_SIZES_ALL);
   assert(subsampling_x >= 0 && subsampling_x < 2);
   assert(subsampling_y >= 0 && subsampling_y < 2);
-  return ss_size_lookup[bsize][subsampling_x][subsampling_y];
+  return av1_ss_size_lookup[bsize][subsampling_x][subsampling_y];
 }
 
 /*
@@ -1499,8 +1502,10 @@ static INLINE int is_neighbor_overlappable(const MB_MODE_INFO *mbmi) {
 static INLINE int av1_allow_palette(int allow_screen_content_tools,
                                     BLOCK_SIZE sb_type) {
   assert(sb_type < BLOCK_SIZES_ALL);
-  return allow_screen_content_tools && block_size_wide[sb_type] <= 64 &&
-         block_size_high[sb_type] <= 64 && sb_type >= BLOCK_8X8;
+  return allow_screen_content_tools &&
+         block_size_wide[sb_type] <= MAX_PALETTE_BLOCK_WIDTH &&
+         block_size_high[sb_type] <= MAX_PALETTE_BLOCK_HEIGHT &&
+         sb_type >= BLOCK_8X8;
 }
 
 // Returns sub-sampled dimensions of the given block.
