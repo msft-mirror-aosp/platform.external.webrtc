@@ -89,6 +89,7 @@ DEFAULT_CFLAGS_BY_ARCH = {
         'x64': ['-msse2', '-mavx2', '-mfma', '-DHAVE_ARM64_CRC32C=0'],
         'arm': ['-DWEBRTC_HAS_NEON', '-DWEBRTC_ARCH_ARM_V7', '-DWEBRTC_ARCH_ARM', '-mfpu=neon', '-mthumb', '-DHAVE_ARM64_CRC32C=0'],
         'arm64': ['-DWEBRTC_HAS_NEON', '-DWEBRTC_ARCH_ARM64', '-DHAVE_ARM64_CRC32C=0'],
+        'riscv64': ['-DHAVE_ARM64_CRC32C=0'],
         }
 
 ARCH_NAME_MAP = {n: n for n in DEFAULT_CFLAGS_BY_ARCH.keys()}
