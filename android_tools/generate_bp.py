@@ -703,7 +703,7 @@ PrintHeader()
 GenerateDefault(targets)
 print('\n\n')
 
-for target in targets.values():
+for name, target in sorted(targets.items()):
     typ = target['type']
     if typ == 'static_library':
         GenerateStaticLib(target, targets)
