@@ -10,8 +10,9 @@ Follow the following steps to update this project:
     2.2.4 - Enable dummy audio file (rtc_use_dummy_audio_file_devices to true in webrtc.gni).
     2.2.5 - Disable dav1d decoder (rtc_include_dav1d_in_internal_decoder_factory to false in webrtc.gni).
     2.2.6 - Disable protobuf (rtc_enable_protobuf to false in webrtc.gni).
-    2.2.7 - Run this command:
-      for arch in x64 x86 arm64 arm; do
+    2.2.7 - Set is_clang to true unconditionally in build/config/BUILDCONFIG.gn
+    2.2.8 - Run this command:
+      for arch in x64 x86 arm64 arm riscv64; do
           gn gen out/Debug --args="target_os=\"linux\" target_cpu=\"${arch}\"" --json-file-name=project_${arch}.json --ide=json
       done
   2.3 Copy out/Debug/project_*.json into android_tools.
