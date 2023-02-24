@@ -1,10 +1,12 @@
 #!/usr/bin/env python
 
 import json
+import os
 import sys
 
 PRINT_ORIGINAL_FULL = False
 
+# This flags are augmented with flags added to the json files but not present in .gn or .gni files
 IGNORED_FLAGS = [
     '-Wall',
     '-Werror',
@@ -91,6 +93,7 @@ DEFAULT_CFLAGS_BY_ARCH = {
         'arm64': ['-DWEBRTC_HAS_NEON', '-DWEBRTC_ARCH_ARM64', '-DHAVE_ARM64_CRC32C=0'],
         'riscv64': ['-DHAVE_ARM64_CRC32C=0'],
         }
+FLAGS = ['cflags', 'cflags_c', 'cflags_cc', 'asmflags']
 
 ARCH_NAME_MAP = {n: n for n in DEFAULT_CFLAGS_BY_ARCH.keys()}
 ARCH_NAME_MAP['x64'] = 'x86_64'
@@ -180,12 +183,7 @@ def PrintHeader():
     print('}')
 
 def GatherDefaultFlags(targets):
-    default = {
-            'cflags' : [],
-            'cflags_c' : [],
-            'cflags_cc' : [],
-            'asmflags' : [],
-    }
+    default = { f: [] for f in FLAGS}
     arch = {a: {} for a in ARCHS}
 
     first = True
@@ -655,6 +653,32 @@ def MergeAll(targets_by_arch):
 
     return targets
 
+def GatherAllFlags(obj):
+    if type(obj) != type({}):
+        # not a dictionary
+        return set()
+    ret = set()
+    for f in FLAGS:
+        ret |= set(obj.get(f, []))
+    for v in obj.values():
+        ret |= GatherAllFlags(v)
+    return ret
+
+def FilterFlagsInUse(flags, directory):
+    unused = []
+    for f in flags:
+        nf = f
+        if nf.startswith("-D"):
+            nf = nf[2:]
+            i = nf.find('=')
+            if i > 0:
+                nf = nf[:i]
+        c = os.system(f"find {directory} -name '*.gn*' | xargs grep -q -s -e '{nf}'")
+        if c != 0:
+            # couldn't find the flag in *.gn or *.gni
+            unused.append(f)
+    return unused
+
 if len(sys.argv) != 2:
     print('wrong number of arguments', file = sys.stderr)
     exit(1)
@@ -662,10 +686,15 @@ if len(sys.argv) != 2:
 dir = sys.argv[1]
 
 targets_by_arch = {}
+flags = set()
 for arch in ARCHS:
     path = "{0}/project_{1}.json".format(dir, arch)
     json_file = open(path, 'r')
     targets_by_arch[arch] = Preprocess(json.load(json_file))
+    flags |= GatherAllFlags(targets_by_arch[arch])
+
+unusedFlags = FilterFlagsInUse(flags, f"{dir}/..")
+IGNORED_FLAGS = sorted(set(IGNORED_FLAGS) | set(unusedFlags))
 
 targets = MergeAll(targets_by_arch)
 
