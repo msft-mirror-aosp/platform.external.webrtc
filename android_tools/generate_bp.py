@@ -8,51 +8,9 @@ PRINT_ORIGINAL_FULL = False
 
 # This flags are augmented with flags added to the json files but not present in .gn or .gni files
 IGNORED_FLAGS = [
-    '-Wall',
-    '-Werror',
-    '-L',
-    '-isystem',
-    '-Xclang',
-    '-B',
-    '--sysroot',
-    '-fcrash-diagnostics-dir',
-    '.',
-    '-fdebug-compilation-dir',
-    '-instcombine-lower-dbg-declare=0',
-    '-Wno-non-c-typedef-for-linkage',
-    '-Werror',
-    '-fcomplete-member-pointers',
-    '-fno-stack-protector',
-    '--target=i686-linux-android16',
-    '--target=aarch64-linux-android21'
-    '--target=i686-linux-android16',
-    '--target=x86_64-linux-android21',
-    '--target=arm-linux-androideabi16',
-    '--target=aarch64-linux-gnu',
-    '--target=arm-linux-gnueabihf',
-    '-ggnu-pubnames',
-    '-m64',
-    '-m32',
-    '-march=x86-64',
-    '-march=armv8-a',
-    '-march=armv7-a',
-    '-mllvm',
-    '-mfloat-abi=hard',
-    '-target-feature',
-    '+crypto',
-    '+crc',
-    '-fno-unique-section-names',
-    '-fno-short-enums',
-    '-fno-delete-null-pointer-checks',
-    '-ffile-compilation-dir=.',
-    '-Wno-unneeded-internal-declaration',
-    '-Wno-unreachable-code-aggressive',
-    '-Wno-unreachable-code-break',
-    '-fuse-ctor-homing',
-    '-fno-rtti',
-    '-gsplit-dwarf', # TODO(b/266468464): breaks riscv
-    '-gdwarf-aranges', # TODO(b/269343483): breaks riscv
     '-D_DEBUG',
+    '-Werror',
+    '-Xclang'
     ]
 DEFAULT_CFLAGS = [
     '-DHAVE_ARM64_CRC32C=0',
