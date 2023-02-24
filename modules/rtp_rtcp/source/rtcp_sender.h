@@ -17,6 +17,7 @@
 #include <string>
 #include <vector>
 
+#include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
 #include "api/call/transport.h"
 #include "api/units/time_delta.h"
@@ -54,7 +55,7 @@ class RTCPSender final {
     // a video version.
     bool audio = false;
     // SSRCs for media and retransmission, respectively.
-    // FlexFec SSRC is fetched from |flexfec_sender|.
+    // FlexFec SSRC is fetched from `flexfec_sender`.
     uint32_t local_media_ssrc = 0;
     // The clock to use to read time. If nullptr then system clock will be used.
     Clock* clock = nullptr;
@@ -69,6 +70,11 @@ class RTCPSender final {
     // TimeToSendRTCPReport/SendRTCP.
     // The RTCPSender client still needs to call TimeToSendRTCPReport/SendRTCP
     // to actually get RTCP sent.
+    //
+    // Note: It's recommended to use the callback to ensure program design that
+    // doesn't use polling.
+    // TODO(bugs.webrtc.org/11581): Make mandatory once downstream consumers
+    // have migrated to the callback solution.
     std::function<void(TimeDelta)> schedule_next_rtcp_send_evaluation_function;
 
     RtcEventLog* event_log = nullptr;
@@ -98,9 +104,6 @@ class RTCPSender final {
   };
 
   explicit RTCPSender(Configuration config);
-  // TODO(bugs.webrtc.org/11581): delete this temporary compatibility helper
-  // once downstream dependencies migrates.
-  explicit RTCPSender(const RtpRtcpInterface::Configuration& config);
 
   RTCPSender() = delete;
   RTCPSender(const RTCPSender&) = delete;
@@ -116,7 +119,8 @@ class RTCPSender final {
                         bool enabled)
       RTC_LOCKS_EXCLUDED(mutex_rtcp_sender_);  // combine the functions
 
-  int32_t SetNackStatus(bool enable) RTC_LOCKS_EXCLUDED(mutex_rtcp_sender_);
+  void SetNonSenderRttMeasurement(bool enabled)
+      RTC_LOCKS_EXCLUDED(mutex_rtcp_sender_);
 
   void SetTimestampOffset(uint32_t timestamp_offset)
       RTC_LOCKS_EXCLUDED(mutex_rtcp_sender_);
@@ -124,14 +128,6 @@ class RTCPSender final {
   void SetLastRtpTime(uint32_t rtp_timestamp,
                       absl::optional<Timestamp> capture_time,
                       absl::optional<int8_t> payload_type)
-      RTC_LOCKS_EXCLUDED(mutex_rtcp_sender_);
-  // TODO(bugs.webrtc.org/6458): Remove default parameter value when all the
-  // depending projects are updated to correctly set payload type.
-  // TODO(bugs.webrtc.org/12873): Remove once downstream consumers migrates to
-  // the new version of SetLastRtpTime declared above.
-  void SetLastRtpTime(uint32_t rtp_timestamp,
-                      int64_t capture_time_ms,
-                      int8_t payload_type = -1)
       RTC_LOCKS_EXCLUDED(mutex_rtcp_sender_);
 
   void SetRtpClockRate(int8_t payload_type, int rtp_clock_rate_hz)
@@ -142,7 +138,8 @@ class RTCPSender final {
 
   void SetRemoteSSRC(uint32_t ssrc) RTC_LOCKS_EXCLUDED(mutex_rtcp_sender_);
 
-  int32_t SetCNAME(const char* cName) RTC_LOCKS_EXCLUDED(mutex_rtcp_sender_);
+  int32_t SetCNAME(absl::string_view cName)
+      RTC_LOCKS_EXCLUDED(mutex_rtcp_sender_);
 
   bool TimeToSendRTCPReport(bool sendKeyframeBeforeRTP = false) const
       RTC_LOCKS_EXCLUDED(mutex_rtcp_sender_);
@@ -230,7 +227,7 @@ class RTCPSender final {
   void BuildNACK(const RtcpContext& context, PacketSender& sender)
       RTC_EXCLUSIVE_LOCKS_REQUIRED(mutex_rtcp_sender_);
 
-  // |duration| being TimeDelta::Zero() means schedule immediately.
+  // `duration` being TimeDelta::Zero() means schedule immediately.
   void SetNextRtcpSendEvaluationDuration(TimeDelta duration)
       RTC_EXCLUSIVE_LOCKS_REQUIRED(mutex_rtcp_sender_);
 
@@ -288,7 +285,8 @@ class RTCPSender final {
   size_t max_packet_size_ RTC_GUARDED_BY(mutex_rtcp_sender_);
 
   // True if sending of XR Receiver reference time report is enabled.
-  const bool xr_send_receiver_reference_time_enabled_;
+  bool xr_send_receiver_reference_time_enabled_
+      RTC_GUARDED_BY(mutex_rtcp_sender_);
 
   RtcpPacketTypeCounterObserver* const packet_type_counter_observer_;
   RtcpPacketTypeCounter packet_type_counter_ RTC_GUARDED_BY(mutex_rtcp_sender_);

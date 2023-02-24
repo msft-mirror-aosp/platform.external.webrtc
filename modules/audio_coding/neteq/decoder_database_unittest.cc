@@ -15,7 +15,6 @@
 #include <string>
 
 #include "api/audio_codecs/builtin_audio_decoder_factory.h"
-#include "rtc_base/ref_counted_object.h"
 #include "test/gmock.h"
 #include "test/gtest.h"
 #include "test/mock_audio_decoder.h"
@@ -127,8 +126,6 @@ TEST(DecoderDatabase, TypeTests) {
   EXPECT_FALSE(db.IsComfortNoise(kPayloadTypePcmU));
   EXPECT_FALSE(db.IsDtmf(kPayloadTypePcmU));
   EXPECT_FALSE(db.IsRed(kPayloadTypePcmU));
-  EXPECT_FALSE(db.IsType(kPayloadTypePcmU, "isac"));
-  EXPECT_TRUE(db.IsType(kPayloadTypePcmU, "pcmu"));
   EXPECT_TRUE(db.IsComfortNoise(kPayloadTypeCng));
   EXPECT_TRUE(db.IsDtmf(kPayloadTypeDtmf));
   EXPECT_TRUE(db.IsRed(kPayloadTypeRed));
@@ -148,7 +145,7 @@ TEST(DecoderDatabase, CheckPayloadTypes) {
   }
   PacketList packet_list;
   for (int i = 0; i < kNumPayloads + 1; ++i) {
-    // Create packet with payload type |i|. The last packet will have a payload
+    // Create packet with payload type `i`. The last packet will have a payload
     // type that is not registered in the decoder database.
     Packet packet;
     packet.payload_type = i;

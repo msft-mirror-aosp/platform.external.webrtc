@@ -243,6 +243,7 @@ static_assert(ABSL_INTERNAL_INLINE_NAMESPACE_STR[0] != 'h' ||
 #ifdef ABSL_HAVE_STD_IS_TRIVIALLY_DESTRUCTIBLE
 #error ABSL_HAVE_STD_IS_TRIVIALLY_DESTRUCTIBLE cannot be directly set
 #elif defined(_LIBCPP_VERSION) || defined(_MSC_VER) || \
+    (defined(__clang__) && __clang_major__ >= 15) ||   \
     (!defined(__clang__) && defined(__GLIBCXX__) &&    \
      ABSL_INTERNAL_HAVE_MIN_GNUC_VERSION(4, 8))
 #define ABSL_HAVE_STD_IS_TRIVIALLY_DESTRUCTIBLE 1
@@ -264,6 +265,7 @@ static_assert(ABSL_INTERNAL_INLINE_NAMESPACE_STR[0] != 'h' ||
 #elif defined(ABSL_HAVE_STD_IS_TRIVIALLY_ASSIGNABLE)
 #error ABSL_HAVE_STD_IS_TRIVIALLY_ASSIGNABLE cannot directly set
 #elif (defined(__clang__) && defined(_LIBCPP_VERSION)) ||                    \
+    (defined(__clang__) && __clang_major__ >= 15) ||                         \
     (!defined(__clang__) &&                                                  \
      ((ABSL_INTERNAL_HAVE_MIN_GNUC_VERSION(7, 4) && defined(__GLIBCXX__)) || \
       (ABSL_INTERNAL_HAVE_MIN_GNUC_VERSION(8, 2) &&                          \
@@ -757,6 +759,18 @@ static_assert(ABSL_INTERNAL_INLINE_NAMESPACE_STR[0] != 'h' ||
 #define ABSL_DLL
 #endif  // defined(_MSC_VER)
 
+#if defined(_MSC_VER)
+#if defined(ABSL_BUILD_TEST_DLL)
+#define ABSL_TEST_DLL __declspec(dllexport)
+#elif defined(ABSL_CONSUME_TEST_DLL)
+#define ABSL_TEST_DLL __declspec(dllimport)
+#else
+#define ABSL_TEST_DLL
+#endif
+#else
+#define ABSL_TEST_DLL
+#endif  // defined(_MSC_VER)
+
 // ABSL_HAVE_MEMORY_SANITIZER
 //
 // MemorySanitizer (MSan) is a detector of uninitialized reads. It consists of
@@ -924,6 +938,17 @@ static_assert(ABSL_INTERNAL_INLINE_NAMESPACE_STR[0] != 'h' ||
 #error ABSL_INTERNAL_HAVE_ARM_NEON cannot be directly set
 #elif defined(__ARM_NEON) && !defined(__CUDA_ARCH__)
 #define ABSL_INTERNAL_HAVE_ARM_NEON 1
+#endif
+
+// ABSL_HAVE_CONSTANT_EVALUATED is used for compile-time detection of
+// constant evaluation support through `absl::is_constant_evaluated`.
+#ifdef ABSL_HAVE_CONSTANT_EVALUATED
+#error ABSL_HAVE_CONSTANT_EVALUATED cannot be directly set
+#endif
+#ifdef __cpp_lib_is_constant_evaluated
+#define ABSL_HAVE_CONSTANT_EVALUATED 1
+#elif ABSL_HAVE_BUILTIN(__builtin_is_constant_evaluated)
+#define ABSL_HAVE_CONSTANT_EVALUATED 1
 #endif
 
 #endif  // ABSL_BASE_CONFIG_H_

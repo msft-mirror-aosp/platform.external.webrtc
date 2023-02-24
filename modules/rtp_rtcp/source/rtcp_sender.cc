@@ -16,6 +16,7 @@
 #include <memory>
 #include <utility>
 
+#include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
 #include "api/rtc_event_log/rtc_event_log.h"
 #include "api/rtp_headers.h"
@@ -186,9 +187,6 @@ RTCPSender::RTCPSender(Configuration config)
   builders_[kRtcpAnyExtendedReports] = &RTCPSender::BuildExtendedReports;
 }
 
-RTCPSender::RTCPSender(const RtpRtcpInterface::Configuration& config)
-    : RTCPSender(Configuration::FromRtpRtcpConfiguration(config)) {}
-
 RTCPSender::~RTCPSender() {}
 
 RtcpMode RTCPSender::Status() const {
@@ -232,6 +230,11 @@ void RTCPSender::SetSendingStatus(const FeedbackState& feedback_state,
       RTC_LOG(LS_WARNING) << "Failed to send RTCP BYE";
     }
   }
+}
+
+void RTCPSender::SetNonSenderRttMeasurement(bool enabled) {
+  MutexLock lock(&mutex_rtcp_sender_);
+  xr_send_receiver_reference_time_enabled_ = enabled;
 }
 
 int32_t RTCPSender::SendLossNotification(const FeedbackState& feedback_state,
@@ -280,6 +283,10 @@ int32_t RTCPSender::SendLossNotification(const FeedbackState& feedback_state,
 void RTCPSender::SetRemb(int64_t bitrate_bps, std::vector<uint32_t> ssrcs) {
   RTC_CHECK_GE(bitrate_bps, 0);
   MutexLock lock(&mutex_rtcp_sender_);
+  if (method_ == RtcpMode::kOff) {
+    RTC_LOG(LS_WARNING) << "Can't send rtcp if it is disabled.";
+    return;
+  }
   remb_bitrate_ = bitrate_bps;
   remb_ssrcs_ = std::move(ssrcs);
 
@@ -328,16 +335,6 @@ void RTCPSender::SetLastRtpTime(uint32_t rtp_timestamp,
   }
 }
 
-void RTCPSender::SetLastRtpTime(uint32_t rtp_timestamp,
-                                int64_t capture_time_ms,
-                                int8_t payload_type) {
-  absl::optional<int8_t> payload_type_optional;
-  if (payload_type != -1)
-    payload_type_optional = payload_type;
-  SetLastRtpTime(rtp_timestamp, Timestamp::Millis(capture_time_ms),
-                 payload_type_optional);
-}
-
 void RTCPSender::SetRtpClockRate(int8_t payload_type, int rtp_clock_rate_hz) {
   MutexLock lock(&mutex_rtcp_sender_);
   rtp_clock_rates_khz_[payload_type] = rtp_clock_rate_hz / 1000;
@@ -358,13 +355,10 @@ void RTCPSender::SetRemoteSSRC(uint32_t ssrc) {
   remote_ssrc_ = ssrc;
 }
 
-int32_t RTCPSender::SetCNAME(const char* c_name) {
-  if (!c_name)
-    return -1;
-
-  RTC_DCHECK_LT(strlen(c_name), RTCP_CNAME_SIZE);
+int32_t RTCPSender::SetCNAME(absl::string_view c_name) {
+  RTC_DCHECK_LT(c_name.size(), RTCP_CNAME_SIZE);
   MutexLock lock(&mutex_rtcp_sender_);
-  cname_ = c_name;
+  cname_ = std::string(c_name);
   return 0;
 }
 
@@ -488,7 +482,9 @@ void RTCPSender::BuildRR(const RtcpContext& ctx, PacketSender& sender) {
   rtcp::ReceiverReport report;
   report.SetSenderSsrc(ssrc_);
   report.SetReportBlocks(CreateReportBlocks(ctx.feedback_state_));
-  sender.AppendPacket(report);
+  if (method_ == RtcpMode::kCompound || !report.report_blocks().empty()) {
+    sender.AppendPacket(report);
+  }
 }
 
 void RTCPSender::BuildPLI(const RtcpContext& ctx, PacketSender& sender) {
@@ -717,9 +713,6 @@ absl::optional<int32_t> RTCPSender::ComputeCompoundRTCPPacket(
     }
   }
 
-  if (packet_type_counter_.first_packet_time_ms == -1)
-    packet_type_counter_.first_packet_time_ms = clock_->TimeInMilliseconds();
-
   // We need to send our NTP even if we haven't received any reports.
   RtcpContext context(feedback_state, nack_size, nack_list,
                       clock_->CurrentTime());
@@ -746,8 +739,8 @@ absl::optional<int32_t> RTCPSender::ComputeCompoundRTCPPacket(
     }
     auto builder_it = builders_.find(rtcp_packet_type);
     if (builder_it == builders_.end()) {
-      RTC_NOTREACHED() << "Could not find builder for packet type "
-                       << rtcp_packet_type;
+      RTC_DCHECK_NOTREACHED()
+          << "Could not find builder for packet type " << rtcp_packet_type;
     } else {
       BuilderFunc func = builder_it->second;
       (this->*func)(context, sender);
@@ -825,7 +818,7 @@ std::vector<rtcp::ReportBlock> RTCPSender::CreateReportBlocks(
   if (!receive_statistics_)
     return result;
 
-  // TODO(danilchap): Support sending more than |RTCP_MAX_REPORT_BLOCKS| per
+  // TODO(danilchap): Support sending more than `RTCP_MAX_REPORT_BLOCKS` per
   // compound rtcp packet when single rtcp module is used for multiple media
   // streams.
   result = receive_statistics_->RtcpReportBlocks(RTCP_MAX_REPORT_BLOCKS);
@@ -895,6 +888,10 @@ bool RTCPSender::AllVolatileFlagsConsumed() const {
 void RTCPSender::SetVideoBitrateAllocation(
     const VideoBitrateAllocation& bitrate) {
   MutexLock lock(&mutex_rtcp_sender_);
+  if (method_ == RtcpMode::kOff) {
+    RTC_LOG(LS_WARNING) << "Can't send rtcp if it is disabled.";
+    return;
+  }
   // Check if this allocation is first ever, or has a different set of
   // spatial/temporal layers signaled and enabled, if so trigger an rtcp report
   // as soon as possible.
@@ -968,6 +965,8 @@ void RTCPSender::SendCombinedRtcpPacket(
 
 void RTCPSender::SetNextRtcpSendEvaluationDuration(TimeDelta duration) {
   next_time_to_send_rtcp_ = clock_->CurrentTime() + duration;
+  // TODO(bugs.webrtc.org/11581): make unconditional once downstream consumers
+  // are using the callback method.
   if (schedule_next_rtcp_send_evaluation_function_)
     schedule_next_rtcp_send_evaluation_function_(duration);
 }

@@ -9,6 +9,7 @@
  */
 #include "common_video/test/utilities.h"
 #include "modules/rtp_rtcp/include/rtp_header_extension_map.h"
+#include "modules/rtp_rtcp/source/rtp_dependency_descriptor_extension.h"
 #include "modules/rtp_rtcp/source/rtp_header_extensions.h"
 #include "modules/rtp_rtcp/source/rtp_packet_received.h"
 #include "modules/rtp_rtcp/source/rtp_packet_to_send.h"
@@ -31,6 +32,7 @@ constexpr uint8_t kSeqNumFirstByte = kSeqNum >> 8;
 constexpr uint8_t kSeqNumSecondByte = kSeqNum & 0xff;
 constexpr uint32_t kTimestamp = 0x65431278;
 constexpr uint8_t kTransmissionOffsetExtensionId = 1;
+constexpr uint8_t kDependencyDescriptorExtensionId = 2;
 constexpr uint8_t kAudioLevelExtensionId = 9;
 constexpr uint8_t kRtpStreamIdExtensionId = 0xa;
 constexpr uint8_t kRtpMidExtensionId = 0xb;
@@ -504,6 +506,76 @@ TEST(RtpPacketTest, ParseWithExtension) {
   EXPECT_EQ(0u, packet.padding_size());
 }
 
+TEST(RtpPacketTest, ParseHeaderOnly) {
+  // clang-format off
+  constexpr uint8_t kPaddingHeader[] = {
+      0x80, 0x62, 0x35, 0x79,
+      0x65, 0x43, 0x12, 0x78,
+      0x12, 0x34, 0x56, 0x78};
+  // clang-format on
+
+  RtpPacket packet;
+  EXPECT_TRUE(packet.Parse(rtc::CopyOnWriteBuffer(kPaddingHeader)));
+  EXPECT_EQ(packet.PayloadType(), 0x62u);
+  EXPECT_EQ(packet.SequenceNumber(), 0x3579u);
+  EXPECT_EQ(packet.Timestamp(), 0x65431278u);
+  EXPECT_EQ(packet.Ssrc(), 0x12345678u);
+
+  EXPECT_FALSE(packet.has_padding());
+  EXPECT_EQ(packet.padding_size(), 0u);
+  EXPECT_EQ(packet.payload_size(), 0u);
+}
+
+TEST(RtpPacketTest, ParseHeaderOnlyWithPadding) {
+  // clang-format off
+  constexpr uint8_t kPaddingHeader[] = {
+      0xa0, 0x62, 0x35, 0x79,
+      0x65, 0x43, 0x12, 0x78,
+      0x12, 0x34, 0x56, 0x78};
+  // clang-format on
+
+  RtpPacket packet;
+  EXPECT_TRUE(packet.Parse(rtc::CopyOnWriteBuffer(kPaddingHeader)));
+
+  EXPECT_TRUE(packet.has_padding());
+  EXPECT_EQ(packet.padding_size(), 0u);
+  EXPECT_EQ(packet.payload_size(), 0u);
+}
+
+TEST(RtpPacketTest, ParseHeaderOnlyWithExtensionAndPadding) {
+  // clang-format off
+  constexpr uint8_t kPaddingHeader[] = {
+      0xb0, 0x62, 0x35, 0x79,
+      0x65, 0x43, 0x12, 0x78,
+      0x12, 0x34, 0x56, 0x78,
+      0xbe, 0xde, 0x00, 0x01,
+      0x11, 0x00, 0x00, 0x00};
+  // clang-format on
+
+  RtpHeaderExtensionMap extensions;
+  extensions.Register<TransmissionOffset>(1);
+  RtpPacket packet(&extensions);
+  EXPECT_TRUE(packet.Parse(rtc::CopyOnWriteBuffer(kPaddingHeader)));
+  EXPECT_TRUE(packet.has_padding());
+  EXPECT_TRUE(packet.HasExtension<TransmissionOffset>());
+  EXPECT_EQ(packet.padding_size(), 0u);
+}
+
+TEST(RtpPacketTest, ParsePaddingOnlyPacket) {
+  // clang-format off
+  constexpr uint8_t kPaddingHeader[] = {
+      0xa0, 0x62, 0x35, 0x79,
+      0x65, 0x43, 0x12, 0x78,
+      0x12, 0x34, 0x56, 0x78,
+      0, 0, 3};
+  // clang-format on
+
+  RtpPacket packet;
+  EXPECT_TRUE(packet.Parse(rtc::CopyOnWriteBuffer(kPaddingHeader)));
+  EXPECT_TRUE(packet.has_padding());
+  EXPECT_EQ(packet.padding_size(), 3u);
+}
+
 TEST(RtpPacketTest, GetExtensionWithoutParametersReturnsOptionalValue) {
   RtpPacket::ExtensionManager extensions;
   extensions.Register<TransmissionOffset>(kTransmissionOffsetExtensionId);
@@ -785,8 +857,8 @@ struct UncopyableValue {
   UncopyableValue& operator=(const UncopyableValue&) = delete;
 };
 struct UncopyableExtension {
-  static constexpr RTPExtensionType kId = kRtpExtensionGenericFrameDescriptor02;
-  static constexpr char kUri[] = "uri";
+  static constexpr RTPExtensionType kId = kRtpExtensionDependencyDescriptor;
+  static constexpr absl::string_view Uri() { return "uri"; }
 
   static size_t ValueSize(const UncopyableValue& value) { return 1; }
   static bool Write(rtc::ArrayView<uint8_t> data,
@@ -798,8 +870,6 @@ struct UncopyableExtension {
     return true;
   }
 };
-constexpr RTPExtensionType UncopyableExtension::kId;
-constexpr char UncopyableExtension::kUri[];
 
 TEST(RtpPacketTest, SetUncopyableExtension) {
   RtpPacket::ExtensionManager extensions;
@@ -1168,6 +1238,17 @@ TEST(RtpPacketTest, RemoveExtensionFailure) {
   EXPECT_FALSE(packet.RemoveExtension(kRtpExtensionPlayoutDelay));
 
   EXPECT_THAT(kPacketWithTO, ElementsAreArray(packet.data(), packet.size()));
+}
+
+TEST(RtpPacketTest, SetExtensionWithArray) {
+  RtpPacketToSend::ExtensionManager extensions;
+  extensions.Register<RtpDependencyDescriptorExtension>(
+      kDependencyDescriptorExtensionId);
+  RtpPacketToSend packet(&extensions);
+  const uint8_t extension_data[] = {1, 2, 3, 4, 5};
+  packet.SetRawExtension<RtpDependencyDescriptorExtension>(extension_data);
+  EXPECT_THAT(packet.GetRawExtension<RtpDependencyDescriptorExtension>(),
+              ElementsAreArray(extension_data));
 }
 
 }  // namespace
