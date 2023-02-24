@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -68,7 +68,7 @@ void PffftValidate(int fft_size, bool complex_fft) {
     }
 
     for (k = 0; k < num_floats; ++k) {
-      ref_max = std::max<float>(ref_max, (float) fabs(ref[k]));
+      ref_max = std::max<float>(ref_max, fabs(ref[k]));
     }
 
     // Pass 0: non canonical ordering of transform coefficients.

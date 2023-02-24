@@ -28,15 +28,15 @@ int av1_get_MBs(int width, int height) {
   const int mi_cols = aligned_width >> MI_SIZE_LOG2;
   const int mi_rows = aligned_height >> MI_SIZE_LOG2;
 
-  const int mb_cols = (mi_cols + 2) >> 2;
-  const int mb_rows = (mi_rows + 2) >> 2;
+  const int mb_cols = ROUND_POWER_OF_TWO(mi_cols, 2);
+  const int mb_rows = ROUND_POWER_OF_TWO(mi_rows, 2);
   return mb_rows * mb_cols;
 }
 
 void av1_free_ref_frame_buffers(BufferPool *pool) {
   int i;
 
-  for (i = 0; i < FRAME_BUFFERS; ++i) {
+  for (i = 0; i < pool->num_frame_bufs; ++i) {
     if (pool->frame_bufs[i].ref_count > 0 &&
         pool->frame_bufs[i].raw_frame_buffer.data != NULL) {
       pool->release_fb_cb(pool->cb_priv, &pool->frame_bufs[i].raw_frame_buffer);
@@ -51,6 +51,9 @@ void av1_free_ref_frame_buffers(BufferPool *pool) {
     pool->frame_bufs[i].seg_map = NULL;
     aom_free_frame_buffer(&pool->frame_bufs[i].buf);
   }
+  aom_free(pool->frame_bufs);
+  pool->frame_bufs = NULL;
+  pool->num_frame_bufs = 0;
 }
 
 static INLINE void free_cdef_linebuf_conditional(
@@ -110,7 +113,7 @@ static INLINE void free_cdef_row_sync(AV1CdefRowSync **cdef_row_mt,
 
 void av1_free_cdef_buffers(AV1_COMMON *const cm,
                            AV1CdefWorkerData **cdef_worker,
-                           AV1CdefSync *cdef_sync, int num_workers) {
+                           AV1CdefSync *cdef_sync) {
   CdefInfo *cdef_info = &cm->cdef_info;
   const int num_mi_rows = cdef_info->allocated_mi_rows;
 
@@ -121,16 +124,17 @@ void av1_free_cdef_buffers(AV1_COMMON *const cm,
   // De-allocation of column buffer & source buffer (worker_0).
   free_cdef_bufs(cdef_info->colbuf, &cdef_info->srcbuf);
 
-  if (num_workers < 2) return;
+  free_cdef_row_sync(&cdef_sync->cdef_row_mt, num_mi_rows);
+
+  if (cdef_info->allocated_num_workers < 2) return;
   if (*cdef_worker != NULL) {
-    for (int idx = num_workers - 1; idx >= 1; idx--) {
+    for (int idx = cdef_info->allocated_num_workers - 1; idx >= 1; idx--) {
       // De-allocation of column buffer & source buffer for remaining workers.
       free_cdef_bufs((*cdef_worker)[idx].colbuf, &(*cdef_worker)[idx].srcbuf);
     }
     aom_free(*cdef_worker);
     *cdef_worker = NULL;
   }
-  free_cdef_row_sync(&cdef_sync->cdef_row_mt, num_mi_rows);
 }
 
 static INLINE void alloc_cdef_linebuf(AV1_COMMON *const cm, uint16_t **linebuf,
@@ -181,7 +185,8 @@ static INLINE void alloc_cdef_row_sync(AV1_COMMON *const cm,
 
 void av1_alloc_cdef_buffers(AV1_COMMON *const cm,
                             AV1CdefWorkerData **cdef_worker,
-                            AV1CdefSync *cdef_sync, int num_workers) {
+                            AV1CdefSync *cdef_sync, int num_workers,
+                            int init_worker) {
   const int num_planes = av1_num_planes(cm);
   size_t new_linebuf_size[MAX_MB_PLANE] = { 0 };
   size_t new_colbuf_size[MAX_MB_PLANE] = { 0 };
@@ -226,12 +231,19 @@ void av1_alloc_cdef_buffers(AV1_COMMON *const cm,
   free_cdef_bufs_conditional(cm, cdef_info->colbuf, &cdef_info->srcbuf,
                              new_colbuf_size, new_srcbuf_size);
 
-  if (*cdef_worker != NULL) {
+  // The flag init_worker indicates if cdef_worker has to be allocated for the
+  // frame. This is passed as 1 always from decoder. At encoder side, it is 0
+  // when called for parallel frames during FPMT (where cdef_worker is shared
+  // across parallel frames) and 1 otherwise.
+  if (*cdef_worker != NULL && init_worker) {
     if (is_num_workers_changed) {
       // Free src and column buffers for remaining workers in case of change in
       // num_workers
       for (int idx = cdef_info->allocated_num_workers - 1; idx >= 1; idx--)
         free_cdef_bufs((*cdef_worker)[idx].colbuf, &(*cdef_worker)[idx].srcbuf);
+
+      aom_free(*cdef_worker);
+      *cdef_worker = NULL;
     } else if (num_workers > 1) {
       // Free src and column buffers for remaining workers in case of
       // reallocation
@@ -261,20 +273,21 @@ void av1_alloc_cdef_buffers(AV1_COMMON *const cm,
 
   if (num_workers < 2) return;
 
-  if (*cdef_worker == NULL)
-    CHECK_MEM_ERROR(cm, *cdef_worker,
-                    aom_calloc(num_workers, sizeof(**cdef_worker)));
+  if (init_worker) {
+    if (*cdef_worker == NULL)
+      CHECK_MEM_ERROR(cm, *cdef_worker,
+                      aom_calloc(num_workers, sizeof(**cdef_worker)));
 
-  // Memory allocation of column buffer & source buffer for remaining workers.
-  for (int idx = num_workers - 1; idx >= 1; idx--)
-    alloc_cdef_bufs(cm, (*cdef_worker)[idx].colbuf, &(*cdef_worker)[idx].srcbuf,
-                    num_planes);
+    // Memory allocation of column buffer & source buffer for remaining workers.
+    for (int idx = num_workers - 1; idx >= 1; idx--)
+      alloc_cdef_bufs(cm, (*cdef_worker)[idx].colbuf,
+                      &(*cdef_worker)[idx].srcbuf, num_planes);
+  }
 
   alloc_cdef_row_sync(cm, &cdef_sync->cdef_row_mt,
                       cdef_info->allocated_mi_rows);
 }
 
-#if !CONFIG_REALTIME_ONLY
 // Assumes cm->rst_info[p].restoration_unit_size is already initialized
 void av1_alloc_restoration_buffers(AV1_COMMON *cm) {
   const int num_planes = av1_num_planes(cm);
@@ -355,7 +368,6 @@ void av1_free_restoration_buffers(AV1_COMMON *cm) {
 
   aom_free_frame_buffer(&cm->rst_frame);
 }
-#endif  // !CONFIG_REALTIME_ONLY
 
 void av1_free_above_context_buffers(CommonContexts *above_contexts) {
   int i;
@@ -363,14 +375,19 @@ void av1_free_above_context_buffers(CommonContexts *above_contexts) {
 
   for (int tile_row = 0; tile_row < above_contexts->num_tile_rows; tile_row++) {
     for (i = 0; i < num_planes; i++) {
+      if (above_contexts->entropy[i] == NULL) break;
       aom_free(above_contexts->entropy[i][tile_row]);
       above_contexts->entropy[i][tile_row] = NULL;
     }
-    aom_free(above_contexts->partition[tile_row]);
-    above_contexts->partition[tile_row] = NULL;
+    if (above_contexts->partition != NULL) {
+      aom_free(above_contexts->partition[tile_row]);
+      above_contexts->partition[tile_row] = NULL;
+    }
 
-    aom_free(above_contexts->txfm[tile_row]);
-    above_contexts->txfm[tile_row] = NULL;
+    if (above_contexts->txfm != NULL) {
+      aom_free(above_contexts->txfm[tile_row]);
+      above_contexts->txfm[tile_row] = NULL;
+    }
   }
   for (i = 0; i < num_planes; i++) {
     aom_free(above_contexts->entropy[i]);
@@ -388,13 +405,9 @@ void av1_free_above_context_buffers(CommonContexts *above_contexts) {
 }
 
 void av1_free_context_buffers(AV1_COMMON *cm) {
-  cm->mi_params.free_mi(&cm->mi_params);
+  if (cm->mi_params.free_mi != NULL) cm->mi_params.free_mi(&cm->mi_params);
 
   av1_free_above_context_buffers(&cm->above_contexts);
-
-#if CONFIG_LPF_MASK
-  av1_free_loop_filter_mask(cm);
-#endif
 }
 
 int av1_alloc_above_context_buffers(CommonContexts *above_contexts,
@@ -473,15 +486,16 @@ static int alloc_mi(CommonModeInfoParams *mi_params) {
   return 0;
 }
 
-int av1_alloc_context_buffers(AV1_COMMON *cm, int width, int height) {
+int av1_alloc_context_buffers(AV1_COMMON *cm, int width, int height,
+                              BLOCK_SIZE min_partition_size) {
   CommonModeInfoParams *const mi_params = &cm->mi_params;
-  mi_params->set_mb_mi(mi_params, width, height);
+  mi_params->set_mb_mi(mi_params, width, height, min_partition_size);
   if (alloc_mi(mi_params)) goto fail;
   return 0;
 
 fail:
   // clear the mi_* values to force a realloc on resync
-  mi_params->set_mb_mi(mi_params, 0, 0);
+  mi_params->set_mb_mi(mi_params, 0, 0, BLOCK_4X4);
   av1_free_context_buffers(cm);
   return 1;
 }
@@ -498,37 +512,3 @@ void av1_remove_common(AV1_COMMON *cm) {
 void av1_init_mi_buffers(CommonModeInfoParams *mi_params) {
   mi_params->setup_mi(mi_params);
 }
-
-#if CONFIG_LPF_MASK
-int av1_alloc_loop_filter_mask(AV1_COMMON *cm) {
-  aom_free(cm->lf.lfm);
-  cm->lf.lfm = NULL;
-
-  // Each lfm holds bit masks for all the 4x4 blocks in a max
-  // 64x64 (128x128 for ext_partitions) region.  The stride
-  // and rows are rounded up / truncated to a multiple of 16
-  // (32 for ext_partition).
-  cm->lf.lfm_stride =
-      (cm->mi_params.mi_cols + (MI_SIZE_64X64 - 1)) >> MIN_MIB_SIZE_LOG2;
-  cm->lf.lfm_num =
-      ((cm->mi_params.mi_rows + (MI_SIZE_64X64 - 1)) >> MIN_MIB_SIZE_LOG2) *
-      cm->lf.lfm_stride;
-  cm->lf.lfm =
-      (LoopFilterMask *)aom_calloc(cm->lf.lfm_num, sizeof(*cm->lf.lfm));
-  if (!cm->lf.lfm) return 1;
-
-  unsigned int i;
-  for (i = 0; i < cm->lf.lfm_num; ++i) av1_zero(cm->lf.lfm[i]);
-
-  return 0;
-}
-
-void av1_free_loop_filter_mask(AV1_COMMON *cm) {
-  if (cm->lf.lfm == NULL) return;
-
-  aom_free(cm->lf.lfm);
-  cm->lf.lfm = NULL;
-  cm->lf.lfm_num = 0;
-  cm->lf.lfm_stride = 0;
-}
-#endif

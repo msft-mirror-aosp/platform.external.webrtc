@@ -20,7 +20,7 @@
 
 namespace webrtc {
 // We decide which header extensions to register by reading four bytes
-// from the beginning of |data| and interpreting it as a bitmask over
+// from the beginning of `data` and interpreting it as a bitmask over
 // the RTPExtensionType enum. This assert ensures four bytes are enough.
 static_assert(kRtpExtensionNumberOfExtensions <= 32,
               "Insufficient bits read to configure all header extensions. Add "
@@ -135,7 +135,7 @@ void FuzzOneInput(const uint8_t* data, size_t size) {
         packet.GetExtension<RtpMid>(&mid);
         break;
       }
-      case kRtpExtensionGenericFrameDescriptor00: {
+      case kRtpExtensionGenericFrameDescriptor: {
         RtpGenericFrameDescriptor descriptor;
         packet.GetExtension<RtpGenericFrameDescriptorExtension00>(&descriptor);
         break;
@@ -160,7 +160,7 @@ void FuzzOneInput(const uint8_t* data, size_t size) {
         packet.GetExtension<VideoFrameTrackingIdExtension>(&tracking_id);
         break;
       }
-      case kRtpExtensionGenericFrameDescriptor02:
+      case kRtpExtensionDependencyDescriptor:
         // This extension requires state to read and so complicated that
         // deserves own fuzzer.
         break;

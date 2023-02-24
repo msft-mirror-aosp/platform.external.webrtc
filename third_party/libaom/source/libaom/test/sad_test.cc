@@ -20,7 +20,6 @@
 #include "config/aom_dsp_rtcd.h"
 
 #include "test/acm_random.h"
-#include "test/clear_system_state.h"
 #include "test/register_state_check.h"
 #include "test/util.h"
 #include "aom/aom_codec.h"
@@ -86,50 +85,60 @@ class SADTestBase : public ::testing::Test {
   static void SetUpTestSuite() {
     source_data8_ = reinterpret_cast<uint8_t *>(
         aom_memalign(kDataAlignment, kDataBlockSize));
+    ASSERT_NE(source_data8_, nullptr);
     reference_data8_ = reinterpret_cast<uint8_t *>(
         aom_memalign(kDataAlignment, kDataBufferSize));
+    ASSERT_NE(reference_data8_, nullptr);
     second_pred8_ =
         reinterpret_cast<uint8_t *>(aom_memalign(kDataAlignment, 128 * 128));
+    ASSERT_NE(second_pred8_, nullptr);
     comp_pred8_ =
         reinterpret_cast<uint8_t *>(aom_memalign(kDataAlignment, 128 * 128));
+    ASSERT_NE(comp_pred8_, nullptr);
     comp_pred8_test_ =
         reinterpret_cast<uint8_t *>(aom_memalign(kDataAlignment, 128 * 128));
+    ASSERT_NE(comp_pred8_test_, nullptr);
     source_data16_ = reinterpret_cast<uint16_t *>(
         aom_memalign(kDataAlignment, kDataBlockSize * sizeof(uint16_t)));
+    ASSERT_NE(source_data16_, nullptr);
     reference_data16_ = reinterpret_cast<uint16_t *>(
         aom_memalign(kDataAlignment, kDataBufferSize * sizeof(uint16_t)));
+    ASSERT_NE(reference_data16_, nullptr);
     second_pred16_ = reinterpret_cast<uint16_t *>(
         aom_memalign(kDataAlignment, 128 * 128 * sizeof(uint16_t)));
+    ASSERT_NE(second_pred16_, nullptr);
     comp_pred16_ = reinterpret_cast<uint16_t *>(
         aom_memalign(kDataAlignment, 128 * 128 * sizeof(uint16_t)));
+    ASSERT_NE(comp_pred16_, nullptr);
     comp_pred16_test_ = reinterpret_cast<uint16_t *>(
         aom_memalign(kDataAlignment, 128 * 128 * sizeof(uint16_t)));
+    ASSERT_NE(comp_pred16_test_, nullptr);
   }
 
   static void TearDownTestSuite() {
     aom_free(source_data8_);
-    source_data8_ = NULL;
+    source_data8_ = nullptr;
     aom_free(reference_data8_);
-    reference_data8_ = NULL;
+    reference_data8_ = nullptr;
     aom_free(second_pred8_);
-    second_pred8_ = NULL;
+    second_pred8_ = nullptr;
     aom_free(comp_pred8_);
-    comp_pred8_ = NULL;
+    comp_pred8_ = nullptr;
     aom_free(comp_pred8_test_);
-    comp_pred8_test_ = NULL;
+    comp_pred8_test_ = nullptr;
     aom_free(source_data16_);
-    source_data16_ = NULL;
+    source_data16_ = nullptr;
     aom_free(reference_data16_);
-    reference_data16_ = NULL;
+    reference_data16_ = nullptr;
     aom_free(second_pred16_);
-    second_pred16_ = NULL;
+    second_pred16_ = nullptr;
     aom_free(comp_pred16_);
-    comp_pred16_ = NULL;
+    comp_pred16_ = nullptr;
     aom_free(comp_pred16_test_);
-    comp_pred16_test_ = NULL;
+    comp_pred16_test_ = nullptr;
   }
 
-  virtual void TearDown() { libaom_test::ClearSystemState(); }
+  virtual void TearDown() {}
 
  protected:
   // Handle up to 4 128x128 blocks, with stride up to 256
@@ -328,6 +337,30 @@ class SADTestBase : public ::testing::Test {
     }
   }
 
+  virtual void SADForSpeedTest(unsigned int *results,
+                               const uint8_t *const *references) {
+    (void)results;
+    (void)references;
+  }
+
+  void SpeedSAD() {
+    int test_count = 20000000;
+    unsigned int exp_sad[4];
+    const uint8_t *references[] = { GetReference(0), GetReference(1),
+                                    GetReference(2), GetReference(3) };
+    aom_usec_timer timer;
+    aom_usec_timer_start(&timer);
+    while (test_count > 0) {
+      SADForSpeedTest(exp_sad, references);
+      test_count -= 1;
+    }
+    aom_usec_timer_mark(&timer);
+    const int64_t time = aom_usec_timer_elapsed(&timer) / 1000;
+    std::cout << "BLOCK_" << width_ << "X" << height_
+              << ", bit_depth:" << bit_depth_ << ",Time: " << time << "ms"
+              << std::endl;
+  }
+
   int width_, height_, mask_, bd_;
   aom_bit_depth_t bit_depth_;
   static uint8_t *source_data_;
@@ -363,13 +396,18 @@ class SADx4Test : public ::testing::WithParamInterface<SadMxNx4Param>,
     const uint8_t *references[] = { GetReference(0), GetReference(1),
                                     GetReference(2), GetReference(3) };
 
-    ASM_REGISTER_STATE_CHECK(GET_PARAM(2)(
+    API_REGISTER_STATE_CHECK(GET_PARAM(2)(
         source_data_, source_stride_, references, reference_stride_, results));
+  }
+
+  void SADForSpeedTest(unsigned int *results,
+                       const uint8_t *const *references) {
+    GET_PARAM(2)
+    (source_data_, source_stride_, references, reference_stride_, results);
   }
 
   void CheckSADs() {
     unsigned int reference_sad, exp_sad[4];
-
     SADs(exp_sad);
     for (int block = 0; block < 4; ++block) {
       reference_sad = ReferenceSAD(block);
@@ -377,13 +415,36 @@ class SADx4Test : public ::testing::WithParamInterface<SadMxNx4Param>,
       EXPECT_EQ(reference_sad, exp_sad[block]) << "block " << block;
     }
   }
+};
 
-  void SpeedSAD() {
-    int test_count = 2000000;
-    unsigned int exp_sad[4];
-    while (test_count > 0) {
-      SADs(exp_sad);
-      test_count -= 1;
+class SADx3Test : public ::testing::WithParamInterface<SadMxNx4Param>,
+                  public SADTestBase {
+ public:
+  SADx3Test() : SADTestBase(GET_PARAM(0), GET_PARAM(1), GET_PARAM(3)) {}
+
+ protected:
+  void SADs(unsigned int *results) {
+    const uint8_t *references[] = { GetReference(0), GetReference(1),
+                                    GetReference(2), GetReference(3) };
+
+    GET_PARAM(2)
+    (source_data_, source_stride_, references, reference_stride_, results);
+  }
+
+  void SADForSpeedTest(unsigned int *results,
+                       const uint8_t *const *references) {
+    GET_PARAM(2)
+    (source_data_, source_stride_, references, reference_stride_, results);
+  }
+
+  void CheckSADs() {
+    unsigned int reference_sad, exp_sad[4];
+
+    SADs(exp_sad);
+    for (int block = 0; block < 3; ++block) {
+      reference_sad = ReferenceSAD(block);
+
+      EXPECT_EQ(reference_sad, exp_sad[block]) << "block " << block;
     }
   }
 };
@@ -398,7 +459,7 @@ class SADSkipx4Test : public ::testing::WithParamInterface<SadMxNx4Param>,
     const uint8_t *references[] = { GetReference(0), GetReference(1),
                                     GetReference(2), GetReference(3) };
 
-    ASM_REGISTER_STATE_CHECK(GET_PARAM(2)(
+    API_REGISTER_STATE_CHECK(GET_PARAM(2)(
         source_data_, source_stride_, references, reference_stride_, results));
   }
 
@@ -413,16 +474,14 @@ class SADSkipx4Test : public ::testing::WithParamInterface<SadMxNx4Param>,
     }
   }
 
-  void SpeedSAD() {
-    int test_count = 2000000;
-    unsigned int exp_sad[4];
-    while (test_count > 0) {
-      SADs(exp_sad);
-      test_count -= 1;
-    }
+  void SADForSpeedTest(unsigned int *results,
+                       const uint8_t *const *references) {
+    GET_PARAM(2)
+    (source_data_, source_stride_, references, reference_stride_, results);
   }
 };
 
+#if !CONFIG_REALTIME_ONLY
 class SADx4AvgTest : public ::testing::WithParamInterface<SadMxNx4AvgParam>,
                      public SADTestBase {
  public:
@@ -433,7 +492,7 @@ class SADx4AvgTest : public ::testing::WithParamInterface<SadMxNx4AvgParam>,
     const uint8_t *references[] = { GetReference(0), GetReference(1),
                                     GetReference(2), GetReference(3) };
 
-    ASM_REGISTER_STATE_CHECK(GET_PARAM(2)(source_data_, source_stride_,
+    API_REGISTER_STATE_CHECK(GET_PARAM(2)(source_data_, source_stride_,
                                           references, reference_stride_,
                                           second_pred_, results));
   }
@@ -449,15 +508,14 @@ class SADx4AvgTest : public ::testing::WithParamInterface<SadMxNx4AvgParam>,
     }
   }
 
-  void SpeedSAD() {
-    int test_count = 200000;
-    unsigned int exp_sad[4];
-    while (test_count > 0) {
-      SADs(exp_sad);
-      test_count -= 1;
-    }
+  void SADForSpeedTest(unsigned int *results,
+                       const uint8_t *const *references) {
+    GET_PARAM(2)
+    (source_data_, source_stride_, references, reference_stride_, second_pred_,
+     results);
   }
 };
+#endif  // !CONFIG_REALTIME_ONLY
 
 class SADTest : public ::testing::WithParamInterface<SadMxNParam>,
                 public SADTestBase {
@@ -469,7 +527,7 @@ class SADTest : public ::testing::WithParamInterface<SadMxNParam>,
     unsigned int ret;
     const uint8_t *const reference = GetReference(block_idx);
 
-    ASM_REGISTER_STATE_CHECK(ret = GET_PARAM(2)(source_data_, source_stride_,
+    API_REGISTER_STATE_CHECK(ret = GET_PARAM(2)(source_data_, source_stride_,
                                                 reference, reference_stride_));
     return ret;
   }
@@ -481,12 +539,11 @@ class SADTest : public ::testing::WithParamInterface<SadMxNParam>,
     ASSERT_EQ(reference_sad, exp_sad);
   }
 
-  void SpeedSAD() {
-    int test_count = 20000000;
-    while (test_count > 0) {
-      SAD(0);
-      test_count -= 1;
-    }
+  void SADForSpeedTest(unsigned int *results,
+                       const uint8_t *const *references) {
+    GET_PARAM(2)
+    (source_data_, source_stride_, references[0], reference_stride_);
+    (void)results;
   }
 };
 
@@ -500,7 +557,7 @@ class SADSkipTest : public ::testing::WithParamInterface<SadMxNParam>,
     unsigned int ret;
     const uint8_t *const reference = GetReference(block_idx);
 
-    ASM_REGISTER_STATE_CHECK(ret = GET_PARAM(2)(source_data_, source_stride_,
+    API_REGISTER_STATE_CHECK(ret = GET_PARAM(2)(source_data_, source_stride_,
                                                 reference, reference_stride_));
     return ret;
   }
@@ -512,12 +569,11 @@ class SADSkipTest : public ::testing::WithParamInterface<SadMxNParam>,
     ASSERT_EQ(reference_sad, exp_sad);
   }
 
-  void SpeedSAD() {
-    int test_count = 20000000;
-    while (test_count > 0) {
-      SAD(0);
-      test_count -= 1;
-    }
+  void SADForSpeedTest(unsigned int *results,
+                       const uint8_t *const *references) {
+    GET_PARAM(2)
+    (source_data_, source_stride_, references[0], reference_stride_);
+    (void)results;
   }
 };
 
@@ -531,7 +587,7 @@ class SADavgTest : public ::testing::WithParamInterface<SadMxNAvgParam>,
     unsigned int ret;
     const uint8_t *const reference = GetReference(block_idx);
 
-    ASM_REGISTER_STATE_CHECK(ret = GET_PARAM(2)(source_data_, source_stride_,
+    API_REGISTER_STATE_CHECK(ret = GET_PARAM(2)(source_data_, source_stride_,
                                                 reference, reference_stride_,
                                                 second_pred_));
     return ret;
@@ -556,7 +612,7 @@ class DistWtdCompAvgTest
   void dist_wtd_comp_avg(int block_idx) {
     const uint8_t *const reference = GetReference(block_idx);
 
-    ASM_REGISTER_STATE_CHECK(GET_PARAM(2)(comp_pred_test_, second_pred_, width_,
+    API_REGISTER_STATE_CHECK(GET_PARAM(2)(comp_pred_test_, second_pred_, width_,
                                           height_, reference, reference_stride_,
                                           &jcp_param_));
   }
@@ -589,7 +645,7 @@ class DistWtdSADTest : public ::testing::WithParamInterface<DistWtdSadMxhParam>,
     unsigned int ret;
     const uint8_t *const reference = GetReference(block_idx);
 
-    ASM_REGISTER_STATE_CHECK(ret = GET_PARAM(2)(source_data_, source_stride_,
+    API_REGISTER_STATE_CHECK(ret = GET_PARAM(2)(source_data_, source_stride_,
                                                 reference, reference_stride_,
                                                 GET_PARAM(0), GET_PARAM(1)));
     return ret;
@@ -602,12 +658,12 @@ class DistWtdSADTest : public ::testing::WithParamInterface<DistWtdSadMxhParam>,
     ASSERT_EQ(reference_sad, exp_sad);
   }
 
-  void SpeedSAD() {
-    int test_count = 20000000;
-    while (test_count > 0) {
-      SAD(0);
-      test_count -= 1;
-    }
+  void SADForSpeedTest(unsigned int *results,
+                       const uint8_t *const *references) {
+    GET_PARAM(2)
+    (source_data_, source_stride_, references[0], reference_stride_, width_,
+     height_);
+    (void)results;
   }
 };
 GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(DistWtdSADTest);
@@ -623,7 +679,7 @@ class DistWtdSADavgTest
     unsigned int ret;
     const uint8_t *const reference = GetReference(block_idx);
 
-    ASM_REGISTER_STATE_CHECK(ret = GET_PARAM(2)(source_data_, source_stride_,
+    API_REGISTER_STATE_CHECK(ret = GET_PARAM(2)(source_data_, source_stride_,
                                                 reference, reference_stride_,
                                                 second_pred_, &jcp_param_));
     return ret;
@@ -644,21 +700,21 @@ class DistWtdSADavgTest
   }
 };
 
-uint8_t *SADTestBase::source_data_ = NULL;
-uint8_t *SADTestBase::reference_data_ = NULL;
-uint8_t *SADTestBase::second_pred_ = NULL;
-uint8_t *SADTestBase::comp_pred_ = NULL;
-uint8_t *SADTestBase::comp_pred_test_ = NULL;
-uint8_t *SADTestBase::source_data8_ = NULL;
-uint8_t *SADTestBase::reference_data8_ = NULL;
-uint8_t *SADTestBase::second_pred8_ = NULL;
-uint8_t *SADTestBase::comp_pred8_ = NULL;
-uint8_t *SADTestBase::comp_pred8_test_ = NULL;
-uint16_t *SADTestBase::source_data16_ = NULL;
-uint16_t *SADTestBase::reference_data16_ = NULL;
-uint16_t *SADTestBase::second_pred16_ = NULL;
-uint16_t *SADTestBase::comp_pred16_ = NULL;
-uint16_t *SADTestBase::comp_pred16_test_ = NULL;
+uint8_t *SADTestBase::source_data_ = nullptr;
+uint8_t *SADTestBase::reference_data_ = nullptr;
+uint8_t *SADTestBase::second_pred_ = nullptr;
+uint8_t *SADTestBase::comp_pred_ = nullptr;
+uint8_t *SADTestBase::comp_pred_test_ = nullptr;
+uint8_t *SADTestBase::source_data8_ = nullptr;
+uint8_t *SADTestBase::reference_data8_ = nullptr;
+uint8_t *SADTestBase::second_pred8_ = nullptr;
+uint8_t *SADTestBase::comp_pred8_ = nullptr;
+uint8_t *SADTestBase::comp_pred8_test_ = nullptr;
+uint16_t *SADTestBase::source_data16_ = nullptr;
+uint16_t *SADTestBase::reference_data16_ = nullptr;
+uint16_t *SADTestBase::second_pred16_ = nullptr;
+uint16_t *SADTestBase::comp_pred16_ = nullptr;
+uint16_t *SADTestBase::comp_pred16_test_ = nullptr;
 
 TEST_P(SADTest, MaxRef) {
   FillConstant(source_data_, source_stride_, 0);
@@ -700,6 +756,7 @@ TEST_P(SADTest, ShortSrc) {
     FillRandom(source_data_, source_stride_);
     FillRandom(reference_data_, reference_stride_);
     CheckSAD();
+    if (testing::Test::HasFatalFailure()) break;
     test_count -= 1;
   }
   source_stride_ = tmp_stride;
@@ -754,6 +811,7 @@ TEST_P(SADSkipTest, ShortSrc) {
     FillRandom(source_data_, source_stride_);
     FillRandom(reference_data_, reference_stride_);
     CheckSAD();
+    if (testing::Test::HasFatalFailure()) break;
     test_count -= 1;
   }
   source_stride_ = tmp_stride;
@@ -812,6 +870,7 @@ TEST_P(SADavgTest, ShortSrc) {
     FillRandom(reference_data_, reference_stride_);
     FillRandom(second_pred_, width_);
     CheckSAD();
+    if (testing::Test::HasFatalFailure()) break;
     test_count -= 1;
   }
   source_stride_ = tmp_stride;
@@ -889,6 +948,7 @@ TEST_P(DistWtdSADTest, ShortSrc) {
     FillRandom(source_data_, source_stride_);
     FillRandom(reference_data_, reference_stride_);
     CheckSAD();
+    if (testing::Test::HasFatalFailure()) break;
     test_count -= 1;
   }
   source_stride_ = tmp_stride;
@@ -938,11 +998,13 @@ TEST_P(DistWtdSADavgTest, ShortSrc) {
     FillRandom(reference_data_, reference_stride_);
     FillRandom(second_pred_, width_);
     CheckSAD();
+    if (testing::Test::HasFatalFailure()) break;
     test_count -= 1;
   }
   source_stride_ = tmp_stride;
 }
 
+// SADx4
 TEST_P(SADx4Test, MaxRef) {
   FillConstant(source_data_, source_stride_, 0);
   FillConstant(GetReference(0), reference_stride_, mask_);
@@ -1016,6 +1078,88 @@ TEST_P(SADx4Test, SrcAlignedByWidth) {
 }
 
 TEST_P(SADx4Test, DISABLED_Speed) {
+  FillRandom(source_data_, source_stride_);
+  FillRandom(GetReference(0), reference_stride_);
+  FillRandom(GetReference(1), reference_stride_);
+  FillRandom(GetReference(2), reference_stride_);
+  FillRandom(GetReference(3), reference_stride_);
+  SpeedSAD();
+}
+
+// SADx3
+TEST_P(SADx3Test, MaxRef) {
+  FillConstant(source_data_, source_stride_, 0);
+  FillConstant(GetReference(0), reference_stride_, mask_);
+  FillConstant(GetReference(1), reference_stride_, mask_);
+  FillConstant(GetReference(2), reference_stride_, mask_);
+  FillConstant(GetReference(3), reference_stride_, mask_);
+  CheckSADs();
+}
+
+TEST_P(SADx3Test, MaxSrc) {
+  FillConstant(source_data_, source_stride_, mask_);
+  FillConstant(GetReference(0), reference_stride_, 0);
+  FillConstant(GetReference(1), reference_stride_, 0);
+  FillConstant(GetReference(2), reference_stride_, 0);
+  FillConstant(GetReference(3), reference_stride_, 0);
+  CheckSADs();
+}
+
+TEST_P(SADx3Test, ShortRef) {
+  int tmp_stride = reference_stride_;
+  reference_stride_ >>= 1;
+  FillRandom(source_data_, source_stride_);
+  FillRandom(GetReference(0), reference_stride_);
+  FillRandom(GetReference(1), reference_stride_);
+  FillRandom(GetReference(2), reference_stride_);
+  FillRandom(GetReference(3), reference_stride_);
+  CheckSADs();
+  reference_stride_ = tmp_stride;
+}
+
+TEST_P(SADx3Test, UnalignedRef) {
+  // The reference frame, but not the source frame, may be unaligned for
+  // certain types of searches.
+  int tmp_stride = reference_stride_;
+  reference_stride_ -= 1;
+  FillRandom(source_data_, source_stride_);
+  FillRandom(GetReference(0), reference_stride_);
+  FillRandom(GetReference(1), reference_stride_);
+  FillRandom(GetReference(2), reference_stride_);
+  FillRandom(GetReference(3), reference_stride_);
+  CheckSADs();
+  reference_stride_ = tmp_stride;
+}
+
+TEST_P(SADx3Test, ShortSrc) {
+  int tmp_stride = source_stride_;
+  source_stride_ >>= 1;
+  int test_count = 1000;
+  while (test_count > 0) {
+    FillRandom(source_data_, source_stride_);
+    FillRandom(GetReference(0), reference_stride_);
+    FillRandom(GetReference(1), reference_stride_);
+    FillRandom(GetReference(2), reference_stride_);
+    FillRandom(GetReference(3), reference_stride_);
+    CheckSADs();
+    test_count -= 1;
+  }
+  source_stride_ = tmp_stride;
+}
+
+TEST_P(SADx3Test, SrcAlignedByWidth) {
+  uint8_t *tmp_source_data = source_data_;
+  source_data_ += width_;
+  FillRandom(source_data_, source_stride_);
+  FillRandom(GetReference(0), reference_stride_);
+  FillRandom(GetReference(1), reference_stride_);
+  FillRandom(GetReference(2), reference_stride_);
+  FillRandom(GetReference(3), reference_stride_);
+  CheckSADs();
+  source_data_ = tmp_source_data;
+}
+
+TEST_P(SADx3Test, DISABLED_Speed) {
   FillRandom(source_data_, source_stride_);
   FillRandom(GetReference(0), reference_stride_);
   FillRandom(GetReference(1), reference_stride_);
@@ -1108,6 +1252,7 @@ TEST_P(SADSkipx4Test, DISABLED_Speed) {
 
 using std::make_tuple;
 
+#if !CONFIG_REALTIME_ONLY
 TEST_P(SADx4AvgTest, DISABLED_Speed) {
   int tmp_stride = reference_stride_;
   reference_stride_ >>= 1;
@@ -1168,6 +1313,7 @@ TEST_P(SADx4AvgTest, UnalignedRef) {
   CheckSADs();
   reference_stride_ = tmp_stride;
 }
+#endif  // !CONFIG_REALTIME_ONLY
 
 //------------------------------------------------------------------------------
 // C functions
@@ -1642,6 +1788,108 @@ const SadMxNx4Param x4d_c_tests[] = {
 };
 INSTANTIATE_TEST_SUITE_P(C, SADx4Test, ::testing::ValuesIn(x4d_c_tests));
 
+const SadMxNx4Param x3d_c_tests[] = {
+  make_tuple(128, 128, &aom_sad128x128x3d_c, -1),
+  make_tuple(128, 64, &aom_sad128x64x3d_c, -1),
+  make_tuple(64, 128, &aom_sad64x128x3d_c, -1),
+  make_tuple(64, 64, &aom_sad64x64x3d_c, -1),
+  make_tuple(64, 32, &aom_sad64x32x3d_c, -1),
+  make_tuple(32, 64, &aom_sad32x64x3d_c, -1),
+  make_tuple(32, 32, &aom_sad32x32x3d_c, -1),
+  make_tuple(32, 16, &aom_sad32x16x3d_c, -1),
+  make_tuple(16, 32, &aom_sad16x32x3d_c, -1),
+  make_tuple(16, 16, &aom_sad16x16x3d_c, -1),
+  make_tuple(16, 8, &aom_sad16x8x3d_c, -1),
+  make_tuple(8, 16, &aom_sad8x16x3d_c, -1),
+  make_tuple(8, 8, &aom_sad8x8x3d_c, -1),
+  make_tuple(8, 4, &aom_sad8x4x3d_c, -1),
+  make_tuple(4, 8, &aom_sad4x8x3d_c, -1),
+  make_tuple(4, 4, &aom_sad4x4x3d_c, -1),
+#if CONFIG_AV1_HIGHBITDEPTH
+  make_tuple(128, 128, &aom_highbd_sad128x128x3d_c, 8),
+  make_tuple(128, 64, &aom_highbd_sad128x64x3d_c, 8),
+  make_tuple(64, 128, &aom_highbd_sad64x128x3d_c, 8),
+  make_tuple(64, 64, &aom_highbd_sad64x64x3d_c, 8),
+  make_tuple(64, 32, &aom_highbd_sad64x32x3d_c, 8),
+  make_tuple(32, 64, &aom_highbd_sad32x64x3d_c, 8),
+  make_tuple(32, 32, &aom_highbd_sad32x32x3d_c, 8),
+  make_tuple(32, 16, &aom_highbd_sad32x16x3d_c, 8),
+  make_tuple(16, 32, &aom_highbd_sad16x32x3d_c, 8),
+  make_tuple(16, 16, &aom_highbd_sad16x16x3d_c, 8),
+  make_tuple(16, 8, &aom_highbd_sad16x8x3d_c, 8),
+  make_tuple(8, 16, &aom_highbd_sad8x16x3d_c, 8),
+  make_tuple(8, 8, &aom_highbd_sad8x8x3d_c, 8),
+  make_tuple(8, 4, &aom_highbd_sad8x4x3d_c, 8),
+  make_tuple(4, 8, &aom_highbd_sad4x8x3d_c, 8),
+  make_tuple(4, 4, &aom_highbd_sad4x4x3d_c, 8),
+  make_tuple(128, 128, &aom_highbd_sad128x128x3d_c, 10),
+  make_tuple(128, 64, &aom_highbd_sad128x64x3d_c, 10),
+  make_tuple(64, 128, &aom_highbd_sad64x128x3d_c, 10),
+  make_tuple(64, 64, &aom_highbd_sad64x64x3d_c, 10),
+  make_tuple(64, 32, &aom_highbd_sad64x32x3d_c, 10),
+  make_tuple(32, 64, &aom_highbd_sad32x64x3d_c, 10),
+  make_tuple(32, 32, &aom_highbd_sad32x32x3d_c, 10),
+  make_tuple(32, 16, &aom_highbd_sad32x16x3d_c, 10),
+  make_tuple(16, 32, &aom_highbd_sad16x32x3d_c, 10),
+  make_tuple(16, 16, &aom_highbd_sad16x16x3d_c, 10),
+  make_tuple(16, 8, &aom_highbd_sad16x8x3d_c, 10),
+  make_tuple(8, 16, &aom_highbd_sad8x16x3d_c, 10),
+  make_tuple(8, 8, &aom_highbd_sad8x8x3d_c, 10),
+  make_tuple(8, 4, &aom_highbd_sad8x4x3d_c, 10),
+  make_tuple(4, 8, &aom_highbd_sad4x8x3d_c, 10),
+  make_tuple(4, 4, &aom_highbd_sad4x4x3d_c, 10),
+  make_tuple(128, 128, &aom_highbd_sad128x128x3d_c, 12),
+  make_tuple(128, 64, &aom_highbd_sad128x64x3d_c, 12),
+  make_tuple(64, 128, &aom_highbd_sad64x128x3d_c, 12),
+  make_tuple(64, 64, &aom_highbd_sad64x64x3d_c, 12),
+  make_tuple(64, 32, &aom_highbd_sad64x32x3d_c, 12),
+  make_tuple(32, 64, &aom_highbd_sad32x64x3d_c, 12),
+  make_tuple(32, 32, &aom_highbd_sad32x32x3d_c, 12),
+  make_tuple(32, 16, &aom_highbd_sad32x16x3d_c, 12),
+  make_tuple(16, 32, &aom_highbd_sad16x32x3d_c, 12),
+  make_tuple(16, 16, &aom_highbd_sad16x16x3d_c, 12),
+  make_tuple(16, 8, &aom_highbd_sad16x8x3d_c, 12),
+  make_tuple(8, 16, &aom_highbd_sad8x16x3d_c, 12),
+  make_tuple(8, 8, &aom_highbd_sad8x8x3d_c, 12),
+  make_tuple(8, 4, &aom_highbd_sad8x4x3d_c, 12),
+  make_tuple(4, 8, &aom_highbd_sad4x8x3d_c, 12),
+  make_tuple(4, 4, &aom_highbd_sad4x4x3d_c, 12),
+#endif
+#if !CONFIG_REALTIME_ONLY
+  make_tuple(64, 16, &aom_sad64x16x3d_c, -1),
+  make_tuple(16, 64, &aom_sad16x64x3d_c, -1),
+#if CONFIG_AV1_HIGHBITDEPTH
+  make_tuple(64, 16, &aom_highbd_sad64x16x3d_c, 8),
+  make_tuple(16, 64, &aom_highbd_sad16x64x3d_c, 8),
+  make_tuple(64, 16, &aom_highbd_sad64x16x3d_c, 10),
+  make_tuple(16, 64, &aom_highbd_sad16x64x3d_c, 10),
+  make_tuple(64, 16, &aom_highbd_sad64x16x3d_c, 12),
+  make_tuple(16, 64, &aom_highbd_sad16x64x3d_c, 12),
+#endif
+  make_tuple(32, 8, &aom_sad32x8x3d_c, -1),
+  make_tuple(8, 32, &aom_sad8x32x3d_c, -1),
+#if CONFIG_AV1_HIGHBITDEPTH
+  make_tuple(32, 8, &aom_highbd_sad32x8x3d_c, 8),
+  make_tuple(8, 32, &aom_highbd_sad8x32x3d_c, 8),
+  make_tuple(32, 8, &aom_highbd_sad32x8x3d_c, 10),
+  make_tuple(8, 32, &aom_highbd_sad8x32x3d_c, 10),
+  make_tuple(32, 8, &aom_highbd_sad32x8x3d_c, 12),
+  make_tuple(8, 32, &aom_highbd_sad8x32x3d_c, 12),
+#endif
+  make_tuple(16, 4, &aom_sad16x4x3d_c, -1),
+  make_tuple(4, 16, &aom_sad4x16x3d_c, -1),
+#if CONFIG_AV1_HIGHBITDEPTH
+  make_tuple(16, 4, &aom_highbd_sad16x4x3d_c, 8),
+  make_tuple(4, 16, &aom_highbd_sad4x16x3d_c, 8),
+  make_tuple(16, 4, &aom_highbd_sad16x4x3d_c, 10),
+  make_tuple(4, 16, &aom_highbd_sad4x16x3d_c, 10),
+  make_tuple(16, 4, &aom_highbd_sad16x4x3d_c, 12),
+  make_tuple(4, 16, &aom_highbd_sad4x16x3d_c, 12),
+#endif
+#endif  // !CONFIG_REALTIME_ONLY
+};
+INSTANTIATE_TEST_SUITE_P(C, SADx3Test, ::testing::ValuesIn(x3d_c_tests));
+
 const SadMxNx4Param skip_x4d_c_tests[] = {
   make_tuple(128, 128, &aom_sad_skip_128x128x4d_c, -1),
   make_tuple(128, 64, &aom_sad_skip_128x64x4d_c, -1),
@@ -1744,6 +1992,7 @@ const SadMxNx4Param skip_x4d_c_tests[] = {
 INSTANTIATE_TEST_SUITE_P(C, SADSkipx4Test,
                          ::testing::ValuesIn(skip_x4d_c_tests));
 
+#if !CONFIG_REALTIME_ONLY
 const SadMxNx4AvgParam x4d_avg_c_tests[] = {
   make_tuple(128, 128, &aom_sad128x128x4d_avg_c, -1),
   make_tuple(128, 64, &aom_sad128x64x4d_avg_c, -1),
@@ -1761,36 +2010,72 @@ const SadMxNx4AvgParam x4d_avg_c_tests[] = {
   make_tuple(8, 4, &aom_sad8x4x4d_avg_c, -1),
   make_tuple(4, 8, &aom_sad4x8x4d_avg_c, -1),
   make_tuple(4, 4, &aom_sad4x4x4d_avg_c, -1),
-#if !CONFIG_REALTIME_ONLY
   make_tuple(64, 16, &aom_sad64x16x4d_avg_c, -1),
   make_tuple(16, 64, &aom_sad16x64x4d_avg_c, -1),
   make_tuple(32, 8, &aom_sad32x8x4d_avg_c, -1),
   make_tuple(8, 32, &aom_sad8x32x4d_avg_c, -1),
   make_tuple(16, 4, &aom_sad16x4x4d_avg_c, -1),
   make_tuple(4, 16, &aom_sad4x16x4d_avg_c, -1),
-#endif
 };
 INSTANTIATE_TEST_SUITE_P(C, SADx4AvgTest, ::testing::ValuesIn(x4d_avg_c_tests));
+#endif  // !CONFIG_REALTIME_ONLY
 
 //------------------------------------------------------------------------------
 // ARM functions
 #if HAVE_NEON
 const SadMxNParam neon_tests[] = {
   make_tuple(128, 128, &aom_sad128x128_neon, -1),
+  make_tuple(128, 64, &aom_sad128x64_neon, -1),
+  make_tuple(64, 128, &aom_sad64x128_neon, -1),
   make_tuple(64, 64, &aom_sad64x64_neon, -1),
+  make_tuple(64, 32, &aom_sad64x32_neon, -1),
+  make_tuple(32, 64, &aom_sad32x64_neon, -1),
   make_tuple(32, 32, &aom_sad32x32_neon, -1),
+  make_tuple(32, 16, &aom_sad32x16_neon, -1),
+  make_tuple(16, 32, &aom_sad16x32_neon, -1),
   make_tuple(16, 16, &aom_sad16x16_neon, -1),
   make_tuple(16, 8, &aom_sad16x8_neon, -1),
   make_tuple(8, 16, &aom_sad8x16_neon, -1),
   make_tuple(8, 8, &aom_sad8x8_neon, -1),
+  make_tuple(8, 4, &aom_sad8x4_neon, -1),
+  make_tuple(4, 8, &aom_sad4x8_neon, -1),
   make_tuple(4, 4, &aom_sad4x4_neon, -1),
+#if !CONFIG_REALTIME_ONLY
+  make_tuple(64, 16, &aom_sad64x16_neon, -1),
+  make_tuple(32, 8, &aom_sad32x8_neon, -1),
+  make_tuple(16, 64, &aom_sad16x64_neon, -1),
+  make_tuple(16, 4, &aom_sad16x4_neon, -1),
+  make_tuple(8, 32, &aom_sad8x32_neon, -1),
+  make_tuple(4, 16, &aom_sad4x16_neon, -1),
+#endif
 };
 INSTANTIATE_TEST_SUITE_P(NEON, SADTest, ::testing::ValuesIn(neon_tests));
 
 const SadMxNx4Param x4d_neon_tests[] = {
+  make_tuple(128, 128, &aom_sad128x128x4d_neon, -1),
+  make_tuple(128, 64, &aom_sad128x64x4d_neon, -1),
+  make_tuple(64, 128, &aom_sad64x128x4d_neon, -1),
   make_tuple(64, 64, &aom_sad64x64x4d_neon, -1),
+  make_tuple(64, 32, &aom_sad64x32x4d_neon, -1),
+  make_tuple(32, 64, &aom_sad32x64x4d_neon, -1),
   make_tuple(32, 32, &aom_sad32x32x4d_neon, -1),
+  make_tuple(32, 16, &aom_sad32x16x4d_neon, -1),
+  make_tuple(16, 32, &aom_sad16x32x4d_neon, -1),
   make_tuple(16, 16, &aom_sad16x16x4d_neon, -1),
+  make_tuple(16, 8, &aom_sad16x8x4d_neon, -1),
+  make_tuple(8, 16, &aom_sad8x16x4d_neon, -1),
+  make_tuple(8, 8, &aom_sad8x8x4d_neon, -1),
+  make_tuple(8, 4, &aom_sad8x4x4d_neon, -1),
+  make_tuple(4, 8, &aom_sad4x8x4d_neon, -1),
+  make_tuple(4, 4, &aom_sad4x4x4d_neon, -1),
+#if !CONFIG_REALTIME_ONLY
+  make_tuple(64, 16, &aom_sad64x16x4d_neon, -1),
+  make_tuple(32, 8, &aom_sad32x8x4d_neon, -1),
+  make_tuple(16, 64, &aom_sad16x64x4d_neon, -1),
+  make_tuple(16, 4, &aom_sad16x4x4d_neon, -1),
+  make_tuple(8, 32, &aom_sad8x32x4d_neon, -1),
+  make_tuple(4, 16, &aom_sad4x16x4d_neon, -1),
+#endif
 };
 INSTANTIATE_TEST_SUITE_P(NEON, SADx4Test, ::testing::ValuesIn(x4d_neon_tests));
 const SadSkipMxNParam skip_neon_tests[] = {
@@ -1844,6 +2129,35 @@ const SadSkipMxNx4Param skip_x4d_neon_tests[] = {
 };
 INSTANTIATE_TEST_SUITE_P(NEON, SADSkipx4Test,
                          ::testing::ValuesIn(skip_x4d_neon_tests));
+
+const SadMxNAvgParam avg_neon_tests[] = {
+  make_tuple(128, 128, &aom_sad128x128_avg_neon, -1),
+  make_tuple(128, 64, &aom_sad128x64_avg_neon, -1),
+  make_tuple(64, 128, &aom_sad64x128_avg_neon, -1),
+  make_tuple(64, 64, &aom_sad64x64_avg_neon, -1),
+  make_tuple(64, 32, &aom_sad64x32_avg_neon, -1),
+  make_tuple(32, 64, &aom_sad32x64_avg_neon, -1),
+  make_tuple(32, 32, &aom_sad32x32_avg_neon, -1),
+  make_tuple(32, 16, &aom_sad32x16_avg_neon, -1),
+  make_tuple(16, 32, &aom_sad16x32_avg_neon, -1),
+  make_tuple(16, 16, &aom_sad16x16_avg_neon, -1),
+  make_tuple(16, 8, &aom_sad16x8_avg_neon, -1),
+  make_tuple(8, 16, &aom_sad8x16_avg_neon, -1),
+  make_tuple(8, 8, &aom_sad8x8_avg_neon, -1),
+  make_tuple(8, 4, &aom_sad8x4_avg_neon, -1),
+  make_tuple(4, 8, &aom_sad4x8_avg_neon, -1),
+  make_tuple(4, 4, &aom_sad4x4_avg_neon, -1),
+#if !CONFIG_REALTIME_ONLY
+  make_tuple(64, 16, &aom_sad64x16_avg_neon, -1),
+  make_tuple(32, 8, &aom_sad32x8_avg_neon, -1),
+  make_tuple(16, 64, &aom_sad16x64_avg_neon, -1),
+  make_tuple(16, 4, &aom_sad16x4_avg_neon, -1),
+  make_tuple(8, 32, &aom_sad8x32_avg_neon, -1),
+  make_tuple(4, 16, &aom_sad4x16_avg_neon, -1),
+#endif
+};
+INSTANTIATE_TEST_SUITE_P(NEON, SADavgTest, ::testing::ValuesIn(avg_neon_tests));
+
 #endif  // HAVE_NEON
 
 //------------------------------------------------------------------------------
@@ -2294,6 +2608,7 @@ const SadSkipMxNx4Param skip_x4d_sse2_tests[] = {
 INSTANTIATE_TEST_SUITE_P(SSE2, SADSkipx4Test,
                          ::testing::ValuesIn(skip_x4d_sse2_tests));
 
+#if !CONFIG_REALTIME_ONLY
 const SadMxNx4AvgParam x4d_avg_sse2_tests[] = {
   make_tuple(128, 128, &aom_sad128x128x4d_avg_sse2, -1),
   make_tuple(128, 64, &aom_sad128x64x4d_avg_sse2, -1),
@@ -2311,17 +2626,16 @@ const SadMxNx4AvgParam x4d_avg_sse2_tests[] = {
   make_tuple(8, 4, &aom_sad8x4x4d_avg_sse2, -1),
   make_tuple(4, 8, &aom_sad4x8x4d_avg_sse2, -1),
   make_tuple(4, 4, &aom_sad4x4x4d_avg_sse2, -1),
-#if !CONFIG_REALTIME_ONLY
   make_tuple(64, 16, &aom_sad64x16x4d_avg_sse2, -1),
   make_tuple(16, 64, &aom_sad16x64x4d_avg_sse2, -1),
   make_tuple(32, 8, &aom_sad32x8x4d_avg_sse2, -1),
   make_tuple(8, 32, &aom_sad8x32x4d_avg_sse2, -1),
   make_tuple(16, 4, &aom_sad16x4x4d_avg_sse2, -1),
   make_tuple(4, 16, &aom_sad4x16x4d_avg_sse2, -1),
-#endif
 };
 INSTANTIATE_TEST_SUITE_P(SSE2, SADx4AvgTest,
                          ::testing::ValuesIn(x4d_avg_sse2_tests));
+#endif  // !CONFIG_REALTIME_ONLY
 #endif  // HAVE_SSE2
 
 #if HAVE_SSSE3
@@ -2624,6 +2938,9 @@ const SadSkipMxNx4Param skip_x4d_avx2_tests[] = {
   make_tuple(32, 64, &aom_sad_skip_32x64x4d_avx2, -1),
   make_tuple(32, 32, &aom_sad_skip_32x32x4d_avx2, -1),
   make_tuple(32, 16, &aom_sad_skip_32x16x4d_avx2, -1),
+  make_tuple(16, 32, &aom_sad_skip_16x32x4d_avx2, -1),
+  make_tuple(16, 16, &aom_sad_skip_16x16x4d_avx2, -1),
+  make_tuple(16, 8, &aom_sad_skip_16x8x4d_avx2, -1),
 
 #if CONFIG_AV1_HIGHBITDEPTH
   make_tuple(128, 128, &aom_highbd_sad_skip_128x128x4d_avx2, 8),
@@ -2680,6 +2997,8 @@ const SadSkipMxNx4Param skip_x4d_avx2_tests[] = {
 #if !CONFIG_REALTIME_ONLY
   make_tuple(64, 16, &aom_sad_skip_64x16x4d_avx2, -1),
   make_tuple(32, 8, &aom_sad_skip_32x8x4d_avx2, -1),
+
+  make_tuple(16, 64, &aom_sad_skip_16x64x4d_avx2, -1),
 #endif
 };
 
@@ -2687,6 +3006,9 @@ INSTANTIATE_TEST_SUITE_P(AVX2, SADSkipx4Test,
                          ::testing::ValuesIn(skip_x4d_avx2_tests));
 
 const SadMxNx4Param x4d_avx2_tests[] = {
+  make_tuple(16, 32, &aom_sad16x32x4d_avx2, -1),
+  make_tuple(16, 16, &aom_sad16x16x4d_avx2, -1),
+  make_tuple(16, 8, &aom_sad16x8x4d_avx2, -1),
   make_tuple(32, 64, &aom_sad32x64x4d_avx2, -1),
   make_tuple(32, 32, &aom_sad32x32x4d_avx2, -1),
   make_tuple(32, 16, &aom_sad32x16x4d_avx2, -1),
@@ -2697,6 +3019,8 @@ const SadMxNx4Param x4d_avx2_tests[] = {
   make_tuple(128, 64, &aom_sad128x64x4d_avx2, -1),
 
 #if !CONFIG_REALTIME_ONLY
+  make_tuple(16, 64, &aom_sad16x64x4d_avx2, -1),
+  make_tuple(16, 4, &aom_sad16x4x4d_avx2, -1),
   make_tuple(32, 8, &aom_sad32x8x4d_avx2, -1),
   make_tuple(64, 16, &aom_sad64x16x4d_avx2, -1),
 #endif
@@ -2753,61 +3077,74 @@ const SadMxNx4Param x4d_avx2_tests[] = {
 #endif
 };
 INSTANTIATE_TEST_SUITE_P(AVX2, SADx4Test, ::testing::ValuesIn(x4d_avx2_tests));
+
+const SadMxNx4Param x3d_avx2_tests[] = {
+  make_tuple(32, 64, &aom_sad32x64x3d_avx2, -1),
+  make_tuple(32, 32, &aom_sad32x32x3d_avx2, -1),
+  make_tuple(32, 16, &aom_sad32x16x3d_avx2, -1),
+  make_tuple(64, 128, &aom_sad64x128x3d_avx2, -1),
+  make_tuple(64, 64, &aom_sad64x64x3d_avx2, -1),
+  make_tuple(64, 32, &aom_sad64x32x3d_avx2, -1),
+  make_tuple(128, 128, &aom_sad128x128x3d_avx2, -1),
+  make_tuple(128, 64, &aom_sad128x64x3d_avx2, -1),
+
+#if !CONFIG_REALTIME_ONLY
+  make_tuple(32, 8, &aom_sad32x8x3d_avx2, -1),
+  make_tuple(64, 16, &aom_sad64x16x3d_avx2, -1),
+#endif  // !CONFIG_REALTIME_ONLY
+
+#if CONFIG_AV1_HIGHBITDEPTH
+  make_tuple(128, 128, &aom_highbd_sad128x128x3d_avx2, 8),
+  make_tuple(128, 128, &aom_highbd_sad128x128x3d_avx2, 10),
+  make_tuple(128, 128, &aom_highbd_sad128x128x3d_avx2, 12),
+  make_tuple(128, 64, &aom_highbd_sad128x64x3d_avx2, 8),
+  make_tuple(128, 64, &aom_highbd_sad128x64x3d_avx2, 10),
+  make_tuple(128, 64, &aom_highbd_sad128x64x3d_avx2, 12),
+  make_tuple(64, 128, &aom_highbd_sad64x128x3d_avx2, 8),
+  make_tuple(64, 128, &aom_highbd_sad64x128x3d_avx2, 10),
+  make_tuple(64, 128, &aom_highbd_sad64x128x3d_avx2, 12),
+  make_tuple(64, 64, &aom_highbd_sad64x64x3d_avx2, 8),
+  make_tuple(64, 64, &aom_highbd_sad64x64x3d_avx2, 10),
+  make_tuple(64, 64, &aom_highbd_sad64x64x3d_avx2, 12),
+  make_tuple(64, 32, &aom_highbd_sad64x32x3d_avx2, 8),
+  make_tuple(64, 32, &aom_highbd_sad64x32x3d_avx2, 10),
+  make_tuple(64, 32, &aom_highbd_sad64x32x3d_avx2, 12),
+  make_tuple(32, 64, &aom_highbd_sad32x64x3d_avx2, 8),
+  make_tuple(32, 64, &aom_highbd_sad32x64x3d_avx2, 10),
+  make_tuple(32, 64, &aom_highbd_sad32x64x3d_avx2, 12),
+  make_tuple(32, 32, &aom_highbd_sad32x32x3d_avx2, 8),
+  make_tuple(32, 32, &aom_highbd_sad32x32x3d_avx2, 10),
+  make_tuple(32, 32, &aom_highbd_sad32x32x3d_avx2, 12),
+  make_tuple(32, 16, &aom_highbd_sad32x16x3d_avx2, 8),
+  make_tuple(32, 16, &aom_highbd_sad32x16x3d_avx2, 10),
+  make_tuple(32, 16, &aom_highbd_sad32x16x3d_avx2, 12),
+  make_tuple(16, 32, &aom_highbd_sad16x32x3d_avx2, 8),
+  make_tuple(16, 32, &aom_highbd_sad16x32x3d_avx2, 10),
+  make_tuple(16, 32, &aom_highbd_sad16x32x3d_avx2, 12),
+  make_tuple(16, 16, &aom_highbd_sad16x16x3d_avx2, 8),
+  make_tuple(16, 16, &aom_highbd_sad16x16x3d_avx2, 10),
+  make_tuple(16, 16, &aom_highbd_sad16x16x3d_avx2, 12),
+  make_tuple(16, 8, &aom_highbd_sad16x8x3d_avx2, 8),
+  make_tuple(16, 8, &aom_highbd_sad16x8x3d_avx2, 10),
+  make_tuple(16, 8, &aom_highbd_sad16x8x3d_avx2, 12),
+
+#if !CONFIG_REALTIME_ONLY
+  make_tuple(16, 64, &aom_highbd_sad16x64x3d_avx2, 8),
+  make_tuple(16, 64, &aom_highbd_sad16x64x3d_avx2, 10),
+  make_tuple(16, 64, &aom_highbd_sad16x64x3d_avx2, 12),
+  make_tuple(64, 16, &aom_highbd_sad64x16x3d_avx2, 8),
+  make_tuple(64, 16, &aom_highbd_sad64x16x3d_avx2, 10),
+  make_tuple(64, 16, &aom_highbd_sad64x16x3d_avx2, 12),
+  make_tuple(32, 8, &aom_highbd_sad32x8x3d_avx2, 8),
+  make_tuple(32, 8, &aom_highbd_sad32x8x3d_avx2, 10),
+  make_tuple(32, 8, &aom_highbd_sad32x8x3d_avx2, 12),
+  make_tuple(16, 4, &aom_highbd_sad16x4x3d_avx2, 8),
+  make_tuple(16, 4, &aom_highbd_sad16x4x3d_avx2, 10),
+  make_tuple(16, 4, &aom_highbd_sad16x4x3d_avx2, 12),
+#endif  // !CONFIG_REALTIME_ONLY
+#endif  // CONFIG_AV1_HIGHBITDEPTH
+};
+INSTANTIATE_TEST_SUITE_P(AVX2, SADx3Test, ::testing::ValuesIn(x3d_avx2_tests));
 #endif  // HAVE_AVX2
-
-//------------------------------------------------------------------------------
-// MIPS functions
-#if HAVE_MSA
-const SadMxNParam msa_tests[] = {
-  make_tuple(64, 64, &aom_sad64x64_msa, -1),
-  make_tuple(64, 32, &aom_sad64x32_msa, -1),
-  make_tuple(32, 64, &aom_sad32x64_msa, -1),
-  make_tuple(32, 32, &aom_sad32x32_msa, -1),
-  make_tuple(32, 16, &aom_sad32x16_msa, -1),
-  make_tuple(16, 32, &aom_sad16x32_msa, -1),
-  make_tuple(16, 16, &aom_sad16x16_msa, -1),
-  make_tuple(16, 8, &aom_sad16x8_msa, -1),
-  make_tuple(8, 16, &aom_sad8x16_msa, -1),
-  make_tuple(8, 8, &aom_sad8x8_msa, -1),
-  make_tuple(8, 4, &aom_sad8x4_msa, -1),
-  make_tuple(4, 8, &aom_sad4x8_msa, -1),
-  make_tuple(4, 4, &aom_sad4x4_msa, -1),
-};
-INSTANTIATE_TEST_SUITE_P(MSA, SADTest, ::testing::ValuesIn(msa_tests));
-
-const SadMxNAvgParam avg_msa_tests[] = {
-  make_tuple(64, 64, &aom_sad64x64_avg_msa, -1),
-  make_tuple(64, 32, &aom_sad64x32_avg_msa, -1),
-  make_tuple(32, 64, &aom_sad32x64_avg_msa, -1),
-  make_tuple(32, 32, &aom_sad32x32_avg_msa, -1),
-  make_tuple(32, 16, &aom_sad32x16_avg_msa, -1),
-  make_tuple(16, 32, &aom_sad16x32_avg_msa, -1),
-  make_tuple(16, 16, &aom_sad16x16_avg_msa, -1),
-  make_tuple(16, 8, &aom_sad16x8_avg_msa, -1),
-  make_tuple(8, 16, &aom_sad8x16_avg_msa, -1),
-  make_tuple(8, 8, &aom_sad8x8_avg_msa, -1),
-  make_tuple(8, 4, &aom_sad8x4_avg_msa, -1),
-  make_tuple(4, 8, &aom_sad4x8_avg_msa, -1),
-  make_tuple(4, 4, &aom_sad4x4_avg_msa, -1),
-};
-INSTANTIATE_TEST_SUITE_P(MSA, SADavgTest, ::testing::ValuesIn(avg_msa_tests));
-
-const SadMxNx4Param x4d_msa_tests[] = {
-  make_tuple(64, 64, &aom_sad64x64x4d_msa, -1),
-  make_tuple(64, 32, &aom_sad64x32x4d_msa, -1),
-  make_tuple(32, 64, &aom_sad32x64x4d_msa, -1),
-  make_tuple(32, 32, &aom_sad32x32x4d_msa, -1),
-  make_tuple(32, 16, &aom_sad32x16x4d_msa, -1),
-  make_tuple(16, 32, &aom_sad16x32x4d_msa, -1),
-  make_tuple(16, 16, &aom_sad16x16x4d_msa, -1),
-  make_tuple(16, 8, &aom_sad16x8x4d_msa, -1),
-  make_tuple(8, 16, &aom_sad8x16x4d_msa, -1),
-  make_tuple(8, 8, &aom_sad8x8x4d_msa, -1),
-  make_tuple(8, 4, &aom_sad8x4x4d_msa, -1),
-  make_tuple(4, 8, &aom_sad4x8x4d_msa, -1),
-  make_tuple(4, 4, &aom_sad4x4x4d_msa, -1),
-};
-INSTANTIATE_TEST_SUITE_P(MSA, SADx4Test, ::testing::ValuesIn(x4d_msa_tests));
-#endif  // HAVE_MSA
 
 }  // namespace

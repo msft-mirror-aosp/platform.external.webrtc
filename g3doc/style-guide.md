@@ -1,16 +1,12 @@
-# WebRTC coding style guide
+<!-- go/cmark -->
+<!--* freshness: {owner: 'danilchap' reviewed: '2022-01-17'} *-->
 
-<?% config.freshness.owner = 'danilchap' %?>
-<?% config.freshness.reviewed = '2021-05-12' %?>
+# WebRTC coding style guide
 
 ## General advice
 
 Some older parts of the code violate the style guide in various ways.
-
-* If making small changes to such code, follow the style guide when it's
-  reasonable to do so, but in matters of formatting etc., it is often better to
-  be consistent with the surrounding code.
-* If making large changes to such code, consider first cleaning it up in a
+If making large changes to such code, consider first cleaning it up in a
   separate CL.
 
 ## C++
@@ -20,23 +16,19 @@ WebRTC follows the [Chromium C++ style guide][chr-style] and the
 style guide trumps the Google style guide, and the rules in this file trump them
 both.
 
-[chr-style]: https://chromium.googlesource.com/chromium/src/+/HEAD/styleguide/c++/c++.md
+[chr-style]: https://chromium.googlesource.com/chromium/src/+/main/styleguide/c++/c++.md
 [goog-style]: https://google.github.io/styleguide/cppguide.html
 
 ### C++ version
 
-WebRTC is written in C++14, but with some restrictions:
+WebRTC is written in C++17, but with some restrictions:
 
-* We only allow the subset of C++14 (language and library) that is not banned by
-  Chromium; see the [list of banned C++ features in Chromium][chromium-cpp].
-* We only allow the subset of C++14 that is also valid C++17; otherwise, users
-  would not be able to compile WebRTC in C++17 mode.
+* We only allow the subset of C++17 (language and library) that is not banned by
+  Chromium; see the [list of banned C++ features in Chromium][chr-style-cpp].
+* We only allow the subset of C++17 that is also valid C++20; otherwise, users
+  would not be able to compile WebRTC in C++20 mode.
 
-[chromium-cpp]: https://chromium-cpp.appspot.com/
-
-Unlike the Chromium and Google C++ style guides, we do not allow C++20-style
-designated initializers, because we want to stay compatible with compilers that
-do not yet support them.
+[chr-style-cpp]: https://chromium.googlesource.com/chromium/src/+/main/styleguide/c++/c++-features.md
 
 ### Abseil
 
@@ -70,23 +62,25 @@ in definitions for everything they declare.
 ### `TODO` comments
 
 Follow the [Google styleguide for `TODO` comments][goog-style-todo]. When
-referencing a WebRTC bug, prefer the url form, e.g.
+referencing a WebRTC bug, prefer using the URL form (excluding the scheme part):
 
 ```cpp
 // TODO(bugs.webrtc.org/12345): Delete the hack when blocking bugs are resolved.
 ```
+
+The short form used in commit messages, e.g. `webrtc:12345`, is discouraged.
 
 [goog-style-todo]: https://google.github.io/styleguide/cppguide.html#TODO_Comments
 
 ### Deprecation
 
 Annotate the declarations of deprecated functions and classes with the
-[`ABSL_DEPRECATED` macro][ABSL_DEPRECATED] to cause an error when they're used
+[`[[deprecated]]` attribute][DEPRECATED] to cause an error when they're used
 inside WebRTC and a compiler warning when they're used by dependant projects.
 Like so:
 
 ```cpp
-ABSL_DEPRECATED("bugs.webrtc.org/12345")
+[[deprecated("bugs.webrtc.org/12345")]]
 std::pony PonyPlz(const std::pony_spec& ps);
 ```
 
@@ -98,7 +92,7 @@ getting errors, do something like this:
 
 ```cpp
 std::pony DEPRECATED_PonyPlz(const std::pony_spec& ps);
-ABSL_DEPRECATED("bugs.webrtc.org/12345")
+[[deprecated("bugs.webrtc.org/12345")]]
 inline std::pony PonyPlz(const std::pony_spec& ps) {
   return DEPRECATED_PonyPlz(ps);
 }
@@ -108,7 +102,13 @@ In other words, rename the existing function, and provide an inline wrapper
 using the original name that calls it. That way, callers who are willing to
 call it using the `DEPRECATED_`-prefixed name don't get the warning.
 
-[ABSL_DEPRECATED]: https://source.chromium.org/chromium/chromium/src/+/master:third_party/abseil-cpp/absl/base/attributes.h?q=ABSL_DEPRECATED
+NOTE 3: Occasionally, with long descriptions, `git cl format` will do the wrong
+thing with the attribute. In that case, you can use the
+[`ABSL_DEPRECATED` macro][ABSL_DEPRECATED], which is formatted in a more
+readable way.
+
+[DEPRECATED]: https://en.cppreference.com/w/cpp/language/attributes/deprecated
+[ABSL_DEPRECATED]: https://source.chromium.org/chromium/chromium/src/+/main:third_party/abseil-cpp/absl/base/attributes.h?q=ABSL_DEPRECATED
 
 ### ArrayView
 
@@ -141,9 +141,7 @@ The following smart pointer types are recommended:
    * `rtc::scoped_refptr` for all objects with shared ownership
 
 Use of `std::shared_ptr` is *not permitted*. It is banned in the Chromium style
-guide (overriding the Google style guide), and offers no compelling advantage
-over `rtc::scoped_refptr` (which is cloned from the corresponding Chromium
-type). See the
+guide (overriding the Google style guide). See the
 [list of banned C++ library features in Chromium][chr-std-shared-ptr] for more
 information.
 
@@ -152,7 +150,7 @@ In most cases, one will want to explicitly control lifetimes, and therefore use
 exist both from the API users and internally, with no way to invalidate pointers
 held by the API user, `rtc::scoped_refptr` can be appropriate.
 
-[chr-std-shared-ptr]: https://chromium-cpp.appspot.com/#library-blocklist
+[chr-std-shared-ptr]: https://chromium.googlesource.com/chromium/src/+/main/styleguide/c++/c++-features.md#shared-pointers-banned
 
 ### `std::bind`
 
@@ -175,16 +173,23 @@ headers you need.
 
 [goog-forward-declarations]: https://google.github.io/styleguide/cppguide.html#Forward_Declarations
 
+### RTTI and dynamic_cast
+
+The Google style guide [permits the use of dynamic_cast](https://google.github.io/styleguide/cppguide.html#Run-Time_Type_Information__RTTI_).
+
+However, WebRTC does not permit it. WebRTC (and Chrome) is compiled with the
+-fno-rtti flag, and the overhead of enabling RTTI it is on the order of 220
+Kbytes (for Android Arm64).
+
+Use static_cast and take your own steps to ensure type safety.
+
 ## C
 
 There's a substantial chunk of legacy C code in WebRTC, and a lot of it is old
 enough that it violates the parts of the C++ style guide that also applies to C
 (naming etc.) for the simple reason that it pre-dates the use of the current C++
-style guide for this code base.
-
-* If making small changes to C code, mimic the style of the surrounding code.
-* If making large changes to C code, consider converting the whole thing to C++
-  first.
+style guide for this code base. If making large changes to C code, consider
+converting the whole thing to C++ first.
 
 ## Java
 
@@ -197,13 +202,13 @@ WebRTC follows the [Google Java style guide][goog-java-style].
 WebRTC follows the
 [Chromium Objective-C and Objective-C++ style guide][chr-objc-style].
 
-[chr-objc-style]: https://chromium.googlesource.com/chromium/src/+/HEAD/styleguide/objective-c/objective-c.md
+[chr-objc-style]: https://chromium.googlesource.com/chromium/src/+/main/styleguide/objective-c/objective-c.md
 
 ## Python
 
 WebRTC follows [Chromium's Python style][chr-py-style].
 
-[chr-py-style]: https://chromium.googlesource.com/chromium/src/+/HEAD/styleguide/python/python.md
+[chr-py-style]: https://chromium.googlesource.com/chromium/src/+/main/styleguide/python/python.md
 
 ## Build files
 
@@ -217,16 +222,27 @@ guide.
 
 ### <a name="webrtc-gn-templates"></a>WebRTC-specific GN templates
 
-Use the following [GN templates][gn-templ] to ensure that all our
-[GN targets][gn-target] are built with the same configuration:
+As shown in the table below, for library targets (`source_set` and
+`static_library`), you should default on using `rtc_library` (which abstracts
+away the complexity of using the correct target type for Chromium component
+builds).
 
-| instead of       | use                  |
-|------------------|----------------------|
-| `executable`     | `rtc_executable`     |
-| `shared_library` | `rtc_shared_library` |
-| `source_set`     | `rtc_source_set`     |
-| `static_library` | `rtc_static_library` |
-| `test`           | `rtc_test`           |
+The general rule is for library targets is:
+1. Use `rtc_library`.
+2. If the library is a header only target use `rtc_source_set`.
+3. If you really need to generate a static library, use `rtc_static_library`
+   (same for shared libraries, in such case use `rtc_shared_library`).
+
+To ensure that all our [GN targets][gn-target] are built with the same
+configuration, only use the following [GN templates][gn-templ].
+
+| instead of       | use                                                                                     |
+|------------------|-----------------------------------------------------------------------------------------|
+| `executable`     | `rtc_executable`                                                                        |
+| `shared_library` | `rtc_shared_library`                                                                    |
+| `source_set`     | `rtc_source_set` (only for header only libraries, for everything else use `rtc_library` |
+| `static_library` | `rtc_static_library` (use `rtc_library` unless you really need `rtc_static_library`     |
+| `test`           | `rtc_test`                                                                              |
 
 
 [gn-templ]: https://gn.googlesource.com/gn/+/HEAD/docs/language.md#Templates

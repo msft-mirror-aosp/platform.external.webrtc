@@ -91,7 +91,6 @@ class ObjCVideoEncoder : public VideoEncoder {
 
   VideoEncoder::EncoderInfo GetEncoderInfo() const override {
     EncoderInfo info;
-    info.supports_native_handle = true;
     info.implementation_name = implementation_name_;
 
     RTC_OBJC_TYPE(RTCVideoEncoderQpThresholds) *qp_thresholds = [encoder_ scalingSettings];
@@ -100,8 +99,8 @@ class ObjCVideoEncoder : public VideoEncoder {
 
     info.requested_resolution_alignment = encoder_.resolutionAlignment > 0 ?: 1;
     info.apply_alignment_to_all_simulcast_layers = encoder_.applyAlignmentToAllSimulcastLayers;
+    info.supports_native_handle = encoder_.supportsNativeHandle;
     info.is_hardware_accelerated = true;
-    info.has_internal_source = false;
     return info;
   }
 
@@ -131,6 +130,17 @@ class ObjcVideoEncoderSelector : public VideoEncoderFactory::EncoderSelectorInte
     RTC_OBJC_TYPE(RTCVideoCodecInfo) *info = [selector_ encoderForBitrate:rate.kbps<NSInteger>()];
     if (info) {
       return [info nativeSdpVideoFormat];
+    }
+    return absl::nullopt;
+  }
+
+  absl::optional<SdpVideoFormat> OnResolutionChange(const RenderResolution &resolution) override {
+    if ([selector_ respondsToSelector:@selector(encoderForResolutionChangeBySize:)]) {
+      RTC_OBJC_TYPE(RTCVideoCodecInfo) *info = [selector_
+          encoderForResolutionChangeBySize:CGSizeMake(resolution.Width(), resolution.Height())];
+      if (info) {
+        return [info nativeSdpVideoFormat];
+      }
     }
     return absl::nullopt;
   }

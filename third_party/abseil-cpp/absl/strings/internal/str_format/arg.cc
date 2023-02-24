@@ -278,11 +278,63 @@ bool ConvertIntImplInnerSlow(const IntDigits &as_digits,
   return true;
 }
 
+template <typename T,
+          typename std::enable_if<(std::is_integral<T>::value &&
+                                   std::is_signed<T>::value) ||
+                                      std::is_same<T, int128>::value,
+                                  int>::type = 0>
+constexpr auto ConvertV(T) {
+  return FormatConversionCharInternal::d;
+}
+
+template <typename T,
+          typename std::enable_if<(std::is_integral<T>::value &&
+                                   std::is_unsigned<T>::value) ||
+                                      std::is_same<T, uint128>::value,
+                                  int>::type = 0>
+constexpr auto ConvertV(T) {
+  return FormatConversionCharInternal::u;
+}
+
 template <typename T>
-bool ConvertIntArg(T v, const FormatConversionSpecImpl conv,
-                   FormatSinkImpl *sink) {
+bool ConvertFloatArg(T v, FormatConversionSpecImpl conv, FormatSinkImpl *sink) {
+  if (conv.conversion_char() == FormatConversionCharInternal::v) {
+    conv.set_conversion_char(FormatConversionCharInternal::g);
+  }
+
+  return FormatConversionCharIsFloat(conv.conversion_char()) &&
+         ConvertFloatImpl(v, conv, sink);
+}
+
+inline bool ConvertStringArg(string_view v, const FormatConversionSpecImpl conv,
+                             FormatSinkImpl *sink) {
+  if (conv.is_basic()) {
+    sink->Append(v);
+    return true;
+  }
+  return sink->PutPaddedString(v, conv.width(), conv.precision(),
+                               conv.has_left_flag());
+}
+
+}  // namespace
+
+bool ConvertBoolArg(bool v, FormatSinkImpl *sink) {
+  if (v) {
+    sink->Append("true");
+  } else {
+    sink->Append("false");
+  }
+  return true;
+}
+
+template <typename T>
+bool ConvertIntArg(T v, FormatConversionSpecImpl conv, FormatSinkImpl *sink) {
   using U = typename MakeUnsigned<T>::type;
   IntDigits as_digits;
+
+  if (conv.conversion_char() == FormatConversionCharInternal::v) {
+    conv.set_conversion_char(ConvertV(T{}));
+  }
 
   // This odd casting is due to a bug in -Wswitch behavior in gcc49 which causes
   // it to complain about a switch/case type mismatch, even though both are
@@ -323,7 +375,7 @@ bool ConvertIntArg(T v, const FormatConversionSpecImpl conv,
       return ConvertFloatImpl(static_cast<double>(v), conv, sink);
 
     default:
-       ABSL_ASSUME(false);
+      ABSL_ASSUME(false);
   }
 
   if (conv.is_basic()) {
@@ -333,24 +385,37 @@ bool ConvertIntArg(T v, const FormatConversionSpecImpl conv,
   return ConvertIntImplInnerSlow(as_digits, conv, sink);
 }
 
-template <typename T>
-bool ConvertFloatArg(T v, const FormatConversionSpecImpl conv,
-                     FormatSinkImpl *sink) {
-  return FormatConversionCharIsFloat(conv.conversion_char()) &&
-         ConvertFloatImpl(v, conv, sink);
-}
-
-inline bool ConvertStringArg(string_view v, const FormatConversionSpecImpl conv,
-                             FormatSinkImpl *sink) {
-  if (conv.is_basic()) {
-    sink->Append(v);
-    return true;
-  }
-  return sink->PutPaddedString(v, conv.width(), conv.precision(),
-                               conv.has_left_flag());
-}
-
-}  // namespace
+template bool ConvertIntArg<char>(char v, FormatConversionSpecImpl conv,
+                                  FormatSinkImpl *sink);
+template bool ConvertIntArg<signed char>(signed char v,
+                                         FormatConversionSpecImpl conv,
+                                         FormatSinkImpl *sink);
+template bool ConvertIntArg<unsigned char>(unsigned char v,
+                                           FormatConversionSpecImpl conv,
+                                           FormatSinkImpl *sink);
+template bool ConvertIntArg<short>(short v,  // NOLINT
+                                   FormatConversionSpecImpl conv,
+                                   FormatSinkImpl *sink);
+template bool ConvertIntArg<unsigned short>(unsigned short v,  // NOLINT
+                                            FormatConversionSpecImpl conv,
+                                            FormatSinkImpl *sink);
+template bool ConvertIntArg<int>(int v, FormatConversionSpecImpl conv,
+                                 FormatSinkImpl *sink);
+template bool ConvertIntArg<unsigned int>(unsigned int v,
+                                          FormatConversionSpecImpl conv,
+                                          FormatSinkImpl *sink);
+template bool ConvertIntArg<long>(long v,  // NOLINT
+                                  FormatConversionSpecImpl conv,
+                                  FormatSinkImpl *sink);
+template bool ConvertIntArg<unsigned long>(unsigned long v,  // NOLINT
+                                           FormatConversionSpecImpl conv,
+                                           FormatSinkImpl *sink);
+template bool ConvertIntArg<long long>(long long v,  // NOLINT
+                                       FormatConversionSpecImpl conv,
+                                       FormatSinkImpl *sink);
+template bool ConvertIntArg<unsigned long long>(unsigned long long v,  // NOLINT
+                                                FormatConversionSpecImpl conv,
+                                                FormatSinkImpl *sink);
 
 // ==================== Strings ====================
 StringConvertResult FormatConvertImpl(const std::string &v,
@@ -413,19 +478,18 @@ FloatingConvertResult FormatConvertImpl(long double v,
 }
 
 // ==================== Chars ====================
-IntegralConvertResult FormatConvertImpl(char v,
-                                        const FormatConversionSpecImpl conv,
-                                        FormatSinkImpl *sink) {
+CharConvertResult FormatConvertImpl(char v, const FormatConversionSpecImpl conv,
+                                    FormatSinkImpl *sink) {
   return {ConvertIntArg(v, conv, sink)};
 }
-IntegralConvertResult FormatConvertImpl(signed char v,
-                                        const FormatConversionSpecImpl conv,
-                                        FormatSinkImpl *sink) {
+CharConvertResult FormatConvertImpl(signed char v,
+                                    const FormatConversionSpecImpl conv,
+                                    FormatSinkImpl *sink) {
   return {ConvertIntArg(v, conv, sink)};
 }
-IntegralConvertResult FormatConvertImpl(unsigned char v,
-                                        const FormatConversionSpecImpl conv,
-                                        FormatSinkImpl *sink) {
+CharConvertResult FormatConvertImpl(unsigned char v,
+                                    const FormatConversionSpecImpl conv,
+                                    FormatSinkImpl *sink) {
   return {ConvertIntArg(v, conv, sink)};
 }
 

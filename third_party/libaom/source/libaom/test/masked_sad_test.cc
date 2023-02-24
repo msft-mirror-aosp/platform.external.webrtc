@@ -15,7 +15,6 @@
 
 #include "third_party/googletest/src/googletest/include/gtest/gtest.h"
 #include "test/acm_random.h"
-#include "test/clear_system_state.h"
 #include "test/register_state_check.h"
 #include "test/util.h"
 
@@ -59,7 +58,7 @@ class MaskedSADTestBase : public ::testing::Test {
                        int msk_stride, int inv_mask, unsigned sads[],
                        int times) = 0;
 
-  virtual void TearDown() { libaom_test::ClearSystemState(); }
+  virtual void TearDown() {}
   void runMaskedSADTest(int run_times);
 };
 
@@ -133,7 +132,7 @@ void MaskedSADTest::runTest(const uint8_t *src_ptr, int src_stride,
                             second_pred, msk, msk_stride, invert_mask);
   } else {
     for (int repeat = 0; repeat < times; ++repeat) {
-      ASM_REGISTER_STATE_CHECK(
+      API_REGISTER_STATE_CHECK(
           sads[0] = maskedSAD_op_(src_ptr, src_stride, ref_ptr[0], ref_stride,
                                   second_pred, msk, msk_stride, invert_mask));
     }
@@ -157,7 +156,7 @@ void MaskedSADx4Test::runTest(const uint8_t *src_ptr, int src_stride,
                               int msk_stride, int invert_mask, unsigned sads[],
                               int times) {
   if (times == 1) {
-    ASM_REGISTER_STATE_CHECK(maskedSAD_op_(src_ptr, src_stride, ref_ptr,
+    API_REGISTER_STATE_CHECK(maskedSAD_op_(src_ptr, src_stride, ref_ptr,
                                            ref_stride, second_pred, msk,
                                            msk_stride, invert_mask, sads));
   } else {
@@ -188,13 +187,30 @@ void MaskedSADTestBase::runMaskedSADTest(int run_times) {
   int msk_stride = MAX_SB_SIZE;
   const int iters = run_times == 1 ? number_of_iterations : 1;
   for (int i = 0; i < iters; ++i) {
+    if (run_times == 1 && i == 0) {
+      // The maximum accumulator value occurs when src=0 and
+      // ref/second_pref=255 (or vice-versa, since we take the absolute
+      // difference). Check this case explicitly to ensure we do not overflow
+      // during accumulation.
+      for (int j = 0; j < MAX_SB_SIZE * MAX_SB_SIZE; j++) {
+        src_ptr[j] = 0;
+        ref_ptr[j] = 255;
+        (ref_ptr + kBlockSize)[j] = 255;
+        (ref_ptr + 2 * kBlockSize)[j] = 255;
+        (ref_ptr + 3 * kBlockSize)[j] = 255;
+        second_pred_ptr[j] = 255;
+      }
+    } else {
+      for (int j = 0; j < MAX_SB_SIZE * MAX_SB_SIZE; j++) {
+        src_ptr[j] = rnd.Rand8();
+        ref_ptr[j] = rnd.Rand8();
+        (ref_ptr + kBlockSize)[j] = rnd.Rand8();
+        (ref_ptr + 2 * kBlockSize)[j] = rnd.Rand8();
+        (ref_ptr + 3 * kBlockSize)[j] = rnd.Rand8();
+        second_pred_ptr[j] = rnd.Rand8();
+      }
+    }
     for (int j = 0; j < MAX_SB_SIZE * MAX_SB_SIZE; j++) {
-      src_ptr[j] = rnd.Rand8();
-      ref_ptr[j] = rnd.Rand8();
-      (ref_ptr + kBlockSize)[j] = rnd.Rand8();
-      (ref_ptr + 2 * kBlockSize)[j] = rnd.Rand8();
-      (ref_ptr + 3 * kBlockSize)[j] = rnd.Rand8();
-      second_pred_ptr[j] = rnd.Rand8();
       msk_ptr[j] = ((rnd.Rand8() & 0x7f) > 64) ? rnd.Rand8() & 0x3f : 64;
       assert(msk_ptr[j] <= 64);
     }
@@ -254,7 +270,7 @@ class HighbdMaskedSADTest
     ref_maskedSAD_op_ = GET_PARAM(1);
   }
 
-  virtual void TearDown() { libaom_test::ClearSystemState(); }
+  virtual void TearDown() {}
   void runHighbdMaskedSADTest(int run_times);
 
  protected:
@@ -299,7 +315,7 @@ void HighbdMaskedSADTest::runHighbdMaskedSADTest(int run_times) {
       const double time1 = static_cast<double>(aom_usec_timer_elapsed(&timer));
       aom_usec_timer_start(&timer);
       if (run_times == 1) {
-        ASM_REGISTER_STATE_CHECK(ret = maskedSAD_op_(src8_ptr, src_stride,
+        API_REGISTER_STATE_CHECK(ret = maskedSAD_op_(src8_ptr, src_stride,
                                                      ref8_ptr, ref_stride,
                                                      second_pred8_ptr, msk_ptr,
                                                      msk_stride, invert_mask));
@@ -505,5 +521,36 @@ INSTANTIATE_TEST_SUITE_P(AVX2, HighbdMaskedSADTest,
                          ::testing::ValuesIn(hbd_msad_avx2_test));
 #endif  // CONFIG_AV1_HIGHBITDEPTH
 #endif  // HAVE_AVX2
+
+#if HAVE_NEON
+const MaskedSADParam msad_test[] = {
+  make_tuple(&aom_masked_sad4x4_neon, &aom_masked_sad4x4_c),
+  make_tuple(&aom_masked_sad4x8_neon, &aom_masked_sad4x8_c),
+  make_tuple(&aom_masked_sad8x4_neon, &aom_masked_sad8x4_c),
+  make_tuple(&aom_masked_sad8x8_neon, &aom_masked_sad8x8_c),
+  make_tuple(&aom_masked_sad8x16_neon, &aom_masked_sad8x16_c),
+  make_tuple(&aom_masked_sad16x8_neon, &aom_masked_sad16x8_c),
+  make_tuple(&aom_masked_sad16x16_neon, &aom_masked_sad16x16_c),
+  make_tuple(&aom_masked_sad16x32_neon, &aom_masked_sad16x32_c),
+  make_tuple(&aom_masked_sad32x16_neon, &aom_masked_sad32x16_c),
+  make_tuple(&aom_masked_sad32x32_neon, &aom_masked_sad32x32_c),
+  make_tuple(&aom_masked_sad32x64_neon, &aom_masked_sad32x64_c),
+  make_tuple(&aom_masked_sad64x32_neon, &aom_masked_sad64x32_c),
+  make_tuple(&aom_masked_sad64x64_neon, &aom_masked_sad64x64_c),
+  make_tuple(&aom_masked_sad64x128_neon, &aom_masked_sad64x128_c),
+  make_tuple(&aom_masked_sad128x64_neon, &aom_masked_sad128x64_c),
+  make_tuple(&aom_masked_sad128x128_neon, &aom_masked_sad128x128_c),
+#if !CONFIG_REALTIME_ONLY
+  make_tuple(&aom_masked_sad4x16_neon, &aom_masked_sad4x16_c),
+  make_tuple(&aom_masked_sad16x4_neon, &aom_masked_sad16x4_c),
+  make_tuple(&aom_masked_sad8x32_neon, &aom_masked_sad8x32_c),
+  make_tuple(&aom_masked_sad32x8_neon, &aom_masked_sad32x8_c),
+  make_tuple(&aom_masked_sad16x64_neon, &aom_masked_sad16x64_c),
+  make_tuple(&aom_masked_sad64x16_neon, &aom_masked_sad64x16_c),
+#endif
+};
+
+INSTANTIATE_TEST_SUITE_P(NEON, MaskedSADTest, ::testing::ValuesIn(msad_test));
+#endif  // HAVE_NEON
 
 }  // namespace
