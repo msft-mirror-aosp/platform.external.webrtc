@@ -8,92 +8,47 @@ PRINT_ORIGINAL_FULL = False
 
 # This flags are augmented with flags added to the json files but not present in .gn or .gni files
 IGNORED_FLAGS = [
-    '-Wall',
+    '-D_DEBUG',
     '-Werror',
-    '-L',
-    '-isystem',
-    '-Xclang',
-    '-B',
-    '--sysroot',
-    '-fcrash-diagnostics-dir',
-    '.',
-    '-fdebug-compilation-dir',
-    '-instcombine-lower-dbg-declare=0',
-    '-Wno-non-c-typedef-for-linkage',
-    '-Werror',
-    '-fcomplete-member-pointers',
-    '-fno-stack-protector',
-    '--target=i686-linux-android16',
-    '--target=aarch64-linux-android21'
-    '--target=i686-linux-android16',
-    '--target=x86_64-linux-android21',
-    '--target=arm-linux-androideabi16',
-    '--target=aarch64-linux-gnu',
-    '--target=arm-linux-gnueabihf',
-    '-ggnu-pubnames',
-    '-m64',
-    '-m32',
-    '-march=x86-64',
-    '-march=armv8-a',
-    '-march=armv7-a',
-    '-mllvm',
-    '-mfloat-abi=hard',
-    '-target-feature',
-    '+crypto',
-    '+crc',
-    '-fno-unique-section-names',
-    '-fno-short-enums',
-    '-fno-delete-null-pointer-checks',
-    '-ffile-compilation-dir=.',
-    '-Wno-unneeded-internal-declaration',
-    '-Wno-unreachable-code-aggressive',
-    '-Wno-unreachable-code-break',
-    '-fuse-ctor-homing',
-    '-fno-rtti',
-    '-gsplit-dwarf', # TODO(b/266468464): breaks riscv
-    '-gdwarf-aranges', # TODO(b/269343483): breaks riscv
+    '-Xclang'
     ]
 DEFAULT_CFLAGS = [
-    '-Wno-everything',
-    '-Wno-all',
-    '-Wno-error',
-    '-Wno-unreachable-code-aggressive',
-    '-Wno-unreachable-code-break',
-    '-Wno-unused-parameter',
-    '-Wno-missing-field-initializers',
-    '-Wno-implicit-const-int-float-conversion',
-    '-DUSE_UDEV',
+    '-DHAVE_ARM64_CRC32C=0',
     '-DUSE_AURA=1',
     '-DUSE_GLIB=1',
     '-DUSE_NSS_CERTS=1',
+    '-DUSE_UDEV',
     '-DUSE_X11=1',
-    '-D_FILE_OFFSET_BITS=64',
-    '-D_LARGEFILE_SOURCE',
-    '-D_LARGEFILE64_SOURCE',
-    '-D_GNU_SOURCE',
-    '-DWEBRTC_ENABLE_PROTOBUF=0',
     '-DWEBRTC_ANDROID_PLATFORM_BUILD=1',
-    '-DWEBRTC_INCLUDE_INTERNAL_AUDIO_DEVICE',
-    '-DRTC_ENABLE_VP9',
-    '-DWEBRTC_HAVE_SCTP',
-    '-DWEBRTC_LIBRARY_IMPL',
-    '-DWEBRTC_NON_STATIC_TRACE_EVENT_HANDLERS=1',
-    '-DWEBRTC_POSIX',
-    '-DWEBRTC_LINUX',
-    '-DWEBRTC_STRICT_FIELD_TRIALS=0',
-    '-DWEBRTC_ENABLE_AVX2',
-    '-DABSL_ALLOCATOR_NOTHROW=1',
     '-DWEBRTC_APM_DEBUG_DUMP=0',
-    '-msse3',
-    ]
+    '-D_FILE_OFFSET_BITS=64',
+    '-D_GNU_SOURCE',
+    '-D_LARGEFILE64_SOURCE',
+    '-D_LARGEFILE_SOURCE',
+    '-Wno-all',
+    '-Wno-error',
+    '-Wno-everything',
+    '-Wno-implicit-const-int-float-conversion',
+    '-Wno-missing-field-initializers',
+    '-Wno-unreachable-code-aggressive',
+    '-Wno-unreachable-code-break',
+]
+
 DEFAULT_CFLAGS_BY_ARCH = {
-        'x86': ['-msse2', '-mavx2', '-mfma', '-DHAVE_ARM64_CRC32C=0'],
-        'x64': ['-msse2', '-mavx2', '-mfma', '-DHAVE_ARM64_CRC32C=0'],
-        'arm': ['-DWEBRTC_HAS_NEON', '-DWEBRTC_ARCH_ARM_V7', '-DWEBRTC_ARCH_ARM', '-mfpu=neon', '-mthumb', '-DHAVE_ARM64_CRC32C=0'],
-        'arm64': ['-DWEBRTC_HAS_NEON', '-DWEBRTC_ARCH_ARM64', '-DHAVE_ARM64_CRC32C=0'],
-        'riscv64': ['-DHAVE_ARM64_CRC32C=0'],
+        'x86': ['-mavx2', '-mfma', '-msse2', '-msse3'],
+        'x64': ['-mavx2', '-mfma', '-msse2', '-msse3'],
+        'arm': ['-mthumb'],
+        'arm64': [],
+        'riscv64': [],
         }
+
 FLAGS = ['cflags', 'cflags_c', 'cflags_cc', 'asmflags']
+FLAG_NAME_MAP = {
+    'cflags': 'cflags',
+    'asmflags': 'asflags',
+    'cflags_cc': 'cppflags',
+    'cflags_c': 'conlyflags',
+}
 
 ARCH_NAME_MAP = {n: n for n in DEFAULT_CFLAGS_BY_ARCH.keys()}
 ARCH_NAME_MAP['x64'] = 'x86_64'
@@ -131,8 +86,8 @@ def FormatNames(target):
     return target
 
 def FilterFlags(flags, to_skip = set()):
-    skipped_opts = set(IGNORED_FLAGS).union(to_skip).union(DEFAULT_CFLAGS)
-    return sorted([x for x in flags if not any([x.startswith(y) for y in skipped_opts])])
+    skipped_opts = set(IGNORED_FLAGS).union(to_skip)
+    return [x for x in flags if not any([x.startswith(y) for y in skipped_opts])]
 
 def PrintHeader():
     print('package {')
@@ -182,39 +137,56 @@ def PrintHeader():
     print('    ],')
     print('}')
 
-def GatherDefaultFlags(targets):
-    default = { f: [] for f in FLAGS}
-    arch = {a: {} for a in ARCHS}
 
-    first = True
-    for target in targets.values():
-        typ = target['type']
-        if typ != 'static_library':
-            continue
-        if first:
-            first = False
-            # Add all the flags to the default, we'll remove some later
-            for flag_type in default.keys():
-                default[flag_type] = []
-                for flag in target[flag_type]:
-                    default[flag_type].append(flag)
-                for a in arch.keys():
-                    arch[a][flag_type] = []
-                    for flag in target.get('arch', {}).get(a, {}).get(flag_type, []):
-                        arch[a][flag_type].append(flag)
-        else:
-            for flag_type in default.keys():
-                if flag_type not in target:
-                    target[flag_type] = []
-                default[flag_type] = list(set(default[flag_type]) & set(target[flag_type]))
-                for a in arch.keys():
-                    arch[a][flag_type] = list(set(arch[a][flag_type]) & set(target.get('arch', {}).get(a, {}).get(flag_type, [])))
 
-    default['arch'] = arch
-    return default
+def GatherDefaultFlags(targets_by_arch):
+    # Iterate through all of the targets for each architecture collecting the flags that
+    # are the same for all targets in that architecture.  Use a list instead of a set
+    # to maintain the flag ordering, which may be significant (e.g. -Wno-shadow has to
+    # come after -Wshadow).
+    arch_default_flags = {}
+    for arch, targets in targets_by_arch.items():
+        arch_default_flags[arch] = {}
+        for target in targets.values():
+            typ = target['type']
+            if typ != 'static_library':
+                continue
+            for flag_type in FLAGS:
+                if not flag_type in arch_default_flags:
+                    arch_default_flags[arch][flag_type] = target[flag_type]
+                else:
+                    target_flags = set(target[flag_type])
+                    flags = arch_default_flags[arch][flag_type]
+                    flags[:]  = [ x for x in flags if x in target_flags ]
+        for flag_type, flags in arch_default_flags[arch].items():
+            arch_default_flags[arch][flag_type] = FilterFlags(flags)
+        # Add in the hardcoded extra default cflags
+        arch_default_flags[arch]['cflags'] += DEFAULT_CFLAGS_BY_ARCH.get(arch, [])
 
-def GenerateDefault(targets):
-    in_default = GatherDefaultFlags(targets)
+    # Iterate through all of the architectures collecting the flags that are the same
+    # for all targets in all architectures.
+    default_flags = {}
+    for arch, flagset in arch_default_flags.items():
+        for flag_type, arch_flags in flagset.items():
+            if not flag_type in default_flags:
+                default_flags[flag_type] = arch_flags.copy()
+            else:
+                flags = default_flags[flag_type]
+                flags[:] = [ x for x in flags if x in arch_flags ]
+    # Add in the hardcoded extra default cflags
+    default_flags['cflags'] += DEFAULT_CFLAGS
+
+    # Remove the global default flags from the per-architecture default flags
+    for arch, flagset in arch_default_flags.items():
+        for flag_type in flagset.keys():
+            flags = flagset[flag_type]
+            flags[:] = [ x for x in flags if x not in default_flags[flag_type] ]
+
+    default_flags['arch'] = arch_default_flags
+    return default_flags
+
+def GenerateDefault(targets_by_arch):
+    in_default = GatherDefaultFlags(targets_by_arch)
     print('cc_defaults {')
     print('    name: "webrtc_defaults",')
     print('    local_include_dirs: [')
@@ -222,15 +194,13 @@ def GenerateDefault(targets):
     print('      "webrtc",')
     print('      "third_party/crc32c/src/include",')
     print('    ],')
-    if PRINT_ORIGINAL_FULL:
-        for typ in sorted(in_default.keys()):
-            print('    // {0}: ['.format(typ.replace('asmflags', 'asflags')
-                .replace('cflags_cc', 'cppflags')
-                .replace('cflags_c', 'conlyflags')))
-            for flag in FilterFlags(in_default[typ]):
-                print('        // "{0}",'.format(flag.replace('"', '\\"')))
-            print('    // ],')
-    print('    cflags: {0},'.format(FormatList(DEFAULT_CFLAGS)))
+    for typ in sorted(in_default.keys() - {'arch'}):
+        flags = in_default[typ]
+        if len(flags) > 0:
+            print('    {0}: ['.format(FLAG_NAME_MAP[typ]))
+            for flag in flags:
+                print('        "{0}",'.format(flag.replace('"', '\\"')))
+            print('    ],')
     print('    header_libs: [')
     print('      "libwebrtc_absl_headers",')
     print('    ],')
@@ -261,7 +231,13 @@ def GenerateDefault(targets):
     print('    arch: {')
     for a in ARCHS:
         print('        {0}: {{'.format(ARCH_NAME_MAP[a]))
-        print('            cflags: {0}'.format(FormatList(DEFAULT_CFLAGS_BY_ARCH[a])))
+        for typ in FLAGS:
+            flags = in_default['arch'].get(a, {}).get(typ, [])
+            if len(flags) > 0:
+                print('            {0}: ['.format(FLAG_NAME_MAP[typ]))
+                for flag in flags:
+                    print('                "{0}",'.format(flag.replace('"', '\\"')))
+                print('            ],')
         print('        },')
     print('    },')
     print('    visibility: [')
@@ -269,34 +245,18 @@ def GenerateDefault(targets):
     print('        "//device/google/cuttlefish/host/frontend/webrtc:__subpackages__",')
     print('    ],')
     print('}')
-    in_default['cflags'].extend(DEFAULT_CFLAGS)
-    for a in ARCHS:
-        in_default['arch'][a]['cflags'].extend(DEFAULT_CFLAGS_BY_ARCH[a])
 
     # The flags in the default entry can be safely removed from the targets
-    for target in targets.values():
-        flag_types = in_default.keys() - {'arch'}
-        for flag_type in flag_types:
-            target[flag_type] = FilterFlags(target.get(flag_type, []), in_default[flag_type])
-            if len(target[flag_type]) == 0:
-                target.pop(flag_type)
-            if 'arch' not in target:
-                continue
-            for arch_name in in_default['arch'].keys():
-                if arch_name not in target['arch']:
-                    continue
-                arch = target['arch'][arch_name]
-                if flag_type not in arch:
-                    continue
-                arch[flag_type] = FilterFlags(arch[flag_type], in_default['arch'][arch_name][flag_type])
-                if len(arch[flag_type]) == 0:
-                    arch.pop(flag_type)
-                    if len(arch.keys()) == 0:
-                        target['arch'].pop(arch_name)
-            if len(target['arch'].keys()) == 0:
-                target.pop('arch')
+    for arch, targets in targets_by_arch.items():
+        for flag_type in FLAGS:
+            default_flags = set(in_default[flag_type]) | set(in_default['arch'][arch][flag_type])
+            for target in targets.values():
+                target[flag_type] = FilterFlags(target.get(flag_type, []), default_flags)
+                if len(target[flag_type]) == 0:
+                    target.pop(flag_type)
 
     return in_default
+
 
 def TransitiveDependencies(name, dep_type, targets):
     target = targets[name]
@@ -696,14 +656,15 @@ for arch in ARCHS:
 unusedFlags = FilterFlagsInUse(flags, f"{dir}/..")
 IGNORED_FLAGS = sorted(set(IGNORED_FLAGS) | set(unusedFlags))
 
-targets = MergeAll(targets_by_arch)
-
 PrintHeader()
 
-GenerateDefault(targets)
+GenerateDefault(targets_by_arch)
+
+targets = MergeAll(targets_by_arch)
+
 print('\n\n')
 
-for target in targets.values():
+for name, target in sorted(targets.items()):
     typ = target['type']
     if typ == 'static_library':
         GenerateStaticLib(target, targets)
