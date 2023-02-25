@@ -9,7 +9,7 @@ fi
 
 DIR=$(dirname $0)
 
-PYTHONHASHSEED=31 "${DIR}"/generate_bp.py "$DIR" >"${DIR}/../Android.bp"
+"${DIR}"/generate_bp.py "$DIR" >"${DIR}/../Android.bp"
 
 bpfmt -w "${DIR}/../Android.bp"
 
