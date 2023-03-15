@@ -1,6 +1,6 @@
 # CMakeLists for libyuv
-# Originally created for "roxlu build system" to compile libyuv on windows
-# Run with -DTEST=ON to build unit tests
+# Originally created for "roxlu build system" to compile libyuv on windows Run
+# with -DTEST=ON to build unit tests
 project(YUV C CXX) # "C" is required even for C++ projects
 set(ly_base_dir ${PROJECT_SOURCE_DIR})
 set(ly_src_dir ${ly_base_dir}/source)
@@ -16,15 +16,23 @@ list(SORT ly_source_files)
 file(GLOB_RECURSE ly_unittest_sources ${ly_tst_dir}/*.cc)
 list(SORT ly_unittest_sources)
 
-add_library(${ly_lib_static} STATIC ${ly_source_files})
+android_add_library(
+  TARGET ${ly_lib_static}
+  LICENSE "BSD-3-Clause"
+  LIBNAME "libyuv"
+  REPO "${CMAKE_CURRENT_LIST_DIR}"
+  NOTICE "REPO/NOTICE.YUV"
+  URL
+  "https://android.googlesource.com/platform/https://android.googlesource.com/platform/external/webrtc/+/refs/heads/emu-master-dev/third_party/libyuv/"
+  SRC ${ly_source_files})
 target_include_directories(${ly_lib_static} PUBLIC ${ly_inc_dir})
 
-if (NOT WINDOWS_MSVC_X86_64)
-    add_executable(libyuv_unittest ${ly_unittest_sources})
-    target_link_libraries(libyuv_unittest ${ly_lib_name} gtest_main
-        Threads::Threads)
-endif()
+# if (NOT WINDOWS_MSVC_X86_64)
+android_add_test( TARGET libyuv_unittest SRC ${ly_unittest_sources})
+target_link_libraries(libyuv_unittest PRIVATE ${ly_lib_name} gtest_main
+                      Threads::Threads)
+# endif()
 
-if (LINUX_AARCH64)
-    target_compile_definitions(${ly_lib_name} PRIVATE LIBYUV_DISABLE_NEON=1)
+if(LINUX_AARCH64)
+  target_compile_definitions(${ly_lib_name} PRIVATE LIBYUV_DISABLE_NEON=1)
 endif()
