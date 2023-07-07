@@ -1,12 +1,62 @@
 #!/usr/bin/env python
 
 import json
+import os
 import sys
 
 PRINT_ORIGINAL_FULL = False
 
+# This flags are augmented with flags added to the json files but not present in .gn or .gni files
+IGNORED_FLAGS = [
+    '-D_DEBUG',
+    '-Werror',
+    '-Xclang'
+    ]
+DEFAULT_CFLAGS = [
+    '-DHAVE_ARM64_CRC32C=0',
+    '-DUSE_AURA=1',
+    '-DUSE_GLIB=1',
+    '-DUSE_NSS_CERTS=1',
+    '-DUSE_UDEV',
+    '-DUSE_X11=1',
+    '-DWEBRTC_ANDROID_PLATFORM_BUILD=1',
+    '-DWEBRTC_APM_DEBUG_DUMP=0',
+    '-D_FILE_OFFSET_BITS=64',
+    '-D_GNU_SOURCE',
+    '-D_LARGEFILE64_SOURCE',
+    '-D_LARGEFILE_SOURCE',
+    '-Wno-all',
+    '-Wno-error',
+    '-Wno-everything',
+    '-Wno-implicit-const-int-float-conversion',
+    '-Wno-missing-field-initializers',
+    '-Wno-unreachable-code-aggressive',
+    '-Wno-unreachable-code-break',
+]
+
+DEFAULT_CFLAGS_BY_ARCH = {
+        'x86': ['-mavx2', '-mfma', '-msse2', '-msse3'],
+        'x64': ['-mavx2', '-mfma', '-msse2', '-msse3'],
+        'arm': ['-mthumb'],
+        'arm64': [],
+        'riscv64': [],
+        }
+
+FLAGS = ['cflags', 'cflags_c', 'cflags_cc', 'asmflags']
+FLAG_NAME_MAP = {
+    'cflags': 'cflags',
+    'asmflags': 'asflags',
+    'cflags_cc': 'cppflags',
+    'cflags_c': 'conlyflags',
+}
+
+ARCH_NAME_MAP = {n: n for n in DEFAULT_CFLAGS_BY_ARCH.keys()}
+ARCH_NAME_MAP['x64'] = 'x86_64'
+
+ARCHS = sorted(ARCH_NAME_MAP.keys())
+
 def FormatList(l):
-    return json.dumps(list(l))
+    return json.dumps(sorted(list(l)))
 
 def IsInclude(name):
     return name.endswith('.h') or name.endswith('.inc')
@@ -31,52 +81,12 @@ def FormatName(name):
 def FormatNames(target):
     target['original_name'] = target['name']
     target['name'] = FormatName(target['name'])
-    target['deps'] = [FormatName(d) for d in target['deps']]
+    target['deps'] = sorted([FormatName(d) for d in target['deps']])
     target['sources'] = list(map(lambda s: (':' + FormatName(s[1:])) if s.startswith(':') else s, target['sources']))
     return target
 
 def FilterFlags(flags, to_skip = set()):
-    skipped_opts = set([
-        '-Wall',
-        '-Werror',
-        '-L',
-        '-isystem',
-        '-Xclang',
-        '-B',
-        '--sysroot',
-        '-fcrash-diagnostics-dir',
-        '.',
-        '-fdebug-compilation-dir',
-        '-instcombine-lower-dbg-declare=0',
-        '-Wno-non-c-typedef-for-linkage',
-        '-Werror',
-        '-fcomplete-member-pointers',
-        '-fno-stack-protector',
-        '--target=i686-linux-android16',
-        '--target=aarch64-linux-android21'
-        '--target=i686-linux-android16',
-        '--target=x86_64-linux-android21',
-        '--target=arm-linux-androideabi16',
-        '-m64',
-        '-m32',
-        '-march=x86-64',
-        '-march=armv8-a',
-        '-mllvm',
-        '-target-feature',
-        '+crypto',
-        '+crc',
-        '-fno-unique-section-names',
-        '-fno-short-enums',
-        '-fno-delete-null-pointer-checks',
-        '-ffile-compilation-dir=.',
-        '-Wno-unneeded-internal-declaration',
-        '-Wno-unreachable-code-aggressive',
-        '-Wno-unreachable-code-break',
-        '-fuse-ctor-homing',
-        '-fno-rtti',
-        '-gsplit-dwarf', # TODO(b/266468464): breaks riscv
-        '-gdwarf-aranges', # TODO(b/269343483): breaks riscv
-        ]).union(to_skip)
+    skipped_opts = set(IGNORED_FLAGS).union(to_skip)
     return [x for x in flags if not any([x.startswith(y) for y in skipped_opts])]
 
 def PrintHeader():
@@ -127,49 +137,56 @@ def PrintHeader():
     print('    ],')
     print('}')
 
-def GatherDefaultFlags(targets):
-    default = {
-            'cflags' : [],
-            'cflags_c' : [],
-            'cflags_cc' : [],
-            'asmflags' : [],
-    }
-    arch = {
-            'x64': {},
-            'x86': {},
-            'arm64': {},
-            'arm': {},
-    }
 
-    first = True
-    for target in targets.values():
-        typ = target['type']
-        if typ != 'static_library':
-            continue
-        if first:
-            first = False
-            # Add all the flags to the default, we'll remove some later
-            for flag_type in default.keys():
-                default[flag_type] = []
-                for flag in target[flag_type]:
-                    default[flag_type].append(flag)
-                for a in arch.keys():
-                    arch[a][flag_type] = []
-                    for flag in target.get('arch', {}).get(a, {}).get(flag_type, []):
-                        arch[a][flag_type].append(flag)
-        else:
-            for flag_type in default.keys():
-                if flag_type not in target:
-                    target[flag_type] = []
-                default[flag_type] = list(set(default[flag_type]) & set(target[flag_type]))
-                for a in arch.keys():
-                    arch[a][flag_type] = list(set(arch[a][flag_type]) | set(target.get('arch', {}).get(a, {}).get(flag_type, [])))
 
-    default['arch'] = arch
-    return default
+def GatherDefaultFlags(targets_by_arch):
+    # Iterate through all of the targets for each architecture collecting the flags that
+    # are the same for all targets in that architecture.  Use a list instead of a set
+    # to maintain the flag ordering, which may be significant (e.g. -Wno-shadow has to
+    # come after -Wshadow).
+    arch_default_flags = {}
+    for arch, targets in targets_by_arch.items():
+        arch_default_flags[arch] = {}
+        for target in targets.values():
+            typ = target['type']
+            if typ != 'static_library':
+                continue
+            for flag_type in FLAGS:
+                if not flag_type in arch_default_flags:
+                    arch_default_flags[arch][flag_type] = target[flag_type]
+                else:
+                    target_flags = set(target[flag_type])
+                    flags = arch_default_flags[arch][flag_type]
+                    flags[:]  = [ x for x in flags if x in target_flags ]
+        for flag_type, flags in arch_default_flags[arch].items():
+            arch_default_flags[arch][flag_type] = FilterFlags(flags)
+        # Add in the hardcoded extra default cflags
+        arch_default_flags[arch]['cflags'] += DEFAULT_CFLAGS_BY_ARCH.get(arch, [])
 
-def GenerateDefault(targets):
-    in_default = GatherDefaultFlags(targets)
+    # Iterate through all of the architectures collecting the flags that are the same
+    # for all targets in all architectures.
+    default_flags = {}
+    for arch, flagset in arch_default_flags.items():
+        for flag_type, arch_flags in flagset.items():
+            if not flag_type in default_flags:
+                default_flags[flag_type] = arch_flags.copy()
+            else:
+                flags = default_flags[flag_type]
+                flags[:] = [ x for x in flags if x in arch_flags ]
+    # Add in the hardcoded extra default cflags
+    default_flags['cflags'] += DEFAULT_CFLAGS
+
+    # Remove the global default flags from the per-architecture default flags
+    for arch, flagset in arch_default_flags.items():
+        for flag_type in flagset.keys():
+            flags = flagset[flag_type]
+            flags[:] = [ x for x in flags if x not in default_flags[flag_type] ]
+
+    default_flags['arch'] = arch_default_flags
+    return default_flags
+
+def GenerateDefault(targets_by_arch):
+    in_default = GatherDefaultFlags(targets_by_arch)
     print('cc_defaults {')
     print('    name: "webrtc_defaults",')
     print('    local_include_dirs: [')
@@ -177,52 +194,13 @@ def GenerateDefault(targets):
     print('      "webrtc",')
     print('      "third_party/crc32c/src/include",')
     print('    ],')
-    if PRINT_ORIGINAL_FULL:
-        for typ in in_default.keys():
-            print('    // {0}: ['.format(typ.replace('asmflags', 'asflags')
-                .replace('cflags_cc', 'cppflags')
-                .replace('cflags_c', 'conlyflags')))
-            for flag in FilterFlags(in_default[typ]):
-                print('        // "{0}",'.format(flag.replace('"', '\\"')))
-            print('    // ],')
-    selected_cflags = [
-        '-Wno-everything',
-        '-Wno-all',
-        '-Wno-error',
-        '-Wno-unreachable-code-aggressive',
-        '-Wno-unreachable-code-break',
-        '-Wno-unused-parameter',
-        '-Wno-missing-field-initializers',
-        '-Wno-implicit-const-int-float-conversion',
-        '-DUSE_UDEV',
-        '-DUSE_AURA=1',
-        '-DUSE_GLIB=1',
-        '-DUSE_NSS_CERTS=1',
-        '-DUSE_X11=1',
-        '-D_FILE_OFFSET_BITS=64',
-        '-D_LARGEFILE_SOURCE',
-        '-D_LARGEFILE64_SOURCE',
-        '-D_GNU_SOURCE',
-        '-DWEBRTC_ENABLE_PROTOBUF=0',
-        '-DWEBRTC_ANDROID_PLATFORM_BUILD=1',
-        '-DWEBRTC_INCLUDE_INTERNAL_AUDIO_DEVICE',
-        '-DRTC_ENABLE_VP9',
-        '-DWEBRTC_HAVE_SCTP',
-        '-DWEBRTC_LIBRARY_IMPL',
-        '-DWEBRTC_NON_STATIC_TRACE_EVENT_HANDLERS=1',
-        '-DWEBRTC_POSIX',
-        '-DWEBRTC_LINUX',
-        '-DWEBRTC_STRICT_FIELD_TRIALS=0',
-        '-DWEBRTC_ENABLE_AVX2',
-        '-DABSL_ALLOCATOR_NOTHROW=1',
-        '-DWEBRTC_APM_DEBUG_DUMP=0',
-        '-msse3',
-        ]
-    selected_cflags_x86 = ['-mavx2', '-mfma', '-DHAVE_ARM64_CRC32C=0']
-    selected_cflags_x64 = ['-msse2', '-mavx2', '-mfma', '-DHAVE_ARM64_CRC32C=0']
-    selected_cflags_arm = ['-DWEBRTC_HAS_NEON', '-DWEBRTC_ARCH_ARM_V7', '-DWEBRTC_ARCH_ARM', '-mfpu=neon', '-mthumb', '-DHAVE_ARM64_CRC32C=0']
-    selected_cflags_arm64 = ['-DWEBRTC_HAS_NEON', '-DWEBRTC_ARCH_ARM64', '-DHAVE_ARM64_CRC32C=0']
-    print('    cflags: {0},'.format(FormatList(selected_cflags)))
+    for typ in sorted(in_default.keys() - {'arch'}):
+        flags = in_default[typ]
+        if len(flags) > 0:
+            print('    {0}: ['.format(FLAG_NAME_MAP[typ]))
+            for flag in flags:
+                print('        "{0}",'.format(flag.replace('"', '\\"')))
+            print('    ],')
     print('    header_libs: [')
     print('      "libwebrtc_absl_headers",')
     print('    ],')
@@ -251,67 +229,59 @@ def GenerateDefault(targets):
     print('        },')
     print('    },')
     print('    arch: {')
-    print('        x86: {')
-    print('            cflags: {0}'.format(FormatList(selected_cflags_x86)))
-    print('        },')
-    print('        x86_64: {')
-    print('            cflags: {0}'.format(FormatList(selected_cflags_x64)))
-    print('        },')
-    print('        arm: {')
-    print('            cflags: {0}'.format(FormatList(selected_cflags_arm)))
-    print('        },')
-    print('        arm64: {')
-    print('            cflags: {0}'.format(FormatList(selected_cflags_arm64)))
-    print('        },')
+    for a in ARCHS:
+        print('        {0}: {{'.format(ARCH_NAME_MAP[a]))
+        for typ in FLAGS:
+            flags = in_default['arch'].get(a, {}).get(typ, [])
+            if len(flags) > 0:
+                print('            {0}: ['.format(FLAG_NAME_MAP[typ]))
+                for flag in flags:
+                    print('                "{0}",'.format(flag.replace('"', '\\"')))
+                print('            ],')
+        print('        },')
     print('    },')
     print('    visibility: [')
     print('        "//frameworks/av/media/libeffects/preprocessing:__subpackages__",')
     print('        "//device/google/cuttlefish/host/frontend/webrtc:__subpackages__",')
     print('    ],')
     print('}')
-    in_default['cflags'].extend(selected_cflags)
-    in_default['arch']['x86']['cflags'].extend(selected_cflags_x86)
-    in_default['arch']['x64']['cflags'].extend(selected_cflags_x64)
-    in_default['arch']['arm']['cflags'].extend(selected_cflags_arm)
-    in_default['arch']['arm64']['cflags'].extend(selected_cflags_arm64)
 
     # The flags in the default entry can be safely removed from the targets
-    for target in targets.values():
-        flag_types = in_default.keys() - {'arch'}
-        for flag_type in flag_types:
-            target[flag_type] = FilterFlags(target.get(flag_type, []), in_default[flag_type])
-            if len(target[flag_type]) == 0:
-                target.pop(flag_type)
-            if 'arch' not in target:
-                continue
-            for arch_name in in_default['arch'].keys():
-                if arch_name not in target['arch']:
-                    continue
-                arch = target['arch'][arch_name]
-                if flag_type not in arch:
-                    continue
-                arch[flag_type] = FilterFlags(arch[flag_type], in_default['arch'][arch_name][flag_type])
-                if len(arch[flag_type]) == 0:
-                    arch.pop(flag_type)
-                    if len(arch.keys()) == 0:
-                        target['arch'].pop(arch_name)
-            if len(target['arch'].keys()) == 0:
-                target.pop('arch')
+    for arch, targets in targets_by_arch.items():
+        for flag_type in FLAGS:
+            default_flags = set(in_default[flag_type]) | set(in_default['arch'][arch][flag_type])
+            for target in targets.values():
+                target[flag_type] = FilterFlags(target.get(flag_type, []), default_flags)
+                if len(target[flag_type]) == 0:
+                    target.pop(flag_type)
 
     return in_default
+
 
 def TransitiveDependencies(name, dep_type, targets):
     target = targets[name]
     field = 'transitive_' + dep_type
     if field in target.keys():
         return target[field]
-    target[field] = set()
+    target[field] = {'global': set()}
+    for a in ARCHS:
+        target[field][a] = set()
     if target['type'] == dep_type:
-        target[field].add(name)
+        target[field]['global'].add(name)
     for d in target.get('deps', []):
         if targets[d]['type'] == dep_type:
-            target[field].add(d)
-        target[field] |= TransitiveDependencies(d, dep_type, targets)
+            target[field]['global'].add(d)
+        tDeps = TransitiveDependencies(d, dep_type, targets)
+        target[field]['global'] |= tDeps['global']
+        for a in ARCHS:
+            target[field][a] |= tDeps[a]
+    if 'arch' in target:
+        for a, x in target['arch'].items():
+            for d in x.get('deps', []):
+                tDeps = TransitiveDependencies(d, dep_type, targets)
+                target[field][a] |= tDeps['global'] | tDeps[a]
+            target[field][a] -= target[field]['global']
+
     return target[field]
 
 def GenerateGroup(target):
@@ -360,14 +330,16 @@ def GenerateStaticLib(target, targets):
         cflags_cc = target['cflags_cc']
         if len(cflags_cc) > 0:
             print('    cppflags: {0},'.format(FormatList(cflags_cc)))
-    static_libs = [d for d in target.get('deps', []) if targets[d]['type'] == 'static_library']
+    static_libs = sorted([d for d in target.get('deps', []) if targets[d]['type'] == 'static_library'])
     if len(static_libs) > 0:
         print('    static_libs: {0},'.format(FormatList(static_libs)))
     if 'arch' in target:
         print('   arch: {')
-        arch_map = {'x86': 'x86','x64': 'x86_64','arm': 'arm','arm64': 'arm64'}
-        for arch_name, arch in target['arch'].items():
-            print('       ' + arch_map[arch_name] + ': {')
+        for arch_name in ARCHS:
+            if arch_name not in target['arch'].keys():
+                continue
+            arch = target['arch'][arch_name]
+            print('       ' + ARCH_NAME_MAP[arch_name] + ': {')
             if 'cflags' in arch.keys():
                 cflags = arch['cflags']
                 print('            cflags: {0},'.format(FormatList(cflags)))
@@ -460,10 +432,29 @@ def Preprocess(project):
     for target in targets.values():
         if target['type'] == 'static_library':
             source_sets = TransitiveDependencies(target['name'], 'source_set', targets)
-            source_sets_deps = set()
-            for ss in source_sets:
-                source_sets_deps |= set(targets[ss]['deps'])
-            target['deps'] = list(set(target['deps']) | source_sets | source_sets_deps)
+            source_sets_deps = {}
+            for a in ['global'] + ARCHS:
+                deps = set()
+                if a == 'global':
+                    for ss in [targets[n].get('deps', []) for n in source_sets[a]]:
+                        deps |= set(ss)
+                else:
+                    for ss in [targets[n].get('arch', {}).get(a, {}).get('deps') for n in source_sets[a]]:
+                        deps |= set(ss)
+                source_sets_deps[a] = deps
+            target['deps'] = sorted(set(target['deps']) | source_sets['global'] | source_sets_deps['global'])
+            for a in ARCHS:
+                deps = source_sets[a] | source_sets_deps[a]
+                if len(deps) == 0:
+                    continue
+                if 'arch' not in target:
+                    target['arch'] = {}
+                if a not in target['arch']:
+                    target['arch'][a] = {}
+                if 'deps' not in target['arch'][a]:
+                    target['arch'][a]['deps'] = []
+                deps |= set(target['arch'][a]['deps'])
+                target['arch'][a]['deps'] = sorted(deps)
 
     # Ignore empty source sets
     empty_sets = set()
@@ -482,16 +473,17 @@ def Preprocess(project):
         if target['type'] != 'static_library':
             continue
         source_sets = {d for d in target['deps'] if targets[d]['type'] == 'source_set'}
-        target['deps'] = list(set(target['deps']) - source_sets)
+        target['deps'] = sorted(list(set(target['deps']) - source_sets))
         target['sources'] += [':' + ss for ss in source_sets]
+        target['sources'] = sorted(target['sources'])
         if 'arch' in target:
-            for arch in target.values():
+            for arch in target['arch'].values():
                 if 'deps' in arch:
                     source_sets = {d for d in arch['deps'] if targets[d]['type'] == 'source_set'}
                     if len(source_sets) == 0:
                         continue;
-                    arch['deps'] = list(set(arch['deps']) - source_sets)
-                    arch['sources'] = arch.get('sources', []) + [':' + ss for ss in source_sets]
+                    arch['deps'] = sorted(list(set(arch['deps']) - source_sets))
+                    arch['sources'] = sorted(arch.get('sources', []) + [':' + ss for ss in source_sets])
 
     # Select libwebrtc, libaudio_processing and its dependencies
     selected = set()
@@ -499,54 +491,48 @@ def Preprocess(project):
     selected |= DFS('//modules/audio_processing:audio_processing', targets)
     return {FormatName(n): FormatNames(targets[n]) for n in selected}
 
-def NonNoneFrom(*args):
-    for a in args:
+def NonNoneFrom(l):
+    for a in l:
         if a is not None:
             return a
     return None
 
-def MergeListField(target, f, x64_target, x86_target, arm64_target, arm_target):
-    x64_set = set(x64_target.get(f, []))
-    x86_set = set(x86_target.get(f, []))
-    arm64_set = set(arm64_target.get(f, []))
-    arm_set = set(arm_target.get(f, []))
+def MergeListField(target, f, target_by_arch):
+    set_by_arch = {}
+    for a, t in target_by_arch.items():
+        if len(t) == 0:
+            # We only care about enabled archs
+            continue
+        set_by_arch[a] = set(t.get(f, []))
 
-    common = x64_set & x86_set & arm64_set & arm_set
-    x64_only = x64_set - common
-    x86_only = x86_set - common
-    arm64_only = arm64_set - common
-    arm_only = arm_set - common
+    union = set()
+    for _, s in set_by_arch.items():
+        union |= s
+
+    common = union
+    for a, s in set_by_arch.items():
+        common &= s
+
+    not_common = {a: s - common for a,s in set_by_arch.items()}
 
     if len(common) > 0:
         target[f] = list(common)
-    if len(x64_only) > 0:
-        target['arch']['x64'][f] = list(x64_only)
-    if len(x86_only) > 0:
-        target['arch']['x86'][f] = list(x86_only)
-    if len(arm64_only) > 0:
-        target['arch']['arm64'][f] = list(arm64_only)
-    if len(arm_only) > 0:
-        target['arch']['arm'][f] = list(arm_only)
+    for a, s in not_common.items():
+        if len(s) > 0:
+            target['arch'][a][f] = sorted(list(s))
 
-def Merge(x64_target, x86_target, arm64_target, arm_target):
+def Merge(target_by_arch):
     # The new target shouldn't have the transitive dependencies memoization fields
     # or have the union of those fields from all 4 input targets.
     target = {}
     for f in ['original_name', 'name', 'type']:
-        target[f] = NonNoneFrom(x64_target.get(f),
-                                x86_target.get(f),
-                                arm64_target.get(f),
-                                arm_target.get(f))
+        target[f] = NonNoneFrom([t.get(f) for _,t in target_by_arch.items()])
 
-    target['arch'] = {'x64': {}, 'x86': {}, 'arm64': {}, 'arm': {}}
-    if x64_target is None:
-        target['arch']['x64']['enabled'] = 'false'
-    if x86_target is None:
-        target['arch']['x86']['enabled'] = 'false'
-    if arm64_target is None:
-        target['arch']['arm64']['enabled'] = 'false'
-    if arm_target is None:
-        target['arch']['arm']['enabled'] = 'false'
+    target['arch'] = {}
+    for a, t in target_by_arch.items():
+        target['arch'][a] = {}
+        if len(t) == 0:
+            target['arch'][a]['enabled'] = 'false'
 
     list_fields = ['sources',
                    'deps',
@@ -555,7 +541,7 @@ def Merge(x64_target, x86_target, arm64_target, arm_target):
                    'cflags_cc',
                    'asmflags']
     for lf in list_fields:
-        MergeListField(target, lf, x64_target, x86_target, arm64_target, arm_target)
+        MergeListField(target, lf, target_by_arch)
 
     # Static libraries should be depended on at the root level and disabled for
     # the corresponding architectures.
@@ -567,55 +553,118 @@ def Merge(x64_target, x86_target, arm64_target, arm_target):
             target['deps'] = []
         target['deps'] += deps
         arch.pop('deps')
+    if 'deps' in target:
+        target['deps'] = sorted(target['deps'])
 
     # Remove empty sets
-    if len(target['arch']['x64']) == 0:
-        target['arch'].pop('x64')
-    if len(target['arch']['x86']) == 0:
-        target['arch'].pop('x86')
-    if len(target['arch']['arm64']) == 0:
-        target['arch'].pop('arm64')
-    if len(target['arch']['arm']) == 0:
-        target['arch'].pop('arm')
+    for a in ARCHS:
+        if len(target['arch'][a]) == 0:
+            target['arch'].pop(a)
     if len(target['arch']) == 0:
         target.pop('arch')
 
     return target
 
-def MergeAll(x64_targets, x86_targets, arm64_targets, arm_targets):
-    names = x64_targets.keys() | x86_targets.keys() | arm64_targets.keys() | arm_targets.keys()
+def DisabledArchs4Target(target):
+    ret = set()
+    for a in ARCHS:
+        if a not in target.get('arch', {}):
+            continue
+        if target['arch'][a].get('enabled', 'true') == 'false':
+            ret.add(a)
+    return ret
+
+
+def HandleDisabledArchs(targets):
+    for n, t in targets.items():
+        if 'arch' not in t:
+            continue
+        disabledArchs = DisabledArchs4Target(t)
+        if len(disabledArchs) == 0:
+            continue
+        # Fix targets that depend on this one
+        for t in targets.values():
+            if DisabledArchs4Target(t) == disabledArchs:
+                # With the same disabled archs there is no need to move dependencies
+                continue
+            if 'deps' in t and n in t['deps']:
+                # Remove the dependency from the high level list
+                t['deps'] = sorted(set(t['deps']) - {n})
+                if 'arch' not in t:
+                    t['arch'] = {}
+                for a in ARCHS:
+                    if a in disabledArchs:
+                        continue
+                    if a not in t['arch']:
+                        t['arch'][a] = {}
+                    if 'deps' not in t['arch'][a]:
+                        t['arch'][a]['deps'] = []
+                    t['arch'][a]['deps'] += [n]
+
+def MergeAll(targets_by_arch):
+    names = set()
+    for t in targets_by_arch.values():
+        names |= t.keys()
     targets = {}
     for name in names:
-        targets[name] = Merge(x64_targets.get(name, {}),
-                              x86_targets.get(name, {}),
-                              arm64_targets.get(name, {}),
-                              arm_targets.get(name, {}))
+        targets[name] = Merge({a: t.get(name, {}) for a,t in targets_by_arch.items()})
+
+    HandleDisabledArchs(targets)
+
     return targets
 
-if len(sys.argv) != 5:
-    print('wrong number of arguments')
-    exit()
+def GatherAllFlags(obj):
+    if type(obj) != type({}):
+        # not a dictionary
+        return set()
+    ret = set()
+    for f in FLAGS:
+        ret |= set(obj.get(f, []))
+    for v in obj.values():
+        ret |= GatherAllFlags(v)
+    return ret
 
-x64_json_file = open(sys.argv[1], 'r')
-x64_targets = Preprocess(json.load(x64_json_file))
+def FilterFlagsInUse(flags, directory):
+    unused = []
+    for f in flags:
+        nf = f
+        if nf.startswith("-D"):
+            nf = nf[2:]
+            i = nf.find('=')
+            if i > 0:
+                nf = nf[:i]
+        c = os.system(f"find {directory} -name '*.gn*' | xargs grep -q -s -e '{nf}'")
+        if c != 0:
+            # couldn't find the flag in *.gn or *.gni
+            unused.append(f)
+    return unused
 
-x86_json_file = open(sys.argv[2], 'r')
-x86_targets = Preprocess(json.load(x86_json_file))
+if len(sys.argv) != 2:
+    print('wrong number of arguments', file = sys.stderr)
+    exit(1)
 
-arm64_json_file = open(sys.argv[3], 'r')
-arm64_targets = Preprocess(json.load(arm64_json_file))
+dir = sys.argv[1]
 
-arm_json_file = open(sys.argv[4], 'r')
-arm_targets = Preprocess(json.load(arm_json_file))
+targets_by_arch = {}
+flags = set()
+for arch in ARCHS:
+    path = "{0}/project_{1}.json".format(dir, arch)
+    json_file = open(path, 'r')
+    targets_by_arch[arch] = Preprocess(json.load(json_file))
+    flags |= GatherAllFlags(targets_by_arch[arch])
 
-targets = MergeAll(x64_targets, x86_targets, arm64_targets, arm_targets)
+unusedFlags = FilterFlagsInUse(flags, f"{dir}/..")
+IGNORED_FLAGS = sorted(set(IGNORED_FLAGS) | set(unusedFlags))
 
 PrintHeader()
 
-GenerateDefault(targets)
+GenerateDefault(targets_by_arch)
+
+targets = MergeAll(targets_by_arch)
+
 print('\n\n')
 
-for target in targets.values():
+for name, target in sorted(targets.items()):
     typ = target['type']
     if typ == 'static_library':
         GenerateStaticLib(target, targets)
@@ -628,17 +677,24 @@ for target in targets.values():
         exit(1)
     print('\n\n')
 
-webrtc_libs = [d for d in TransitiveDependencies(FormatName('//:webrtc'), 'static_library', targets)]
+webrtc_libs = TransitiveDependencies(FormatName('//:webrtc'), 'static_library', targets)
 print('cc_library_static {')
 print('    name: "libwebrtc",')
 print('    defaults: ["webrtc_defaults"],')
 print('    export_include_dirs: ["."],')
-print('    whole_static_libs: {0},'.format(FormatList(webrtc_libs + ['libpffft', 'rnnoise_rnn_vad'])))
+print('    whole_static_libs: {0},'.format(FormatList(sorted(webrtc_libs['global']) + ['libpffft', 'rnnoise_rnn_vad'])))
+print('    arch: {')
+for a in ARCHS:
+    if len(webrtc_libs[a]) > 0:
+        print('        {0}: {{'.format(ARCH_NAME_MAP[a]))
+        print('            whole_static_libs: {0},'.format(FormatList(sorted(webrtc_libs[a]))))
+        print('        },')
+print('    },')
 print('}')
 
 print('\n\n')
 
-audio_proc_libs = [d for d in TransitiveDependencies(FormatName('//modules/audio_processing:audio_processing'), 'static_library', targets)]
+audio_proc_libs = TransitiveDependencies(FormatName('//modules/audio_processing:audio_processing'), 'static_library', targets)
 print('cc_library_static {')
 print('    name: "webrtc_audio_processing",')
 print('    defaults: ["webrtc_defaults"],')
@@ -647,5 +703,12 @@ print('        ".",')
 print('        "modules/include",')
 print('        "modules/audio_processing/include",')
 print('    ],')
-print('    whole_static_libs: {0},'.format(FormatList(audio_proc_libs + ['libpffft', 'rnnoise_rnn_vad'])))
+print('    whole_static_libs: {0},'.format(FormatList(sorted(audio_proc_libs['global']) + ['libpffft', 'rnnoise_rnn_vad'])))
+print('    arch: {')
+for a in ARCHS:
+    if len(audio_proc_libs[a]) > 0:
+        print('        {0}: {{'.format(ARCH_NAME_MAP[a]))
+        print('            whole_static_libs: {0},'.format(FormatList(sorted(audio_proc_libs[a]))))
+        print('        },')
+print('    },')
 print('}')
