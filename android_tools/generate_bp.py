@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import json
 import os
@@ -31,9 +31,7 @@ DEFAULT_CFLAGS = [
     '-D_GNU_SOURCE',
     '-D_LARGEFILE64_SOURCE',
     '-D_LARGEFILE_SOURCE',
-    '-Wno-all',
-    '-Wno-error',
-    '-Wno-everything',
+    '-Wno-global-constructors',
     '-Wno-implicit-const-int-float-conversion',
     '-Wno-missing-field-initializers',
     '-Wno-unreachable-code-aggressive',
