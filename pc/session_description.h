@@ -43,10 +43,8 @@
 
 namespace cricket {
 
-typedef std::vector<AudioCodec> AudioCodecs;
-typedef std::vector<VideoCodec> VideoCodecs;
-typedef std::vector<CryptoParams> CryptoParamsVec;
-typedef std::vector<webrtc::RtpExtension> RtpHeaderExtensions;
+using CryptoParamsVec = std::vector<CryptoParams>;
+using RtpHeaderExtensions = std::vector<webrtc::RtpExtension>;
 
 // Options to control how session descriptions are generated.
 const int kAutoBandwidth = -1;
@@ -258,8 +256,9 @@ class MediaContentDescription {
   }
 
  protected:
-  // TODO(bugs.webrtc.org/15214): move all RTP related things to a subclass that
-  // the SCTP content description does not inherit from.
+  // TODO(bugs.webrtc.org/15214): move all RTP related things to
+  // RtpMediaDescription that the SCTP content description does
+  // not inherit from.
   std::string protocol_;
 
  private:
@@ -290,37 +289,36 @@ class MediaContentDescription {
   std::vector<Codec> codecs_;
 };
 
-template <class C>
-class MediaContentDescriptionImpl : public MediaContentDescription {
+class RtpMediaContentDescription : public MediaContentDescription {};
+
+class AudioContentDescription : public RtpMediaContentDescription {
  public:
   void set_protocol(absl::string_view protocol) override {
     RTC_DCHECK(IsRtpProtocol(protocol));
     protocol_ = std::string(protocol);
   }
-};
-
-class AudioContentDescription : public MediaContentDescriptionImpl<Codec> {
- public:
-  AudioContentDescription() {}
-
-  virtual MediaType type() const { return MEDIA_TYPE_AUDIO; }
-  virtual AudioContentDescription* as_audio() { return this; }
-  virtual const AudioContentDescription* as_audio() const { return this; }
+  MediaType type() const override { return MEDIA_TYPE_AUDIO; }
+  AudioContentDescription* as_audio() override { return this; }
+  const AudioContentDescription* as_audio() const override { return this; }
 
  private:
-  virtual AudioContentDescription* CloneInternal() const {
+  AudioContentDescription* CloneInternal() const override {
     return new AudioContentDescription(*this);
   }
 };
 
-class VideoContentDescription : public MediaContentDescriptionImpl<Codec> {
+class VideoContentDescription : public RtpMediaContentDescription {
  public:
-  virtual MediaType type() const { return MEDIA_TYPE_VIDEO; }
-  virtual VideoContentDescription* as_video() { return this; }
-  virtual const VideoContentDescription* as_video() const { return this; }
+  void set_protocol(absl::string_view protocol) override {
+    RTC_DCHECK(IsRtpProtocol(protocol));
+    protocol_ = std::string(protocol);
+  }
+  MediaType type() const override { return MEDIA_TYPE_VIDEO; }
+  VideoContentDescription* as_video() override { return this; }
+  const VideoContentDescription* as_video() const override { return this; }
 
  private:
-  virtual VideoContentDescription* CloneInternal() const {
+  VideoContentDescription* CloneInternal() const override {
     return new VideoContentDescription(*this);
   }
 };
@@ -470,13 +468,23 @@ const ContentInfo* FindContentInfoByName(const ContentInfos& contents,
 const ContentInfo* FindContentInfoByType(const ContentInfos& contents,
                                          const std::string& type);
 
-// Determines how the MSID will be signaled in the SDP. These can be used as
-// flags to indicate both or none.
+// Determines how the MSID will be signaled in the SDP.
+// These can be used as bit flags to indicate both or the special value none.
 enum MsidSignaling {
-  // Signal MSID with one a=msid line in the media section.
+  // MSID is not signaled. This is not a bit flag and must be compared for
+  // equality.
+  kMsidSignalingNotUsed = 0x0,
+  // Signal MSID with at least one a=msid line in the media section.
+  // This requires unified plan.
   kMsidSignalingMediaSection = 0x1,
   // Signal MSID with a=ssrc: msid lines in the media section.
-  kMsidSignalingSsrcAttribute = 0x2
+  // This should only be used with plan-b but is signalled in
+  // offers for backward compability reasons.
+  kMsidSignalingSsrcAttribute = 0x2,
+  // Signal MSID with a=msid-semantic: WMS in the session section.
+  // This is deprecated but signalled for backward compability reasons.
+  // It is typically combined with 0x1 or 0x2.
+  kMsidSignalingSemantic = 0x4
 };
 
 // Describes a collection of contents, each with its own name and
@@ -550,9 +558,6 @@ class SessionDescription {
   void RemoveGroupByName(const std::string& name);
 
   // Global attributes.
-  void set_msid_supported(bool supported) { msid_supported_ = supported; }
-  bool msid_supported() const { return msid_supported_; }
-
   // Determines how the MSIDs were/will be signaled. Flag value composed of
   // MsidSignaling bits (see enum above).
   void set_msid_signaling(int msid_signaling) {
@@ -584,10 +589,9 @@ class SessionDescription {
   ContentInfos contents_;
   TransportInfos transport_infos_;
   ContentGroups content_groups_;
-  bool msid_supported_ = true;
   // Default to what Plan B would do.
   // TODO(bugs.webrtc.org/8530): Change default to kMsidSignalingMediaSection.
-  int msid_signaling_ = kMsidSignalingSsrcAttribute;
+  int msid_signaling_ = kMsidSignalingSsrcAttribute | kMsidSignalingSemantic;
   bool extmap_allow_mixed_ = true;
 };
 

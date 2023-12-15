@@ -12,6 +12,7 @@ import("../../webrtc.gni")
 
 rtc_library("webrtc_fuzzer_main") {
   sources = [ "webrtc_fuzzer_main.cc" ]
+  testonly = true
   deps = [
     "../../rtc_base:logging",
     "//testing/libfuzzer:fuzzing_engine_main",
@@ -247,6 +248,7 @@ webrtc_fuzzer_test("receive_side_congestion_controller_fuzzer") {
     "../../modules/rtp_rtcp:rtp_rtcp_format",
     "../../system_wrappers",
   ]
+  seed_corpus = "corpora/receive-side-cc"
 }
 
 rtc_library("audio_decoder_fuzzer") {
@@ -519,7 +521,7 @@ webrtc_fuzzer_test("aec3_config_json_fuzzer") {
   deps = [
     ":fuzz_data_helper",
     "../../api/audio:aec3_config",
-    "../../api/audio:aec3_config_json",
+    "../../modules/audio_processing:aec3_config_json",
   ]
   dict = "//testing/libfuzzer/fuzzers/dicts/json.dict"
   seed_corpus = "corpora/aec3-config-json-corpus"

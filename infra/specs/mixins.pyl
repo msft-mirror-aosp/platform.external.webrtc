@@ -18,20 +18,6 @@
       }
     }
   },
-  'baremetal-pool': {
-    'swarming': {
-      'dimensions': {
-        'pool': 'WebRTC-baremetal'
-      }
-    }
-  },
-  'baremetal-try-pool': {
-    'swarming': {
-      'dimensions': {
-        'pool': 'WebRTC-baremetal-try'
-      }
-    }
-  },
   'chrome-tester-service-account': {
     'swarming': {
       'service_account':
@@ -48,6 +34,14 @@
     'swarming': {
       'dimensions': {
         'cores': '12'
+      }
+    }
+  },
+  'crosshatch': {
+    'swarming': {
+      'dimensions': {
+        'device_type': 'crosshatch',
+        'os': 'Android'
       }
     }
   },
@@ -168,7 +162,7 @@
         'location':
         '.',
         'revision':
-        'git_revision:59ddedfe3849abf560cbe0b41bb8e431041cd2bb'
+        'git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0'
       }]
     }
   },
@@ -212,7 +206,7 @@
     'args': ['--nologs']
   },
   'quick-perf-tests': {
-    'args': ['--force_fieldtrials=WebRTC-QuickPerfTest/Enabled/', '--nologs']
+    'args': ['--webrtc_quick_perf_test', '--nologs']
   },
   'redfin': {
     'swarming': {
@@ -247,6 +241,11 @@
   'shards-6': {
     'swarming': {
       'shards': 6
+    }
+  },
+  'shards-8': {
+    'swarming': {
+      'shards': 8
     }
   },
   'timeout-2h': {
@@ -286,6 +285,13 @@
       }
     }
   },
+  'win11': {
+    'swarming': {
+      'dimensions': {
+        'os': 'Windows-11-22000'
+      }
+    }
+  },
   'x86-64': {
     'swarming': {
       'dimensions': {
@@ -296,6 +302,9 @@
   'xcode_13_main': {
     'args': ['--xcode-build-version', '13c100'],
     'swarming': {
+      'dimensions': {
+        'caches': 'xcode_ios_13c100'
+      },
       'named_caches': [{
         'name': 'xcode_ios_13c100',
         'path': 'Xcode.app'
@@ -305,6 +314,9 @@
   'xcode_14_main': {
     'args': ['--xcode-build-version', '14c18'],
     'swarming': {
+      'dimensions': {
+        'caches': 'xcode_ios_14c18'
+      },
       'named_caches': [{
         'name': 'xcode_ios_14c18',
         'path': 'Xcode.app'
@@ -312,15 +324,15 @@
     }
   },
   'xcode_15_main': {
-    'args': ['--xcode-build-version', '15a5229h'],
+    'args': ['--xcode-build-version', '15a507'],
     'swarming': {
       'named_caches': [{
-        'name': 'xcode_ios_15a5229h',
+        'name': 'xcode_ios_15a507',
         'path': 'Xcode.app'
       }]
     }
   },
-  'xcode_parallelization': {
-    'args': ['--xcode-parallelization']
+  'xcodebuild_sim_runner': {
+    'args': ['--xcodebuild-sim-runner']
   }
 }

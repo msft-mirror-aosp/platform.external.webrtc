@@ -88,7 +88,7 @@ class SdpOfferAnswerTest : public ::testing::Test {
                                             Dav1dDecoderTemplateAdapter>>(),
             nullptr /* audio_mixer */,
             nullptr /* audio_processing */)) {
-    webrtc::metrics::Reset();
+    metrics::Reset();
   }
 
   std::unique_ptr<PeerConnectionWrapper> CreatePeerConnection() {
@@ -168,8 +168,8 @@ TEST_F(SdpOfferAnswerTest, BundleRejectsCodecCollisionsAudioVideo) {
   // There is no error yet but the metrics counter will increase.
   EXPECT_TRUE(error.ok());
   EXPECT_METRIC_EQ(
-      1, webrtc::metrics::NumEvents(
-             "WebRTC.PeerConnection.ValidBundledPayloadTypes", false));
+      1, metrics::NumEvents("WebRTC.PeerConnection.ValidBundledPayloadTypes",
+                            false));
 
   // Tolerate codec collisions in rejected m-lines.
   pc = CreatePeerConnection();
@@ -178,9 +178,9 @@ TEST_F(SdpOfferAnswerTest, BundleRejectsCodecCollisionsAudioVideo) {
       absl::StrReplaceAll(sdp, {{"m=video 9 ", "m=video 0 "}}));
   pc->SetRemoteDescription(std::move(rejected_offer), &error);
   EXPECT_TRUE(error.ok());
-  EXPECT_METRIC_EQ(1,
-                   webrtc::metrics::NumEvents(
-                       "WebRTC.PeerConnection.ValidBundledPayloadTypes", true));
+  EXPECT_METRIC_EQ(
+      1, metrics::NumEvents("WebRTC.PeerConnection.ValidBundledPayloadTypes",
+                            true));
 }
 
 TEST_F(SdpOfferAnswerTest, BundleRejectsCodecCollisionsVideoFmtp) {
@@ -221,8 +221,8 @@ TEST_F(SdpOfferAnswerTest, BundleRejectsCodecCollisionsVideoFmtp) {
   pc->SetRemoteDescription(std::move(desc), &error);
   EXPECT_TRUE(error.ok());
   EXPECT_METRIC_EQ(
-      1, webrtc::metrics::NumEvents(
-             "WebRTC.PeerConnection.ValidBundledPayloadTypes", false));
+      1, metrics::NumEvents("WebRTC.PeerConnection.ValidBundledPayloadTypes",
+                            false));
 }
 
 TEST_F(SdpOfferAnswerTest, BundleCodecCollisionInDifferentBundlesAllowed) {
@@ -264,8 +264,8 @@ TEST_F(SdpOfferAnswerTest, BundleCodecCollisionInDifferentBundlesAllowed) {
   pc->SetRemoteDescription(std::move(desc), &error);
   EXPECT_TRUE(error.ok());
   EXPECT_METRIC_EQ(
-      0, webrtc::metrics::NumEvents(
-             "WebRTC.PeerConnection.ValidBundledPayloadTypes", false));
+      0, metrics::NumEvents("WebRTC.PeerConnection.ValidBundledPayloadTypes",
+                            false));
 }
 
 TEST_F(SdpOfferAnswerTest, BundleMeasuresHeaderExtensionIdCollision) {
@@ -990,8 +990,7 @@ TEST_F(SdpOfferAnswerTest, SdpMungingWithInvalidPayloadTypeIsRejected) {
 
   auto offer = pc->CreateOffer();
   ASSERT_EQ(offer->description()->contents().size(), 1u);
-  auto* audio =
-      offer->description()->contents()[0].media_description()->as_audio();
+  auto* audio = offer->description()->contents()[0].media_description();
   ASSERT_GT(audio->codecs().size(), 0u);
   EXPECT_TRUE(audio->rtcp_mux());
   auto codecs = audio->codecs();
@@ -1006,6 +1005,53 @@ TEST_F(SdpOfferAnswerTest, SdpMungingWithInvalidPayloadTypeIsRejected) {
   }
 }
 
+TEST_F(SdpOfferAnswerTest, MsidSignalingInSubsequentOfferAnswer) {
+  auto pc = CreatePeerConnection();
+  pc->AddAudioTrack("audio_track", {});
+
+  std::string sdp =
+      "v=0\r\n"
+      "o=- 0 3 IN IP4 127.0.0.1\r\n"
+      "s=-\r\n"
+      "t=0 0\r\n"
+      "a=msid-semantic: WMS\r\n"
+      "a=fingerprint:sha-1 "
+      "4A:AD:B9:B1:3F:82:18:3B:54:02:12:DF:3E:5D:49:6B:19:E5:7C:AB\r\n"
+      "a=setup:actpass\r\n"
+      "a=ice-ufrag:ETEn\r\n"
+      "a=ice-pwd:OtSK0WpNtpUjkY4+86js7Z/l\r\n"
+      "m=audio 9 UDP/TLS/RTP/SAVPF 111\r\n"
+      "c=IN IP4 0.0.0.0\r\n"
+      "a=rtcp:9 IN IP4 0.0.0.0\r\n"
+      "a=recvonly\r\n"
+      "a=rtcp-mux\r\n"
+      "a=rtpmap:111 opus/48000/2\r\n";
+
+  auto offer = CreateSessionDescription(SdpType::kOffer, sdp);
+  EXPECT_TRUE(pc->SetRemoteDescription(std::move(offer)));
+
+  // Check the generated SDP.
+  auto answer = pc->CreateAnswer();
+  answer->ToString(&sdp);
+  EXPECT_NE(std::string::npos, sdp.find("a=msid:- audio_track\r\n"));
+
+  EXPECT_TRUE(pc->SetLocalDescription(std::move(answer)));
+
+  // Check the local description object.
+  auto local_description = pc->pc()->local_description();
+  ASSERT_EQ(local_description->description()->contents().size(), 1u);
+  auto streams = local_description->description()
+                     ->contents()[0]
+                     .media_description()
+                     ->streams();
+  ASSERT_EQ(streams.size(), 1u);
+  EXPECT_EQ(streams[0].id, "audio_track");
+
+  // Check the serialization of the local description.
+  local_description->ToString(&sdp);
+  EXPECT_NE(std::string::npos, sdp.find("a=msid:- audio_track\r\n"));
+}
+
 // Test variant with boolean order for audio-video and video-audio.
 class SdpOfferAnswerShuffleMediaTypes
     : public SdpOfferAnswerTest,
@@ -1015,7 +1061,7 @@ class SdpOfferAnswerShuffleMediaTypes
 };
 
 TEST_P(SdpOfferAnswerShuffleMediaTypes,
-       RecyclingWithDifferentKindAndSameMidFails) {
+       RecyclingWithDifferentKindAndSameMidFailsAnswer) {
   bool audio_first = GetParam();
   auto pc1 = CreatePeerConnection();
   auto pc2 = CreatePeerConnection();
@@ -1053,8 +1099,87 @@ TEST_P(SdpOfferAnswerShuffleMediaTypes,
   EXPECT_FALSE(pc1->SetLocalDescription(std::move(answer)));
 }
 
+// Similar to the previous test but with implicit rollback and creating
+// an offer, triggering a different codepath.
+TEST_P(SdpOfferAnswerShuffleMediaTypes,
+       RecyclingWithDifferentKindAndSameMidFailsOffer) {
+  bool audio_first = GetParam();
+  auto pc1 = CreatePeerConnection();
+  auto pc2 = CreatePeerConnection();
+  if (audio_first) {
+    pc1->AddAudioTrack("audio_track", {});
+    pc2->AddVideoTrack("video_track", {});
+  } else {
+    pc2->AddAudioTrack("audio_track", {});
+    pc1->AddVideoTrack("video_track", {});
+  }
+
+  auto initial_offer = pc1->CreateOfferAndSetAsLocal();
+  ASSERT_EQ(initial_offer->description()->contents().size(), 1u);
+  auto mid1 = initial_offer->description()->contents()[0].mid();
+  std::string rejected_answer_sdp =
+      "v=0\r\n"
+      "o=- 8621259572628890423 2 IN IP4 127.0.0.1\r\n"
+      "s=-\r\n"
+      "t=0 0\r\n"
+      "m=" +
+      std::string(audio_first ? "audio" : "video") +
+      " 0 UDP/TLS/RTP/SAVPF 111\r\n"
+      "c=IN IP4 0.0.0.0\r\n";
+  auto rejected_answer =
+      CreateSessionDescription(SdpType::kAnswer, rejected_answer_sdp);
+  EXPECT_TRUE(pc1->SetRemoteDescription(std::move(rejected_answer)));
+
+  auto offer =
+      pc2->CreateOfferAndSetAsLocal();  // This will generate a mid=0 too
+  ASSERT_EQ(offer->description()->contents().size(), 1u);
+  auto mid2 = offer->description()->contents()[0].mid();
+  EXPECT_EQ(mid1, mid2);  // Check that the mids collided.
+  EXPECT_TRUE(pc1->SetRemoteDescription(std::move(offer)));
+  EXPECT_FALSE(pc1->CreateOffer());
+}
+
 INSTANTIATE_TEST_SUITE_P(SdpOfferAnswerShuffleMediaTypes,
                          SdpOfferAnswerShuffleMediaTypes,
                          ::testing::Values(true, false));
+
+TEST_F(SdpOfferAnswerTest, OfferWithNoCompatibleCodecsIsRejectedInAnswer) {
+  auto pc = CreatePeerConnection();
+  // An offer with no common codecs. This should reject both contents
+  // in the answer without throwing an error.
+  std::string sdp =
+      "v=0\r\n"
+      "o=- 0 3 IN IP4 127.0.0.1\r\n"
+      "s=-\r\n"
+      "t=0 0\r\n"
+      "a=fingerprint:sha-1 "
+      "4A:AD:B9:B1:3F:82:18:3B:54:02:12:DF:3E:5D:49:6B:19:E5:7C:AB\r\n"
+      "a=setup:actpass\r\n"
+      "a=ice-ufrag:ETEn\r\n"
+      "a=ice-pwd:OtSK0WpNtpUjkY4+86js7Z/l\r\n"
+      "m=audio 9 RTP/SAVPF 97\r\n"
+      "c=IN IP4 0.0.0.0\r\n"
+      "a=sendrecv\r\n"
+      "a=rtpmap:97 x-unknown/90000\r\n"
+      "a=rtcp-mux\r\n"
+      "m=video 9 RTP/SAVPF 98\r\n"
+      "c=IN IP4 0.0.0.0\r\n"
+      "a=sendrecv\r\n"
+      "a=rtpmap:98 H263-1998/90000\r\n"
+      "a=fmtp:98 CIF=1;QCIF=1\r\n"
+      "a=rtcp-mux\r\n";
+
+  auto desc = CreateSessionDescription(SdpType::kOffer, sdp);
+  ASSERT_NE(desc, nullptr);
+  RTCError error;
+  pc->SetRemoteDescription(std::move(desc), &error);
+  EXPECT_TRUE(error.ok());
+
+  auto answer = pc->CreateAnswer();
+  auto answer_contents = answer->description()->contents();
+  ASSERT_EQ(answer_contents.size(), 2u);
+  EXPECT_EQ(answer_contents[0].rejected, true);
+  EXPECT_EQ(answer_contents[1].rejected, true);
+}
 
 }  // namespace webrtc

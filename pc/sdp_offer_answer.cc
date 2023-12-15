@@ -86,8 +86,7 @@ namespace webrtc {
 
 namespace {
 
-typedef webrtc::PeerConnectionInterface::RTCOfferAnswerOptions
-    RTCOfferAnswerOptions;
+typedef PeerConnectionInterface::RTCOfferAnswerOptions RTCOfferAnswerOptions;
 
 // Error messages
 const char kInvalidSdp[] = "Invalid session description.";
@@ -566,22 +565,9 @@ RTCError ValidatePayloadTypes(const cricket::SessionDescription& description) {
       continue;
     }
     const auto type = media_description->type();
-    if (type == cricket::MEDIA_TYPE_AUDIO) {
-      RTC_DCHECK(media_description->as_audio());
-      for (const auto& codec : media_description->as_audio()->codecs()) {
-        if (!cricket::UsedPayloadTypes::IsIdValid(
-                codec, media_description->rtcp_mux())) {
-          LOG_AND_RETURN_ERROR(
-              RTCErrorType::INVALID_PARAMETER,
-              "The media section with MID='" + content.mid() +
-                  "' used an invalid payload type " + rtc::ToString(codec.id) +
-                  " for codec '" + codec.name + ", rtcp-mux:" +
-                  (media_description->rtcp_mux() ? "enabled" : "disabled"));
-        }
-      }
-    } else if (type == cricket::MEDIA_TYPE_VIDEO) {
-      RTC_DCHECK(media_description->as_video());
-      for (const auto& codec : media_description->as_video()->codecs()) {
+    if (type == cricket::MEDIA_TYPE_AUDIO ||
+        type == cricket::MEDIA_TYPE_VIDEO) {
+      for (const auto& codec : media_description->codecs()) {
         if (!cricket::UsedPayloadTypes::IsIdValid(
                 codec, media_description->rtcp_mux())) {
           LOG_AND_RETURN_ERROR(
@@ -834,8 +820,8 @@ std::string GenerateRtcpCname() {
 }
 
 // Check if we can send `new_stream` on a PeerConnection.
-bool CanAddLocalMediaStream(webrtc::StreamCollectionInterface* current_streams,
-                            webrtc::MediaStreamInterface* new_stream) {
+bool CanAddLocalMediaStream(StreamCollectionInterface* current_streams,
+                            MediaStreamInterface* new_stream) {
   if (!new_stream || !current_streams) {
     return false;
   }
@@ -847,7 +833,7 @@ bool CanAddLocalMediaStream(webrtc::StreamCollectionInterface* current_streams,
   return true;
 }
 
-rtc::scoped_refptr<webrtc::DtlsTransport> LookupDtlsTransportByMid(
+rtc::scoped_refptr<DtlsTransport> LookupDtlsTransportByMid(
     rtc::Thread* network_thread,
     JsepTransportController* controller,
     const std::string& mid) {
@@ -1888,8 +1874,8 @@ RTCError SdpOfferAnswerHandler::ApplyLocalDescription(
       if (audio_content->rejected) {
         RemoveSenders(cricket::MEDIA_TYPE_AUDIO);
       } else {
-        const cricket::AudioContentDescription* audio_desc =
-            audio_content->media_description()->as_audio();
+        const cricket::MediaContentDescription* audio_desc =
+            audio_content->media_description();
         UpdateLocalSenders(audio_desc->streams(), audio_desc->type());
       }
     }
@@ -1900,8 +1886,8 @@ RTCError SdpOfferAnswerHandler::ApplyLocalDescription(
       if (video_content->rejected) {
         RemoveSenders(cricket::MEDIA_TYPE_VIDEO);
       } else {
-        const cricket::VideoContentDescription* video_desc =
-            video_content->media_description()->as_video();
+        const cricket::MediaContentDescription* video_desc =
+            video_content->media_description();
         UpdateLocalSenders(video_desc->streams(), video_desc->type());
       }
     }
@@ -2092,24 +2078,16 @@ void SdpOfferAnswerHandler::ApplyRemoteDescription(
   if (operation->unified_plan()) {
     ApplyRemoteDescriptionUpdateTransceiverState(operation->type());
   }
-
-  const cricket::AudioContentDescription* audio_desc =
-      GetFirstAudioContentDescription(remote_description()->description());
-  const cricket::VideoContentDescription* video_desc =
-      GetFirstVideoContentDescription(remote_description()->description());
-
-  // Check if the descriptions include streams, just in case the peer supports
-  // MSID, but doesn't indicate so with "a=msid-semantic".
-  if (remote_description()->description()->msid_supported() ||
-      (audio_desc && !audio_desc->streams().empty()) ||
-      (video_desc && !video_desc->streams().empty())) {
-    remote_peer_supports_msid_ = true;
-  }
+  remote_peer_supports_msid_ =
+      remote_description()->description()->msid_signaling() !=
+      cricket::kMsidSignalingNotUsed;
 
   if (!operation->unified_plan()) {
     PlanBUpdateSendersAndReceivers(
-        GetFirstAudioContent(remote_description()->description()), audio_desc,
-        GetFirstVideoContent(remote_description()->description()), video_desc);
+        GetFirstAudioContent(remote_description()->description()),
+        GetFirstAudioContentDescription(remote_description()->description()),
+        GetFirstVideoContent(remote_description()->description()),
+        GetFirstVideoContentDescription(remote_description()->description()));
   }
 
   if (operation->type() == SdpType::kAnswer) {
@@ -2364,7 +2342,7 @@ void SdpOfferAnswerHandler::DoSetLocalDescription(
         cricket::CS_LOCAL, desc->GetType(), error);
     RTC_LOG(LS_ERROR) << error_message;
     observer->OnSetLocalDescriptionComplete(
-        RTCError(RTCErrorType::INTERNAL_ERROR, std::move(error_message)));
+        RTCError(error.type(), std::move(error_message)));
     return;
   }
 
@@ -3791,13 +3769,15 @@ RTCError SdpOfferAnswerHandler::UpdateTransceiversAndDataChannels(
         return error;
       }
     } else if (media_type == cricket::MEDIA_TYPE_DATA) {
-      if (pc_->GetDataMid() && new_content.name != *(pc_->GetDataMid())) {
+      const auto data_mid = pc_->sctp_mid();
+      if (data_mid && new_content.name != data_mid.value()) {
         // Ignore all but the first data section.
         RTC_LOG(LS_INFO) << "Ignoring data media section with MID="
                          << new_content.name;
         continue;
       }
-      RTCError error = UpdateDataChannel(source, new_content, bundle_group);
+      RTCError error =
+          UpdateDataChannelTransport(source, new_content, bundle_group);
       if (!error.ok()) {
         return error;
       }
@@ -3979,7 +3959,7 @@ RTCError SdpOfferAnswerHandler::UpdateTransceiverChannel(
   return RTCError::OK();
 }
 
-RTCError SdpOfferAnswerHandler::UpdateDataChannel(
+RTCError SdpOfferAnswerHandler::UpdateDataChannelTransport(
     cricket::ContentSource source,
     const cricket::ContentInfo& content,
     const cricket::ContentGroup* bundle_group) {
@@ -3991,8 +3971,8 @@ RTCError SdpOfferAnswerHandler::UpdateDataChannel(
     sb << "Rejected data channel transport with mid=" << content.mid();
     RTCError error(RTCErrorType::OPERATION_ERROR_WITH_DATA, sb.Release());
     error.set_error_detail(RTCErrorDetailType::DATA_CHANNEL_FAILURE);
-    DestroyDataChannelTransport(error);
-  } else if (!CreateDataChannel(content.name)) {
+    pc_->DestroyDataChannelTransport(error);
+  } else if (!pc_->CreateDataChannelTransport(content.name)) {
     LOG_AND_RETURN_ERROR(RTCErrorType::INTERNAL_ERROR,
                          "Failed to create data channel.");
   }
@@ -4323,8 +4303,9 @@ void SdpOfferAnswerHandler::GetOptionsForUnifiedPlanOffer(
         session_options->media_description_options.push_back(
             GetMediaDescriptionOptionsForRejectedData(mid));
       } else {
-        RTC_CHECK(pc_->GetDataMid());
-        if (mid == *(pc_->GetDataMid())) {
+        const auto data_mid = pc_->sctp_mid();
+        RTC_CHECK(data_mid);
+        if (mid == data_mid.value()) {
           session_options->media_description_options.push_back(
               GetMediaDescriptionOptionsForActiveData(mid));
         } else {
@@ -4365,9 +4346,9 @@ void SdpOfferAnswerHandler::GetOptionsForUnifiedPlanOffer(
   }
   // Lastly, add a m-section if we have requested local data channels and an
   // m section does not already exist.
-  if (!pc_->GetDataMid() && data_channel_controller()->HasDataChannels()) {
+  if (!pc_->sctp_mid() && data_channel_controller()->HasDataChannels()) {
     // Attempt to recycle a stopped m-line.
-    // TODO(crbug.com/1442604): GetDataMid() should return the mid if one was
+    // TODO(crbug.com/1442604): sctp_mid() should return the mid if one was
     // ever created but rejected.
     bool recycled = false;
     for (size_t i = 0; i < session_options->media_description_options.size();
@@ -4510,7 +4491,7 @@ void SdpOfferAnswerHandler::GetOptionsForUnifiedPlanAnswer(
       // Reject all data sections if data channels are disabled.
       // Reject a data section if it has already been rejected.
       // Reject all data sections except for the first one.
-      if (content.rejected || content.name != *(pc_->GetDataMid())) {
+      if (content.rejected || content.name != *(pc_->sctp_mid())) {
         session_options->media_description_options.push_back(
             GetMediaDescriptionOptionsForRejectedData(content.name));
       } else {
@@ -5003,14 +4984,14 @@ void SdpOfferAnswerHandler::RemoveUnusedChannels(
     RTCError error(RTCErrorType::OPERATION_ERROR_WITH_DATA,
                    "No data channel section in the description.");
     error.set_error_detail(RTCErrorDetailType::DATA_CHANNEL_FAILURE);
-    DestroyDataChannelTransport(error);
+    pc_->DestroyDataChannelTransport(error);
   } else if (data_info->rejected) {
     rtc::StringBuilder sb;
     sb << "Rejected data channel with mid=" << data_info->name << ".";
 
     RTCError error(RTCErrorType::OPERATION_ERROR_WITH_DATA, sb.Release());
     error.set_error_detail(RTCErrorDetailType::DATA_CHANNEL_FAILURE);
-    DestroyDataChannelTransport(error);
+    pc_->DestroyDataChannelTransport(error);
   }
 }
 
@@ -5193,7 +5174,7 @@ RTCError SdpOfferAnswerHandler::CreateChannels(const SessionDescription& desc) {
   }
 
   const cricket::ContentInfo* data = cricket::GetFirstDataContent(&desc);
-  if (data && !data->rejected && !CreateDataChannel(data->name)) {
+  if (data && !data->rejected && !pc_->CreateDataChannelTransport(data->name)) {
     LOG_AND_RETURN_ERROR(RTCErrorType::INTERNAL_ERROR,
                          "Failed to create data channel.");
   }
@@ -5201,34 +5182,7 @@ RTCError SdpOfferAnswerHandler::CreateChannels(const SessionDescription& desc) {
   return RTCError::OK();
 }
 
-bool SdpOfferAnswerHandler::CreateDataChannel(const std::string& mid) {
-  RTC_DCHECK_RUN_ON(signaling_thread());
-  RTC_DCHECK(!pc_->sctp_mid().has_value() || mid == pc_->sctp_mid().value());
-  RTC_LOG(LS_INFO) << "Creating data channel, mid=" << mid;
-
-  absl::optional<std::string> transport_name =
-      context_->network_thread()->BlockingCall([&] {
-        RTC_DCHECK_RUN_ON(context_->network_thread());
-        return pc_->SetupDataChannelTransport_n(mid);
-      });
-  if (!transport_name)
-    return false;
-
-  pc_->SetSctpDataInfo(mid, *transport_name);
-  return true;
-}
-
-void SdpOfferAnswerHandler::DestroyDataChannelTransport(RTCError error) {
-  RTC_DCHECK_RUN_ON(signaling_thread());
-  context_->network_thread()->BlockingCall(
-      [&, data_channel_controller = data_channel_controller()] {
-        RTC_DCHECK_RUN_ON(context_->network_thread());
-        pc_->TeardownDataChannelTransport_n(error);
-      });
-  pc_->ResetSctpDataInfo();
-}
-
-void SdpOfferAnswerHandler::DestroyAllChannels() {
+void SdpOfferAnswerHandler::DestroyMediaChannels() {
   RTC_DCHECK_RUN_ON(signaling_thread());
   if (!transceivers()) {
     return;
@@ -5251,8 +5205,6 @@ void SdpOfferAnswerHandler::DestroyAllChannels() {
       transceiver->internal()->ClearChannel();
     }
   }
-
-  DestroyDataChannelTransport({});
 }
 
 void SdpOfferAnswerHandler::GenerateMediaDescriptionOptions(
@@ -5392,44 +5344,40 @@ bool SdpOfferAnswerHandler::UpdatePayloadTypeDemuxingState(
       // Ignore transceivers that are not receiving.
       continue;
     }
-    switch (content_info.media_description()->type()) {
-      case cricket::MediaType::MEDIA_TYPE_AUDIO: {
-        if (!mid_header_extension_missing_audio) {
-          mid_header_extension_missing_audio =
-              !ContentHasHeaderExtension(content_info, RtpExtension::kMidUri);
-        }
-        const cricket::AudioContentDescription* audio_desc =
-            content_info.media_description()->as_audio();
-        for (const cricket::AudioCodec& audio : audio_desc->codecs()) {
-          if (payload_types->audio_payload_types.count(audio.id)) {
+    const cricket::MediaType media_type =
+        content_info.media_description()->type();
+    if (media_type == cricket::MediaType::MEDIA_TYPE_AUDIO ||
+        media_type == cricket::MediaType::MEDIA_TYPE_VIDEO) {
+      if (media_type == cricket::MediaType::MEDIA_TYPE_AUDIO &&
+          !mid_header_extension_missing_audio) {
+        mid_header_extension_missing_audio =
+            !ContentHasHeaderExtension(content_info, RtpExtension::kMidUri);
+      } else if (media_type == cricket::MEDIA_TYPE_VIDEO &&
+                 !mid_header_extension_missing_video) {
+        mid_header_extension_missing_video =
+            !ContentHasHeaderExtension(content_info, RtpExtension::kMidUri);
+      }
+      const cricket::MediaContentDescription* media_desc =
+          content_info.media_description();
+      for (const cricket::Codec& codec : media_desc->codecs()) {
+        if (media_type == cricket::MediaType::MEDIA_TYPE_AUDIO) {
+          if (payload_types->audio_payload_types.count(codec.id)) {
             // Two m= sections are using the same payload type, thus demuxing
             // by payload type is not possible.
-            payload_types->pt_demuxing_possible_audio = false;
+            if (media_type == cricket::MediaType::MEDIA_TYPE_AUDIO) {
+              payload_types->pt_demuxing_possible_audio = false;
+            }
           }
-          payload_types->audio_payload_types.insert(audio.id);
-        }
-        break;
-      }
-      case cricket::MediaType::MEDIA_TYPE_VIDEO: {
-        if (!mid_header_extension_missing_video) {
-          mid_header_extension_missing_video =
-              !ContentHasHeaderExtension(content_info, RtpExtension::kMidUri);
-        }
-        const cricket::VideoContentDescription* video_desc =
-            content_info.media_description()->as_video();
-        for (const cricket::VideoCodec& video : video_desc->codecs()) {
-          if (payload_types->video_payload_types.count(video.id)) {
+          payload_types->audio_payload_types.insert(codec.id);
+        } else if (media_type == cricket::MEDIA_TYPE_VIDEO) {
+          if (payload_types->video_payload_types.count(codec.id)) {
             // Two m= sections are using the same payload type, thus demuxing
             // by payload type is not possible.
             payload_types->pt_demuxing_possible_video = false;
           }
-          payload_types->video_payload_types.insert(video.id);
+          payload_types->video_payload_types.insert(codec.id);
         }
-        break;
       }
-      default:
-        // Ignore data channels.
-        continue;
     }
   }
 

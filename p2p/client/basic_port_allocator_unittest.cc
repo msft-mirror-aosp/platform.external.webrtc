@@ -163,7 +163,7 @@ class BasicPortAllocatorTestBase : public ::testing::Test,
         // must be called.
         nat_factory_(vss_.get(), kNatUdpAddr, kNatTcpAddr),
         nat_socket_factory_(new rtc::BasicPacketSocketFactory(&nat_factory_)),
-        stun_server_(TestStunServer::Create(fss_.get(), kStunAddr)),
+        stun_server_(TestStunServer::Create(fss_.get(), kStunAddr, thread_)),
         turn_server_(rtc::Thread::Current(),
                      fss_.get(),
                      kTurnUdpIntAddr,
@@ -496,8 +496,8 @@ class BasicPortAllocatorTestBase : public ::testing::Test,
                            bool with_nat) {
     if (with_nat) {
       nat_server_.reset(new rtc::NATServer(
-          rtc::NAT_OPEN_CONE, vss_.get(), kNatUdpAddr, kNatTcpAddr, vss_.get(),
-          rtc::SocketAddress(kNatUdpAddr.ipaddr(), 0)));
+          rtc::NAT_OPEN_CONE, thread_, vss_.get(), kNatUdpAddr, kNatTcpAddr,
+          thread_, vss_.get(), rtc::SocketAddress(kNatUdpAddr.ipaddr(), 0)));
     } else {
       nat_socket_factory_ =
           std::make_unique<rtc::BasicPacketSocketFactory>(fss_.get());
@@ -521,7 +521,7 @@ class BasicPortAllocatorTestBase : public ::testing::Test,
   std::unique_ptr<rtc::NATServer> nat_server_;
   rtc::NATSocketFactory nat_factory_;
   std::unique_ptr<rtc::BasicPacketSocketFactory> nat_socket_factory_;
-  std::unique_ptr<TestStunServer> stun_server_;
+  TestStunServer::StunServerPtr stun_server_;
   TestTurnServer turn_server_;
   rtc::FakeNetworkManager network_manager_;
   std::unique_ptr<BasicPortAllocator> allocator_;
