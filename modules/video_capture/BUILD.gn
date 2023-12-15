@@ -40,13 +40,14 @@ rtc_library("video_capture_module") {
     "../../rtc_base:stringutils",
     "../../rtc_base:timeutils",
     "../../rtc_base/synchronization:mutex",
+    "../../rtc_base/system:rtc_export",
     "../../system_wrappers",
     "//third_party/libyuv",
   ]
   absl_deps = [ "//third_party/abseil-cpp/absl/strings" ]
 }
 
-if (!build_with_chromium) {
+if (!build_with_chromium || is_linux || is_chromeos) {
   rtc_source_set("video_capture_internal_impl") {
     visibility = [ "*" ]
     deps = [
@@ -81,6 +82,8 @@ if (!build_with_chromium) {
 
       if (rtc_use_pipewire) {
         sources += [
+          "linux/camera_portal.cc",
+          "linux/camera_portal.h",
           "linux/device_info_pipewire.cc",
           "linux/device_info_pipewire.h",
           "linux/pipewire_session.cc",

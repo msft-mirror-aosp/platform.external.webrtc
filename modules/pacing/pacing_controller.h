@@ -52,6 +52,8 @@ class PacingController {
     virtual std::vector<std::unique_ptr<RtpPacketToSend>> FetchFec() = 0;
     virtual std::vector<std::unique_ptr<RtpPacketToSend>> GeneratePadding(
         DataSize size) = 0;
+    // TODO(bugs.webrtc.org/1439830): Make pure virtual once subclasses adapt.
+    virtual void OnBatchComplete() {}
 
     // TODO(bugs.webrtc.org/11340): Make pure virtual once downstream projects
     // have been updated.
@@ -205,8 +207,8 @@ class PacingController {
   const bool pace_audio_;
   const bool ignore_transport_overhead_;
   const bool fast_retransmissions_;
+  const bool keyframe_flushing_;
 
-  TimeDelta min_packet_limit_;
   DataSize transport_overhead_per_packet_;
   TimeDelta send_burst_interval_;
 

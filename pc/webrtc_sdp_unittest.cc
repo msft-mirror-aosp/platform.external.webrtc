@@ -1241,9 +1241,9 @@ class WebRtcSdpTest : public ::testing::Test {
         "inline:NzB4d1BINUAvLEw6UzF3WSJ+PSdFcGdUJShpX1Zj|2^20|1:32",
         "dummy_session_params"));
     audio->set_protocol(cricket::kMediaProtocolSavpf);
-    audio->AddCodec(AudioCodec(111, "opus", 48000, 0, 2));
-    audio->AddCodec(AudioCodec(103, "ISAC", 16000, 0, 1));
-    audio->AddCodec(AudioCodec(104, "ISAC", 32000, 0, 1));
+    audio->AddCodec(cricket::CreateAudioCodec(111, "opus", 48000, 2));
+    audio->AddCodec(cricket::CreateAudioCodec(103, "ISAC", 16000, 1));
+    audio->AddCodec(cricket::CreateAudioCodec(104, "ISAC", 32000, 1));
     return audio;
   }
 
@@ -1317,8 +1317,7 @@ class WebRtcSdpTest : public ::testing::Test {
         1, "AES_CM_128_HMAC_SHA1_80",
         "inline:d0RmdmcmVCspeEc3QGZiNWpVLFJhQX1cfHAwJSoj|2^20|1:32", ""));
     video->set_protocol(cricket::kMediaProtocolSavpf);
-    video->AddCodec(
-        VideoCodec(120, JsepSessionDescription::kDefaultVideoCodecName));
+    video->AddCodec(cricket::CreateVideoCodec(120, "VP8"));
     return video;
   }
 
@@ -1969,8 +1968,7 @@ class WebRtcSdpTest : public ::testing::Test {
     ASSERT_TRUE(vcd);
     ASSERT_FALSE(vcd->codecs().empty());
     cricket::VideoCodec vp8 = vcd->codecs()[0];
-    EXPECT_STREQ(webrtc::JsepSessionDescription::kDefaultVideoCodecName,
-                 vp8.name.c_str());
+    EXPECT_EQ(vp8.name, "VP8");
     EXPECT_EQ(101, vp8.id);
     EXPECT_TRUE(vp8.HasFeedbackParam(cricket::FeedbackParam(
         cricket::kRtcpFbParamLntf, cricket::kParamValueEmpty)));
@@ -2346,7 +2344,7 @@ TEST_F(WebRtcSdpTest, ParseSslTcpCandidate) {
 }
 
 TEST_F(WebRtcSdpTest, SerializeSessionDescriptionWithH264) {
-  cricket::VideoCodec h264_codec("H264");
+  cricket::VideoCodec h264_codec = cricket::CreateVideoCodec("H264");
   h264_codec.SetParam("profile-level-id", "42e01f");
   h264_codec.SetParam("level-asymmetry-allowed", "1");
   h264_codec.SetParam("packetization-mode", "1");
@@ -2437,9 +2435,9 @@ TEST_F(WebRtcSdpTest, DeserializeSessionDescriptionWithoutRtpmap) {
   AudioCodecs ref_codecs;
   // The codecs in the AudioContentDescription should be in the same order as
   // the payload types (<fmt>s) on the m= line.
-  ref_codecs.push_back(AudioCodec(0, "PCMU", 8000, 0, 1));
-  ref_codecs.push_back(AudioCodec(18, "G729", 8000, 0, 1));
-  ref_codecs.push_back(AudioCodec(103, "ISAC", 16000, 0, 1));
+  ref_codecs.push_back(cricket::CreateAudioCodec(0, "PCMU", 8000, 1));
+  ref_codecs.push_back(cricket::CreateAudioCodec(18, "G729", 8000, 1));
+  ref_codecs.push_back(cricket::CreateAudioCodec(103, "ISAC", 16000, 1));
   EXPECT_EQ(ref_codecs, audio->codecs());
 }
 
@@ -3281,38 +3279,6 @@ TEST_F(WebRtcSdpTest, DeserializeSerializeRtcpFbWildcard) {
   TestSerialize(jdesc_output);
 }
 
-TEST_F(WebRtcSdpTest, SerializeRtcpFbWildcard) {
-  std::string sdp =
-      "v=0\r\n"
-      "o=- 18446744069414584320 18446462598732840960 IN IP4 127.0.0.1\r\n"
-      "s=-\r\n"
-      "t=0 0\r\n"
-      "m=video 3457 RTP/SAVPF 100 101 102 103\r\n"
-      "a=rtpmap:100 VP8/90000\r\n"
-      "a=rtcp-fb:100 nack\r\n"
-      "a=rtcp-fb:100 nack pli\r\n"
-      "a=rtpmap:101 rtx/90000\r\n"
-      "a=fmtp:101 apt=100\r\n"
-      "a=rtpmap:102 VP9/90000\r\n"
-      "a=rtcp-fb:102 nack\r\n"
-      "a=rtpmap:103 rtx/90000\r\n"
-      "a=fmtp:103 apt=102\r\n";
-  JsepSessionDescription jdesc(kDummyType);
-  SdpParseError error;
-  EXPECT_TRUE(webrtc::SdpDeserialize(sdp, &jdesc, &error));
-
-  std::string message = webrtc::SdpSerialize(jdesc);
-  // NACK is a common parameter so serialized with wildcard in addition to
-  // per-codec entries.
-  EXPECT_NE(message.find("\r\na=rtcp-fb:100 nack\r\n"), std::string::npos);
-  EXPECT_NE(message.find("\r\na=rtcp-fb:102 nack\r\n"), std::string::npos);
-  EXPECT_NE(message.find("\r\na=rtcp-fb:* nack\r\n"), std::string::npos);
-  // PLI is not a common parameter so no wildcard.
-  EXPECT_NE(message.find("\r\na=rtcp-fb:100 nack pli\r\n"), std::string::npos);
-  EXPECT_EQ(message.find("\r\na=rtcp-fb:102 nack pli\r\n"), std::string::npos);
-  EXPECT_EQ(message.find("\r\na=rtcp-fb:* nack pli\r\n"), std::string::npos);
-}
-
 TEST_F(WebRtcSdpTest, DeserializeVideoFmtp) {
   JsepSessionDescription jdesc_output(kDummyType);
 
@@ -3517,7 +3483,8 @@ TEST_F(WebRtcSdpTest, SerializeAudioFmtpWithTelephoneEvent) {
   AudioContentDescription* acd = GetFirstAudioContentDescription(&desc_);
 
   cricket::AudioCodecs codecs = acd->codecs();
-  cricket::AudioCodec dtmf(105, "telephone-event", 8000, 0, 1);
+  cricket::AudioCodec dtmf =
+      cricket::CreateAudioCodec(105, "telephone-event", 8000, 1);
   dtmf.params[""] = "0-15";
   codecs.push_back(dtmf);
   acd->set_codecs(codecs);
@@ -5027,4 +4994,66 @@ TEST_F(WebRtcSdpTest, ParseIgnoreUnknownSsrcSpecificAttribute) {
   JsepSessionDescription output(kDummyType);
   SdpParseError error;
   ASSERT_TRUE(webrtc::SdpDeserialize(sdp, &output, &error));
+}
+
+TEST_F(WebRtcSdpTest, ParseSessionLevelExtmapAttributes) {
+  std::string sdp =
+      "v=0\r\n"
+      "o=- 0 3 IN IP4 127.0.0.1\r\n"
+      "s=-\r\n"
+      "t=0 0\r\n"
+      "a=group:BUNDLE 0\r\n"
+      "a=fingerprint:sha-1 "
+      "4A:AD:B9:B1:3F:82:18:3B:54:02:12:DF:3E:5D:49:6B:19:E5:7C:AB\r\n"
+      "a=setup:actpass\r\n"
+      "a=ice-ufrag:ETEn\r\n"
+      "a=ice-pwd:OtSK0WpNtpUjkY4+86js7Z/l\r\n"
+      "a=extmap:3 "
+      "http://www.ietf.org/id/"
+      "draft-holmer-rmcat-transport-wide-cc-extensions-01\r\n"
+      "m=audio 9 UDP/TLS/RTP/SAVPF 111\r\n"
+      "c=IN IP4 0.0.0.0\r\n"
+      "a=rtcp-mux\r\n"
+      "a=sendonly\r\n"
+      "a=mid:0\r\n"
+      "a=rtpmap:111 opus/48000/2\r\n";
+  JsepSessionDescription jdesc(kDummyType);
+  EXPECT_TRUE(SdpDeserialize(sdp, &jdesc));
+  ASSERT_EQ(1u, jdesc.description()->contents().size());
+  const auto content = jdesc.description()->contents()[0];
+  const auto* audio_description = content.media_description()->as_audio();
+  ASSERT_NE(audio_description, nullptr);
+  const auto& extensions = audio_description->rtp_header_extensions();
+  ASSERT_EQ(1u, extensions.size());
+  EXPECT_EQ(extensions[0].uri,
+            "http://www.ietf.org/id/"
+            "draft-holmer-rmcat-transport-wide-cc-extensions-01");
+  EXPECT_EQ(extensions[0].id, 3);
+}
+
+TEST_F(WebRtcSdpTest, RejectSessionLevelMediaLevelExtmapMixedUsage) {
+  std::string sdp =
+      "v=0\r\n"
+      "o=- 0 3 IN IP4 127.0.0.1\r\n"
+      "s=-\r\n"
+      "t=0 0\r\n"
+      "a=group:BUNDLE 0\r\n"
+      "a=fingerprint:sha-1 "
+      "4A:AD:B9:B1:3F:82:18:3B:54:02:12:DF:3E:5D:49:6B:19:E5:7C:AB\r\n"
+      "a=setup:actpass\r\n"
+      "a=ice-ufrag:ETEn\r\n"
+      "a=ice-pwd:OtSK0WpNtpUjkY4+86js7Z/l\r\n"
+      "a=extmap:3 "
+      "http://www.ietf.org/id/"
+      "draft-holmer-rmcat-transport-wide-cc-extensions-01\r\n"
+      "m=audio 9 UDP/TLS/RTP/SAVPF 111\r\n"
+      "a=extmap:2 "
+      "http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time\r\n"
+      "c=IN IP4 0.0.0.0\r\n"
+      "a=rtcp-mux\r\n"
+      "a=sendonly\r\n"
+      "a=mid:0\r\n"
+      "a=rtpmap:111 opus/48000/2\r\n";
+  JsepSessionDescription jdesc(kDummyType);
+  EXPECT_FALSE(SdpDeserialize(sdp, &jdesc));
 }

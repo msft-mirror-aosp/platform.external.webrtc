@@ -11,6 +11,7 @@
 #define PC_TEST_MOCK_VOICE_MEDIA_CHANNEL_H_
 
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -28,8 +29,9 @@ using ::testing::Mock;
 namespace cricket {
 class MockVoiceMediaChannel : public VoiceMediaChannel {
  public:
-  explicit MockVoiceMediaChannel(webrtc::TaskQueueBase* network_thread)
-      : VoiceMediaChannel(MediaChannel::Role::kBoth, network_thread) {}
+  MockVoiceMediaChannel(MediaChannel::Role role,
+                        webrtc::TaskQueueBase* network_thread)
+      : VoiceMediaChannel(role, network_thread) {}
 
   MOCK_METHOD(void,
               SetInterface,
@@ -61,7 +63,19 @@ class MockVoiceMediaChannel : public VoiceMediaChannel {
               GetUnsignaledSsrc,
               (),
               (const, override));
-  MOCK_METHOD(bool, SetLocalSsrc, (const StreamParams& sp), (override));
+  MOCK_METHOD(void,
+              ChooseReceiverReportSsrc,
+              (const std::set<uint32_t>&),
+              (override));
+  MOCK_METHOD(bool, SendCodecHasNack, (), (const, override));
+  MOCK_METHOD(void,
+              SetSsrcListChangedCallback,
+              (absl::AnyInvocable<void(const std::set<uint32_t>&)>),
+              (override));
+  MOCK_METHOD(void,
+              SetSendCodecChangedCallback,
+              (absl::AnyInvocable<void()>),
+              (override));
   MOCK_METHOD(void, OnDemuxerCriteriaUpdatePending, (), (override));
   MOCK_METHOD(void, OnDemuxerCriteriaUpdateComplete, (), (override));
   MOCK_METHOD(int, GetRtpSendTimeExtnId, (), (const, override));
@@ -161,6 +175,10 @@ class MockVoiceMediaChannel : public VoiceMediaChannel {
               GetBaseMinimumPlayoutDelayMs,
               (uint32_t ssrc),
               (const, override));
+  MOCK_METHOD(bool, SenderNackEnabled, (), (const, override));
+  MOCK_METHOD(bool, SenderNonSenderRttEnabled, (), (const, override));
+  MOCK_METHOD(void, SetReceiveNackEnabled, (bool enabled), (override));
+  MOCK_METHOD(void, SetReceiveNonSenderRttEnabled, (bool enabled), (override));
 };
 }  // namespace cricket
 

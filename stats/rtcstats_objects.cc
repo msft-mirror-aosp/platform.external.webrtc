@@ -95,8 +95,6 @@ RTCCertificateStats::RTCCertificateStats(std::string id, Timestamp timestamp)
       fingerprint_algorithm("fingerprintAlgorithm"),
       base64_certificate("base64Certificate"),
       issuer_certificate_id("issuerCertificateId") {}
-RTCCertificateStats::RTCCertificateStats(std::string id, int64_t timestamp_us)
-    : RTCCertificateStats(std::move(id), Timestamp::Micros(timestamp_us)) {}
 
 RTCCertificateStats::RTCCertificateStats(const RTCCertificateStats& other) =
     default;
@@ -120,8 +118,6 @@ RTCCodecStats::RTCCodecStats(std::string id, Timestamp timestamp)
       clock_rate("clockRate"),
       channels("channels"),
       sdp_fmtp_line("sdpFmtpLine") {}
-RTCCodecStats::RTCCodecStats(std::string id, int64_t timestamp_us)
-    : RTCCodecStats(std::move(id), Timestamp::Micros(timestamp_us)) {}
 
 RTCCodecStats::RTCCodecStats(const RTCCodecStats& other) = default;
 
@@ -149,8 +145,6 @@ RTCDataChannelStats::RTCDataChannelStats(std::string id, Timestamp timestamp)
       bytes_sent("bytesSent"),
       messages_received("messagesReceived"),
       bytes_received("bytesReceived") {}
-RTCDataChannelStats::RTCDataChannelStats(std::string id, int64_t timestamp_us)
-    : RTCDataChannelStats(std::move(id), Timestamp::Micros(timestamp_us)) {}
 
 RTCDataChannelStats::RTCDataChannelStats(const RTCDataChannelStats& other) =
     default;
@@ -212,10 +206,6 @@ RTCIceCandidatePairStats::RTCIceCandidatePairStats(std::string id,
       bytes_discarded_on_send("bytesDiscardedOnSend"),
       last_packet_received_timestamp("lastPacketReceivedTimestamp"),
       last_packet_sent_timestamp("lastPacketSentTimestamp") {}
-RTCIceCandidatePairStats::RTCIceCandidatePairStats(std::string id,
-                                                   int64_t timestamp_us)
-    : RTCIceCandidatePairStats(std::move(id), Timestamp::Micros(timestamp_us)) {
-}
 
 RTCIceCandidatePairStats::RTCIceCandidatePairStats(
     const RTCIceCandidatePairStats& other) = default;
@@ -266,12 +256,6 @@ RTCIceCandidateStats::RTCIceCandidateStats(std::string id,
       tcp_type("tcpType"),
       vpn("vpn"),
       network_adapter_type("networkAdapterType") {}
-RTCIceCandidateStats::RTCIceCandidateStats(std::string id,
-                                           int64_t timestamp_us,
-                                           bool is_remote)
-    : RTCIceCandidateStats(std::move(id),
-                           Timestamp::Micros(timestamp_us),
-                           is_remote) {}
 
 RTCIceCandidateStats::RTCIceCandidateStats(const RTCIceCandidateStats& other) =
     default;
@@ -283,10 +267,6 @@ const char RTCLocalIceCandidateStats::kType[] = "local-candidate";
 RTCLocalIceCandidateStats::RTCLocalIceCandidateStats(std::string id,
                                                      Timestamp timestamp)
     : RTCIceCandidateStats(std::move(id), timestamp, false) {}
-RTCLocalIceCandidateStats::RTCLocalIceCandidateStats(std::string id,
-                                                     int64_t timestamp_us)
-    : RTCLocalIceCandidateStats(std::move(id),
-                                Timestamp::Micros(timestamp_us)) {}
 
 std::unique_ptr<RTCStats> RTCLocalIceCandidateStats::copy() const {
   return std::make_unique<RTCLocalIceCandidateStats>(*this);
@@ -301,10 +281,6 @@ const char RTCRemoteIceCandidateStats::kType[] = "remote-candidate";
 RTCRemoteIceCandidateStats::RTCRemoteIceCandidateStats(std::string id,
                                                        Timestamp timestamp)
     : RTCIceCandidateStats(std::move(id), timestamp, true) {}
-RTCRemoteIceCandidateStats::RTCRemoteIceCandidateStats(std::string id,
-                                                       int64_t timestamp_us)
-    : RTCRemoteIceCandidateStats(std::move(id),
-                                 Timestamp::Micros(timestamp_us)) {}
 
 std::unique_ptr<RTCStats> RTCRemoteIceCandidateStats::copy() const {
   return std::make_unique<RTCRemoteIceCandidateStats>(*this);
@@ -313,106 +289,6 @@ std::unique_ptr<RTCStats> RTCRemoteIceCandidateStats::copy() const {
 const char* RTCRemoteIceCandidateStats::type() const {
   return kType;
 }
-
-// clang-format off
-WEBRTC_RTCSTATS_IMPL(DEPRECATED_RTCMediaStreamStats, RTCStats, "stream",
-    &stream_identifier,
-    &track_ids)
-// clang-format on
-
-DEPRECATED_RTCMediaStreamStats::DEPRECATED_RTCMediaStreamStats(
-    std::string id,
-    Timestamp timestamp)
-    : RTCStats(std::move(id), timestamp),
-      stream_identifier("streamIdentifier"),
-      track_ids("trackIds") {}
-DEPRECATED_RTCMediaStreamStats::DEPRECATED_RTCMediaStreamStats(
-    std::string id,
-    int64_t timestamp_us)
-    : DEPRECATED_RTCMediaStreamStats(std::move(id),
-                                     Timestamp::Micros(timestamp_us)) {}
-
-DEPRECATED_RTCMediaStreamStats::DEPRECATED_RTCMediaStreamStats(
-    const DEPRECATED_RTCMediaStreamStats& other) = default;
-
-DEPRECATED_RTCMediaStreamStats::~DEPRECATED_RTCMediaStreamStats() {}
-
-// clang-format off
-WEBRTC_RTCSTATS_IMPL(DEPRECATED_RTCMediaStreamTrackStats, RTCStats, "track",
-                     &track_identifier,
-                     &media_source_id,
-                     &remote_source,
-                     &ended,
-                     &detached,
-                     &kind,
-                     &jitter_buffer_delay,
-                     &jitter_buffer_emitted_count,
-                     &frame_width,
-                     &frame_height,
-                     &frames_sent,
-                     &huge_frames_sent,
-                     &frames_received,
-                     &frames_decoded,
-                     &frames_dropped,
-                     &audio_level,
-                     &total_audio_energy,
-                     &echo_return_loss,
-                     &echo_return_loss_enhancement,
-                     &total_samples_received,
-                     &total_samples_duration,
-                     &concealed_samples,
-                     &silent_concealed_samples,
-                     &concealment_events,
-                     &inserted_samples_for_deceleration,
-                     &removed_samples_for_acceleration)
-// clang-format on
-
-DEPRECATED_RTCMediaStreamTrackStats::DEPRECATED_RTCMediaStreamTrackStats(
-    std::string id,
-    Timestamp timestamp,
-    const char* kind)
-    : RTCStats(std::move(id), timestamp),
-      track_identifier("trackIdentifier"),
-      media_source_id("mediaSourceId"),
-      remote_source("remoteSource"),
-      ended("ended"),
-      detached("detached"),
-      kind("kind", kind),
-      jitter_buffer_delay("jitterBufferDelay"),
-      jitter_buffer_emitted_count("jitterBufferEmittedCount"),
-      frame_width("frameWidth"),
-      frame_height("frameHeight"),
-      frames_sent("framesSent"),
-      huge_frames_sent("hugeFramesSent"),
-      frames_received("framesReceived"),
-      frames_decoded("framesDecoded"),
-      frames_dropped("framesDropped"),
-      audio_level("audioLevel"),
-      total_audio_energy("totalAudioEnergy"),
-      echo_return_loss("echoReturnLoss"),
-      echo_return_loss_enhancement("echoReturnLossEnhancement"),
-      total_samples_received("totalSamplesReceived"),
-      total_samples_duration("totalSamplesDuration"),
-      concealed_samples("concealedSamples"),
-      silent_concealed_samples("silentConcealedSamples"),
-      concealment_events("concealmentEvents"),
-      inserted_samples_for_deceleration("insertedSamplesForDeceleration"),
-      removed_samples_for_acceleration("removedSamplesForAcceleration") {
-  RTC_DCHECK(kind == RTCMediaStreamTrackKind::kAudio ||
-             kind == RTCMediaStreamTrackKind::kVideo);
-}
-DEPRECATED_RTCMediaStreamTrackStats::DEPRECATED_RTCMediaStreamTrackStats(
-    std::string id,
-    int64_t timestamp_us,
-    const char* kind)
-    : DEPRECATED_RTCMediaStreamTrackStats(std::move(id),
-                                          Timestamp::Micros(timestamp_us),
-                                          kind) {}
-
-DEPRECATED_RTCMediaStreamTrackStats::DEPRECATED_RTCMediaStreamTrackStats(
-    const DEPRECATED_RTCMediaStreamTrackStats& other) = default;
-
-DEPRECATED_RTCMediaStreamTrackStats::~DEPRECATED_RTCMediaStreamTrackStats() {}
 
 // clang-format off
 WEBRTC_RTCSTATS_IMPL(RTCPeerConnectionStats, RTCStats, "peer-connection",
@@ -425,9 +301,6 @@ RTCPeerConnectionStats::RTCPeerConnectionStats(std::string id,
     : RTCStats(std::move(id), timestamp),
       data_channels_opened("dataChannelsOpened"),
       data_channels_closed("dataChannelsClosed") {}
-RTCPeerConnectionStats::RTCPeerConnectionStats(std::string id,
-                                               int64_t timestamp_us)
-    : RTCPeerConnectionStats(std::move(id), Timestamp::Micros(timestamp_us)) {}
 
 RTCPeerConnectionStats::RTCPeerConnectionStats(
     const RTCPeerConnectionStats& other) = default;
@@ -435,46 +308,36 @@ RTCPeerConnectionStats::RTCPeerConnectionStats(
 RTCPeerConnectionStats::~RTCPeerConnectionStats() {}
 
 // clang-format off
-WEBRTC_RTCSTATS_IMPL(RTCRTPStreamStats, RTCStats, "rtp",
+WEBRTC_RTCSTATS_IMPL(RTCRtpStreamStats, RTCStats, "rtp",
     &ssrc,
     &kind,
-    &track_id,
     &transport_id,
-    &codec_id,
-    &media_type)
+    &codec_id)
 // clang-format on
 
-RTCRTPStreamStats::RTCRTPStreamStats(std::string id, Timestamp timestamp)
+RTCRtpStreamStats::RTCRtpStreamStats(std::string id, Timestamp timestamp)
     : RTCStats(std::move(id), timestamp),
       ssrc("ssrc"),
       kind("kind"),
-      track_id("trackId"),
       transport_id("transportId"),
-      codec_id("codecId"),
-      media_type("mediaType") {}
-RTCRTPStreamStats::RTCRTPStreamStats(std::string id, int64_t timestamp_us)
-    : RTCRTPStreamStats(std::move(id), Timestamp::Micros(timestamp_us)) {}
+      codec_id("codecId") {}
 
-RTCRTPStreamStats::RTCRTPStreamStats(const RTCRTPStreamStats& other) = default;
+RTCRtpStreamStats::RTCRtpStreamStats(const RTCRtpStreamStats& other) = default;
 
-RTCRTPStreamStats::~RTCRTPStreamStats() {}
+RTCRtpStreamStats::~RTCRtpStreamStats() {}
 
 // clang-format off
 WEBRTC_RTCSTATS_IMPL(
-    RTCReceivedRtpStreamStats, RTCRTPStreamStats, "received-rtp",
+    RTCReceivedRtpStreamStats, RTCRtpStreamStats, "received-rtp",
     &jitter,
     &packets_lost)
 // clang-format on
 
 RTCReceivedRtpStreamStats::RTCReceivedRtpStreamStats(std::string id,
                                                      Timestamp timestamp)
-    : RTCRTPStreamStats(std::move(id), timestamp),
+    : RTCRtpStreamStats(std::move(id), timestamp),
       jitter("jitter"),
       packets_lost("packetsLost") {}
-RTCReceivedRtpStreamStats::RTCReceivedRtpStreamStats(std::string id,
-                                                     int64_t timestamp_us)
-    : RTCReceivedRtpStreamStats(std::move(id),
-                                Timestamp::Micros(timestamp_us)) {}
 
 RTCReceivedRtpStreamStats::RTCReceivedRtpStreamStats(
     const RTCReceivedRtpStreamStats& other) = default;
@@ -483,19 +346,16 @@ RTCReceivedRtpStreamStats::~RTCReceivedRtpStreamStats() {}
 
 // clang-format off
 WEBRTC_RTCSTATS_IMPL(
-    RTCSentRtpStreamStats, RTCRTPStreamStats, "sent-rtp",
+    RTCSentRtpStreamStats, RTCRtpStreamStats, "sent-rtp",
     &packets_sent,
     &bytes_sent)
 // clang-format on
 
 RTCSentRtpStreamStats::RTCSentRtpStreamStats(std::string id,
                                              Timestamp timestamp)
-    : RTCRTPStreamStats(std::move(id), timestamp),
+    : RTCRtpStreamStats(std::move(id), timestamp),
       packets_sent("packetsSent"),
       bytes_sent("bytesSent") {}
-RTCSentRtpStreamStats::RTCSentRtpStreamStats(std::string(id),
-                                             int64_t timestamp_us)
-    : RTCSentRtpStreamStats(std::move(id), Timestamp::Micros(timestamp_us)) {}
 
 RTCSentRtpStreamStats::RTCSentRtpStreamStats(
     const RTCSentRtpStreamStats& other) = default;
@@ -504,7 +364,7 @@ RTCSentRtpStreamStats::~RTCSentRtpStreamStats() {}
 
 // clang-format off
 WEBRTC_RTCSTATS_IMPL(
-    RTCInboundRTPStreamStats, RTCReceivedRtpStreamStats, "inbound-rtp",
+    RTCInboundRtpStreamStats, RTCReceivedRtpStreamStats, "inbound-rtp",
     &track_identifier,
     &mid,
     &remote_id,
@@ -514,6 +374,8 @@ WEBRTC_RTCSTATS_IMPL(
     &fec_packets_discarded,
     &bytes_received,
     &header_bytes_received,
+    &retransmitted_packets_received,
+    &retransmitted_bytes_received,
     &last_packet_received_timestamp,
     &jitter_buffer_delay,
     &jitter_buffer_target_delay,
@@ -563,7 +425,7 @@ WEBRTC_RTCSTATS_IMPL(
     &min_playout_delay)
 // clang-format on
 
-RTCInboundRTPStreamStats::RTCInboundRTPStreamStats(std::string id,
+RTCInboundRtpStreamStats::RTCInboundRtpStreamStats(std::string id,
                                                    Timestamp timestamp)
     : RTCReceivedRtpStreamStats(std::move(id), timestamp),
       playout_id("playoutId"),
@@ -576,6 +438,8 @@ RTCInboundRTPStreamStats::RTCInboundRTPStreamStats(std::string id,
       fec_packets_discarded("fecPacketsDiscarded"),
       bytes_received("bytesReceived"),
       header_bytes_received("headerBytesReceived"),
+      retransmitted_packets_received("retransmittedPacketsReceived"),
+      retransmitted_bytes_received("retransmittedBytesReceived"),
       last_packet_received_timestamp("lastPacketReceivedTimestamp"),
       jitter_buffer_delay("jitterBufferDelay"),
       jitter_buffer_target_delay("jitterBufferTargetDelay"),
@@ -617,38 +481,25 @@ RTCInboundRTPStreamStats::RTCInboundRTPStreamStats(std::string id,
       qp_sum("qpSum"),
       goog_timing_frame_info("googTimingFrameInfo"),
       power_efficient_decoder("powerEfficientDecoder"),
-      jitter_buffer_flushes(
-          "jitterBufferFlushes",
-          {NonStandardGroupId::kRtcAudioJitterBufferMaxPackets}),
-      delayed_packet_outage_samples(
-          "delayedPacketOutageSamples",
-          {NonStandardGroupId::kRtcAudioJitterBufferMaxPackets,
-           NonStandardGroupId::kRtcStatsRelativePacketArrivalDelay}),
-      relative_packet_arrival_delay(
-          "relativePacketArrivalDelay",
-          {NonStandardGroupId::kRtcStatsRelativePacketArrivalDelay}),
+      jitter_buffer_flushes("jitterBufferFlushes"),
+      delayed_packet_outage_samples("delayedPacketOutageSamples"),
+      relative_packet_arrival_delay("relativePacketArrivalDelay"),
       interruption_count("interruptionCount"),
       total_interruption_duration("totalInterruptionDuration"),
       min_playout_delay("minPlayoutDelay") {}
-RTCInboundRTPStreamStats::RTCInboundRTPStreamStats(std::string id,
-                                                   int64_t timestamp_us)
-    : RTCInboundRTPStreamStats(std::move(id), Timestamp::Micros(timestamp_us)) {
-}
 
-RTCInboundRTPStreamStats::RTCInboundRTPStreamStats(
-    const RTCInboundRTPStreamStats& other) = default;
-RTCInboundRTPStreamStats::~RTCInboundRTPStreamStats() {}
+RTCInboundRtpStreamStats::RTCInboundRtpStreamStats(
+    const RTCInboundRtpStreamStats& other) = default;
+RTCInboundRtpStreamStats::~RTCInboundRtpStreamStats() {}
 
 // clang-format off
 WEBRTC_RTCSTATS_IMPL(
-    RTCOutboundRTPStreamStats, RTCRTPStreamStats, "outbound-rtp",
+    RTCOutboundRtpStreamStats, RTCSentRtpStreamStats, "outbound-rtp",
     &media_source_id,
     &remote_id,
     &mid,
     &rid,
-    &packets_sent,
     &retransmitted_packets_sent,
-    &bytes_sent,
     &header_bytes_sent,
     &retransmitted_bytes_sent,
     &target_bitrate,
@@ -676,16 +527,14 @@ WEBRTC_RTCSTATS_IMPL(
     &scalability_mode)
 // clang-format on
 
-RTCOutboundRTPStreamStats::RTCOutboundRTPStreamStats(std::string id,
+RTCOutboundRtpStreamStats::RTCOutboundRtpStreamStats(std::string id,
                                                      Timestamp timestamp)
-    : RTCRTPStreamStats(std::move(id), timestamp),
+    : RTCSentRtpStreamStats(std::move(id), timestamp),
       media_source_id("mediaSourceId"),
       remote_id("remoteId"),
       mid("mid"),
       rid("rid"),
-      packets_sent("packetsSent"),
       retransmitted_packets_sent("retransmittedPacketsSent"),
-      bytes_sent("bytesSent"),
       header_bytes_sent("headerBytesSent"),
       retransmitted_bytes_sent("retransmittedBytesSent"),
       target_bitrate("targetBitrate"),
@@ -712,15 +561,11 @@ RTCOutboundRTPStreamStats::RTCOutboundRTPStreamStats(std::string id,
       active("active"),
       power_efficient_encoder("powerEfficientEncoder"),
       scalability_mode("scalabilityMode") {}
-RTCOutboundRTPStreamStats::RTCOutboundRTPStreamStats(std::string id,
-                                                     int64_t timestamp_us)
-    : RTCOutboundRTPStreamStats(std::move(id),
-                                Timestamp::Micros(timestamp_us)) {}
 
-RTCOutboundRTPStreamStats::RTCOutboundRTPStreamStats(
-    const RTCOutboundRTPStreamStats& other) = default;
+RTCOutboundRtpStreamStats::RTCOutboundRtpStreamStats(
+    const RTCOutboundRtpStreamStats& other) = default;
 
-RTCOutboundRTPStreamStats::~RTCOutboundRTPStreamStats() {}
+RTCOutboundRtpStreamStats::~RTCOutboundRtpStreamStats() {}
 
 // clang-format off
 WEBRTC_RTCSTATS_IMPL(
@@ -742,11 +587,6 @@ RTCRemoteInboundRtpStreamStats::RTCRemoteInboundRtpStreamStats(
       fraction_lost("fractionLost"),
       total_round_trip_time("totalRoundTripTime"),
       round_trip_time_measurements("roundTripTimeMeasurements") {}
-RTCRemoteInboundRtpStreamStats::RTCRemoteInboundRtpStreamStats(
-    std::string id,
-    int64_t timestamp_us)
-    : RTCRemoteInboundRtpStreamStats(std::move(id),
-                                     Timestamp::Micros(timestamp_us)) {}
 
 RTCRemoteInboundRtpStreamStats::RTCRemoteInboundRtpStreamStats(
     const RTCRemoteInboundRtpStreamStats& other) = default;
@@ -775,11 +615,6 @@ RTCRemoteOutboundRtpStreamStats::RTCRemoteOutboundRtpStreamStats(
       round_trip_time("roundTripTime"),
       round_trip_time_measurements("roundTripTimeMeasurements"),
       total_round_trip_time("totalRoundTripTime") {}
-RTCRemoteOutboundRtpStreamStats::RTCRemoteOutboundRtpStreamStats(
-    std::string id,
-    int64_t timestamp)
-    : RTCRemoteOutboundRtpStreamStats(std::move(id),
-                                      Timestamp::Micros(timestamp)) {}
 
 RTCRemoteOutboundRtpStreamStats::RTCRemoteOutboundRtpStreamStats(
     const RTCRemoteOutboundRtpStreamStats& other) = default;
@@ -796,8 +631,6 @@ RTCMediaSourceStats::RTCMediaSourceStats(std::string id, Timestamp timestamp)
     : RTCStats(std::move(id), timestamp),
       track_identifier("trackIdentifier"),
       kind("kind") {}
-RTCMediaSourceStats::RTCMediaSourceStats(std::string id, int64_t timestamp_us)
-    : RTCMediaSourceStats(std::move(id), Timestamp::Micros(timestamp_us)) {}
 
 RTCMediaSourceStats::RTCMediaSourceStats(const RTCMediaSourceStats& other) =
     default;
@@ -820,8 +653,6 @@ RTCAudioSourceStats::RTCAudioSourceStats(std::string id, Timestamp timestamp)
       total_samples_duration("totalSamplesDuration"),
       echo_return_loss("echoReturnLoss"),
       echo_return_loss_enhancement("echoReturnLossEnhancement") {}
-RTCAudioSourceStats::RTCAudioSourceStats(std::string id, int64_t timestamp_us)
-    : RTCAudioSourceStats(std::move(id), Timestamp::Micros(timestamp_us)) {}
 
 RTCAudioSourceStats::RTCAudioSourceStats(const RTCAudioSourceStats& other) =
     default;
@@ -842,8 +673,6 @@ RTCVideoSourceStats::RTCVideoSourceStats(std::string id, Timestamp timestamp)
       height("height"),
       frames("frames"),
       frames_per_second("framesPerSecond") {}
-RTCVideoSourceStats::RTCVideoSourceStats(std::string id, int64_t timestamp_us)
-    : RTCVideoSourceStats(std::move(id), Timestamp::Micros(timestamp_us)) {}
 
 RTCVideoSourceStats::RTCVideoSourceStats(const RTCVideoSourceStats& other) =
     default;
@@ -890,8 +719,6 @@ RTCTransportStats::RTCTransportStats(std::string id, Timestamp timestamp)
       ice_role("iceRole"),
       ice_local_username_fragment("iceLocalUsernameFragment"),
       ice_state("iceState") {}
-RTCTransportStats::RTCTransportStats(std::string id, int64_t timestamp_us)
-    : RTCTransportStats(std::move(id), Timestamp::Micros(timestamp_us)) {}
 
 RTCTransportStats::RTCTransportStats(const RTCTransportStats& other) = default;
 

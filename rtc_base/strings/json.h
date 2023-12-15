@@ -15,7 +15,6 @@
 #include <vector>
 
 #include "absl/strings/string_view.h"
-
 #include "json/json.h"
 
 namespace rtc {

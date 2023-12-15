@@ -57,9 +57,10 @@ struct RTCDtlsTransportState {
   static const char* const kFailed;
 };
 
-// `RTCMediaStreamTrackStats::kind` is not an enum in the spec but the only
-// valid values are "audio" and "video".
-// https://w3c.github.io/webrtc-stats/#dom-rtcmediastreamtrackstats-kind
+// `RTCRtpStreamStats::kind` is not an enum in the spec but the only valid
+// values are "audio" and "video" as it comes from `MediaStreamTrack::kind`.
+// https://w3c.github.io/webrtc-stats/#dom-rtcrtpstreamstats-kind
+// https://w3c.github.io/mediacapture-main/#dom-mediadeviceinfo-kind
 struct RTCMediaStreamTrackKind {
   static const char* const kAudio;
   static const char* const kVideo;
@@ -121,8 +122,6 @@ class RTC_EXPORT RTCCertificateStats final : public RTCStats {
   WEBRTC_RTCSTATS_DECL();
 
   RTCCertificateStats(std::string id, Timestamp timestamp);
-  ABSL_DEPRECATED("Use constructor with Timestamp instead")
-  RTCCertificateStats(std::string id, int64_t timestamp_us);
   RTCCertificateStats(const RTCCertificateStats& other);
   ~RTCCertificateStats() override;
 
@@ -152,8 +151,6 @@ class RTC_EXPORT RTCCodecStats final : public RTCStats {
   WEBRTC_RTCSTATS_DECL();
 
   RTCCodecStats(std::string id, Timestamp timestamp);
-  ABSL_DEPRECATED("Use constructor with Timestamp instead")
-  RTCCodecStats(std::string id, int64_t timestamp_us);
   RTCCodecStats(const RTCCodecStats& other);
   ~RTCCodecStats() override;
 
@@ -171,8 +168,6 @@ class RTC_EXPORT RTCDataChannelStats final : public RTCStats {
   WEBRTC_RTCSTATS_DECL();
 
   RTCDataChannelStats(std::string id, Timestamp timestamp);
-  ABSL_DEPRECATED("Use constructor with Timestamp instead")
-  RTCDataChannelStats(std::string id, int64_t timestamp_us);
   RTCDataChannelStats(const RTCDataChannelStats& other);
   ~RTCDataChannelStats() override;
 
@@ -193,8 +188,6 @@ class RTC_EXPORT RTCIceCandidatePairStats final : public RTCStats {
   WEBRTC_RTCSTATS_DECL();
 
   RTCIceCandidatePairStats(std::string id, Timestamp timestamp);
-  ABSL_DEPRECATED("Use constructor with Timestamp instead")
-  RTCIceCandidatePairStats(std::string id, int64_t timestamp_us);
   RTCIceCandidatePairStats(const RTCIceCandidatePairStats& other);
   ~RTCIceCandidatePairStats() override;
 
@@ -258,13 +251,13 @@ class RTC_EXPORT RTCIceCandidateStats : public RTCStats {
   // Enum type RTCIceTcpCandidateType.
   RTCStatsMember<std::string> tcp_type;
 
-  RTCNonStandardStatsMember<bool> vpn;
-  RTCNonStandardStatsMember<std::string> network_adapter_type;
+  // The following metrics are NOT exposed to JavaScript. We should consider
+  // standardizing or removing them.
+  RTCStatsMember<bool> vpn;
+  RTCStatsMember<std::string> network_adapter_type;
 
  protected:
   RTCIceCandidateStats(std::string id, Timestamp timestamp, bool is_remote);
-  ABSL_DEPRECATED("Use constructor with Timestamp instead")
-  RTCIceCandidateStats(std::string id, int64_t timestamp_us, bool is_remote);
 };
 
 // In the spec both local and remote varieties are of type RTCIceCandidateStats.
@@ -276,8 +269,6 @@ class RTC_EXPORT RTCLocalIceCandidateStats final : public RTCIceCandidateStats {
  public:
   static const char kType[];
   RTCLocalIceCandidateStats(std::string id, Timestamp timestamp);
-  ABSL_DEPRECATED("Use constructor with Timestamp instead")
-  RTCLocalIceCandidateStats(std::string id, int64_t timestamp_us);
   std::unique_ptr<RTCStats> copy() const override;
   const char* type() const override;
 };
@@ -287,78 +278,9 @@ class RTC_EXPORT RTCRemoteIceCandidateStats final
  public:
   static const char kType[];
   RTCRemoteIceCandidateStats(std::string id, Timestamp timestamp);
-  ABSL_DEPRECATED("Use constructor with Timestamp instead")
-  RTCRemoteIceCandidateStats(std::string id, int64_t timestamp_us);
   std::unique_ptr<RTCStats> copy() const override;
   const char* type() const override;
 };
-
-// TODO(https://crbug.com/webrtc/14419): Delete this class, it's deprecated.
-class RTC_EXPORT DEPRECATED_RTCMediaStreamStats final : public RTCStats {
- public:
-  WEBRTC_RTCSTATS_DECL();
-
-  DEPRECATED_RTCMediaStreamStats(std::string id, Timestamp timestamp);
-  ABSL_DEPRECATED("Use constructor with Timestamp instead")
-  DEPRECATED_RTCMediaStreamStats(std::string id, int64_t timestamp_us);
-  DEPRECATED_RTCMediaStreamStats(const DEPRECATED_RTCMediaStreamStats& other);
-  ~DEPRECATED_RTCMediaStreamStats() override;
-
-  RTCStatsMember<std::string> stream_identifier;
-  RTCStatsMember<std::vector<std::string>> track_ids;
-};
-using RTCMediaStreamStats [[deprecated("bugs.webrtc.org/14419")]] =
-    DEPRECATED_RTCMediaStreamStats;
-
-// TODO(https://crbug.com/webrtc/14175): Delete this class, it's deprecated.
-class RTC_EXPORT DEPRECATED_RTCMediaStreamTrackStats final : public RTCStats {
- public:
-  WEBRTC_RTCSTATS_DECL();
-
-  DEPRECATED_RTCMediaStreamTrackStats(std::string id,
-                                      Timestamp timestamp,
-                                      const char* kind);
-  ABSL_DEPRECATED("Use constructor with Timestamp instead")
-  DEPRECATED_RTCMediaStreamTrackStats(std::string id,
-                                      int64_t timestamp_us,
-                                      const char* kind);
-  DEPRECATED_RTCMediaStreamTrackStats(
-      const DEPRECATED_RTCMediaStreamTrackStats& other);
-  ~DEPRECATED_RTCMediaStreamTrackStats() override;
-
-  RTCStatsMember<std::string> track_identifier;
-  RTCStatsMember<std::string> media_source_id;
-  RTCStatsMember<bool> remote_source;
-  RTCStatsMember<bool> ended;
-  // TODO(https://crbug.com/webrtc/14173): Remove this obsolete metric.
-  RTCStatsMember<bool> detached;
-  // Enum type RTCMediaStreamTrackKind.
-  RTCStatsMember<std::string> kind;
-  RTCStatsMember<double> jitter_buffer_delay;
-  RTCStatsMember<uint64_t> jitter_buffer_emitted_count;
-  // Video-only members
-  RTCStatsMember<uint32_t> frame_width;
-  RTCStatsMember<uint32_t> frame_height;
-  RTCStatsMember<uint32_t> frames_sent;
-  RTCStatsMember<uint32_t> huge_frames_sent;
-  RTCStatsMember<uint32_t> frames_received;
-  RTCStatsMember<uint32_t> frames_decoded;
-  RTCStatsMember<uint32_t> frames_dropped;
-  // Audio-only members
-  RTCStatsMember<double> audio_level;         // Receive-only
-  RTCStatsMember<double> total_audio_energy;  // Receive-only
-  RTCStatsMember<double> echo_return_loss;
-  RTCStatsMember<double> echo_return_loss_enhancement;
-  RTCStatsMember<uint64_t> total_samples_received;
-  RTCStatsMember<double> total_samples_duration;  // Receive-only
-  RTCStatsMember<uint64_t> concealed_samples;
-  RTCStatsMember<uint64_t> silent_concealed_samples;
-  RTCStatsMember<uint64_t> concealment_events;
-  RTCStatsMember<uint64_t> inserted_samples_for_deceleration;
-  RTCStatsMember<uint64_t> removed_samples_for_acceleration;
-};
-using RTCMediaStreamTrackStats [[deprecated("bugs.webrtc.org/14175")]] =
-    DEPRECATED_RTCMediaStreamTrackStats;
 
 // https://w3c.github.io/webrtc-stats/#pcstats-dict*
 class RTC_EXPORT RTCPeerConnectionStats final : public RTCStats {
@@ -366,8 +288,6 @@ class RTC_EXPORT RTCPeerConnectionStats final : public RTCStats {
   WEBRTC_RTCSTATS_DECL();
 
   RTCPeerConnectionStats(std::string id, Timestamp timestamp);
-  ABSL_DEPRECATED("Use constructor with Timestamp instead")
-  RTCPeerConnectionStats(std::string id, int64_t timestamp_us);
   RTCPeerConnectionStats(const RTCPeerConnectionStats& other);
   ~RTCPeerConnectionStats() override;
 
@@ -376,31 +296,24 @@ class RTC_EXPORT RTCPeerConnectionStats final : public RTCStats {
 };
 
 // https://w3c.github.io/webrtc-stats/#streamstats-dict*
-class RTC_EXPORT RTCRTPStreamStats : public RTCStats {
+class RTC_EXPORT RTCRtpStreamStats : public RTCStats {
  public:
   WEBRTC_RTCSTATS_DECL();
 
-  RTCRTPStreamStats(const RTCRTPStreamStats& other);
-  ~RTCRTPStreamStats() override;
+  RTCRtpStreamStats(const RTCRtpStreamStats& other);
+  ~RTCRtpStreamStats() override;
 
   RTCStatsMember<uint32_t> ssrc;
   RTCStatsMember<std::string> kind;
-  // Obsolete: track_id
-  RTCStatsMember<std::string> track_id;
   RTCStatsMember<std::string> transport_id;
   RTCStatsMember<std::string> codec_id;
 
-  // Obsolete
-  RTCStatsMember<std::string> media_type;  // renamed to kind.
-
  protected:
-  RTCRTPStreamStats(std::string id, Timestamp timestamp);
-  ABSL_DEPRECATED("Use constructor with Timestamp instead")
-  RTCRTPStreamStats(std::string id, int64_t timestamp_us);
+  RTCRtpStreamStats(std::string id, Timestamp timestamp);
 };
 
 // https://www.w3.org/TR/webrtc-stats/#receivedrtpstats-dict*
-class RTC_EXPORT RTCReceivedRtpStreamStats : public RTCRTPStreamStats {
+class RTC_EXPORT RTCReceivedRtpStreamStats : public RTCRtpStreamStats {
  public:
   WEBRTC_RTCSTATS_DECL();
 
@@ -412,40 +325,32 @@ class RTC_EXPORT RTCReceivedRtpStreamStats : public RTCRTPStreamStats {
 
  protected:
   RTCReceivedRtpStreamStats(std::string id, Timestamp timestamp);
-  ABSL_DEPRECATED("Use constructor with Timestamp instead")
-  RTCReceivedRtpStreamStats(std::string id, int64_t timestamp_us);
 };
 
 // https://www.w3.org/TR/webrtc-stats/#sentrtpstats-dict*
-class RTC_EXPORT RTCSentRtpStreamStats : public RTCRTPStreamStats {
+class RTC_EXPORT RTCSentRtpStreamStats : public RTCRtpStreamStats {
  public:
   WEBRTC_RTCSTATS_DECL();
 
   RTCSentRtpStreamStats(const RTCSentRtpStreamStats& other);
   ~RTCSentRtpStreamStats() override;
 
-  RTCStatsMember<uint32_t> packets_sent;
+  RTCStatsMember<uint64_t> packets_sent;
   RTCStatsMember<uint64_t> bytes_sent;
 
  protected:
   RTCSentRtpStreamStats(std::string id, Timestamp timestamp);
-  ABSL_DEPRECATED("Use constructor with Timestamp instead")
-  RTCSentRtpStreamStats(std::string id, int64_t timestamp_us);
 };
 
 // https://w3c.github.io/webrtc-stats/#inboundrtpstats-dict*
-class RTC_EXPORT RTCInboundRTPStreamStats final
+class RTC_EXPORT RTCInboundRtpStreamStats final
     : public RTCReceivedRtpStreamStats {
  public:
   WEBRTC_RTCSTATS_DECL();
 
-  RTCInboundRTPStreamStats(std::string id, Timestamp timestamp);
-  ABSL_DEPRECATED("Use constructor with Timestamp instead")
-  RTCInboundRTPStreamStats(std::string id, int64_t timestamp_us);
-  RTCInboundRTPStreamStats(const RTCInboundRTPStreamStats& other);
-  ~RTCInboundRTPStreamStats() override;
-
-  // TODO(https://crbug.com/webrtc/14174): Implement trackIdentifier and kind.
+  RTCInboundRtpStreamStats(std::string id, Timestamp timestamp);
+  RTCInboundRtpStreamStats(const RTCInboundRtpStreamStats& other);
+  ~RTCInboundRtpStreamStats() override;
 
   RTCStatsMember<std::string> playout_id;
   RTCStatsMember<std::string> track_identifier;
@@ -457,6 +362,10 @@ class RTC_EXPORT RTCInboundRTPStreamStats final
   RTCStatsMember<uint64_t> fec_packets_discarded;
   RTCStatsMember<uint64_t> bytes_received;
   RTCStatsMember<uint64_t> header_bytes_received;
+  // Inbound RTX stats. Only defined when RTX is used and it is therefore
+  // possible to distinguish retransmissions.
+  RTCStatsMember<uint64_t> retransmitted_packets_received;
+  RTCStatsMember<uint64_t> retransmitted_bytes_received;
   RTCStatsMember<double> last_packet_received_timestamp;
   RTCStatsMember<double> jitter_buffer_delay;
   RTCStatsMember<double> jitter_buffer_target_delay;
@@ -472,7 +381,7 @@ class RTC_EXPORT RTCInboundRTPStreamStats final
   RTCStatsMember<double> total_audio_energy;
   RTCStatsMember<double> total_samples_duration;
   // Stats below are only implemented or defined for video.
-  RTCStatsMember<int32_t> frames_received;
+  RTCStatsMember<uint32_t> frames_received;
   RTCStatsMember<uint32_t> frame_width;
   RTCStatsMember<uint32_t> frame_height;
   RTCStatsMember<double> frames_per_second;
@@ -494,11 +403,9 @@ class RTC_EXPORT RTCInboundRTPStreamStats final
   // Only populated if audio/video sync is enabled.
   // TODO(https://crbug.com/webrtc/14177): Expose even if A/V sync is off?
   RTCStatsMember<double> estimated_playout_timestamp;
-  // Only implemented for video.
-  // TODO(https://crbug.com/webrtc/14178): Also implement for audio.
-  RTCRestrictedStatsMember<std::string,
-                           StatExposureCriteria::kHardwareCapability>
-      decoder_implementation;
+  // Only defined for video.
+  // In JavaScript, this is only exposed if HW exposure is allowed.
+  RTCStatsMember<std::string> decoder_implementation;
   // FIR and PLI counts are only defined for |kind == "video"|.
   RTCStatsMember<uint32_t> fir_count;
   RTCStatsMember<uint32_t> pli_count;
@@ -511,37 +418,34 @@ class RTC_EXPORT RTCInboundRTPStreamStats final
   // TimingFrameInfo::ToString().
   // TODO(https://crbug.com/webrtc/14586): Unship or standardize this metric.
   RTCStatsMember<std::string> goog_timing_frame_info;
-  RTCRestrictedStatsMember<bool, StatExposureCriteria::kHardwareCapability>
-      power_efficient_decoder;
-  // Non-standard audio metrics.
-  RTCNonStandardStatsMember<uint64_t> jitter_buffer_flushes;
-  RTCNonStandardStatsMember<uint64_t> delayed_packet_outage_samples;
-  RTCNonStandardStatsMember<double> relative_packet_arrival_delay;
-  RTCNonStandardStatsMember<uint32_t> interruption_count;
-  RTCNonStandardStatsMember<double> total_interruption_duration;
+  // In JavaScript, this is only exposed if HW exposure is allowed.
+  RTCStatsMember<bool> power_efficient_decoder;
 
-  // The former googMinPlayoutDelayMs (in seconds).
-  RTCNonStandardStatsMember<double> min_playout_delay;
+  // The following metrics are NOT exposed to JavaScript. We should consider
+  // standardizing or removing them.
+  RTCStatsMember<uint64_t> jitter_buffer_flushes;
+  RTCStatsMember<uint64_t> delayed_packet_outage_samples;
+  RTCStatsMember<double> relative_packet_arrival_delay;
+  RTCStatsMember<uint32_t> interruption_count;
+  RTCStatsMember<double> total_interruption_duration;
+  RTCStatsMember<double> min_playout_delay;
 };
 
 // https://w3c.github.io/webrtc-stats/#outboundrtpstats-dict*
-class RTC_EXPORT RTCOutboundRTPStreamStats final : public RTCRTPStreamStats {
+class RTC_EXPORT RTCOutboundRtpStreamStats final
+    : public RTCSentRtpStreamStats {
  public:
   WEBRTC_RTCSTATS_DECL();
 
-  RTCOutboundRTPStreamStats(std::string id, Timestamp timestamp);
-  ABSL_DEPRECATED("Use constructor with Timestamp instead")
-  RTCOutboundRTPStreamStats(std::string id, int64_t timestamp_us);
-  RTCOutboundRTPStreamStats(const RTCOutboundRTPStreamStats& other);
-  ~RTCOutboundRTPStreamStats() override;
+  RTCOutboundRtpStreamStats(std::string id, Timestamp timestamp);
+  RTCOutboundRtpStreamStats(const RTCOutboundRtpStreamStats& other);
+  ~RTCOutboundRtpStreamStats() override;
 
   RTCStatsMember<std::string> media_source_id;
   RTCStatsMember<std::string> remote_id;
   RTCStatsMember<std::string> mid;
   RTCStatsMember<std::string> rid;
-  RTCStatsMember<uint32_t> packets_sent;
   RTCStatsMember<uint64_t> retransmitted_packets_sent;
-  RTCStatsMember<uint64_t> bytes_sent;
   RTCStatsMember<uint64_t> header_bytes_sent;
   RTCStatsMember<uint64_t> retransmitted_bytes_sent;
   RTCStatsMember<double> target_bitrate;
@@ -562,19 +466,18 @@ class RTC_EXPORT RTCOutboundRTPStreamStats final : public RTCRTPStreamStats {
   RTCStatsMember<uint32_t> quality_limitation_resolution_changes;
   // https://w3c.github.io/webrtc-provisional-stats/#dom-rtcoutboundrtpstreamstats-contenttype
   RTCStatsMember<std::string> content_type;
+  // In JavaScript, this is only exposed if HW exposure is allowed.
   // Only implemented for video.
   // TODO(https://crbug.com/webrtc/14178): Implement for audio as well.
-  RTCRestrictedStatsMember<std::string,
-                           StatExposureCriteria::kHardwareCapability>
-      encoder_implementation;
+  RTCStatsMember<std::string> encoder_implementation;
   // FIR and PLI counts are only defined for |kind == "video"|.
   RTCStatsMember<uint32_t> fir_count;
   RTCStatsMember<uint32_t> pli_count;
   RTCStatsMember<uint32_t> nack_count;
   RTCStatsMember<uint64_t> qp_sum;
   RTCStatsMember<bool> active;
-  RTCRestrictedStatsMember<bool, StatExposureCriteria::kHardwareCapability>
-      power_efficient_encoder;
+  // In JavaScript, this is only exposed if HW exposure is allowed.
+  RTCStatsMember<bool> power_efficient_encoder;
   RTCStatsMember<std::string> scalability_mode;
 };
 
@@ -585,8 +488,6 @@ class RTC_EXPORT RTCRemoteInboundRtpStreamStats final
   WEBRTC_RTCSTATS_DECL();
 
   RTCRemoteInboundRtpStreamStats(std::string id, Timestamp timestamp);
-  ABSL_DEPRECATED("Use constructor with Timestamp instead")
-  RTCRemoteInboundRtpStreamStats(std::string id, int64_t timestamp_us);
   RTCRemoteInboundRtpStreamStats(const RTCRemoteInboundRtpStreamStats& other);
   ~RTCRemoteInboundRtpStreamStats() override;
 
@@ -604,8 +505,6 @@ class RTC_EXPORT RTCRemoteOutboundRtpStreamStats final
   WEBRTC_RTCSTATS_DECL();
 
   RTCRemoteOutboundRtpStreamStats(std::string id, Timestamp timestamp);
-  ABSL_DEPRECATED("Use constructor with Timestamp instead")
-  RTCRemoteOutboundRtpStreamStats(std::string id, int64_t timestamp_us);
   RTCRemoteOutboundRtpStreamStats(const RTCRemoteOutboundRtpStreamStats& other);
   ~RTCRemoteOutboundRtpStreamStats() override;
 
@@ -630,8 +529,6 @@ class RTC_EXPORT RTCMediaSourceStats : public RTCStats {
 
  protected:
   RTCMediaSourceStats(std::string id, Timestamp timestamp);
-  ABSL_DEPRECATED("Use constructor with Timestamp instead")
-  RTCMediaSourceStats(std::string id, int64_t timestamp_us);
 };
 
 // https://w3c.github.io/webrtc-stats/#dom-rtcaudiosourcestats
@@ -640,8 +537,6 @@ class RTC_EXPORT RTCAudioSourceStats final : public RTCMediaSourceStats {
   WEBRTC_RTCSTATS_DECL();
 
   RTCAudioSourceStats(std::string id, Timestamp timestamp);
-  ABSL_DEPRECATED("Use constructor with Timestamp instead")
-  RTCAudioSourceStats(std::string id, int64_t timestamp_us);
   RTCAudioSourceStats(const RTCAudioSourceStats& other);
   ~RTCAudioSourceStats() override;
 
@@ -658,8 +553,6 @@ class RTC_EXPORT RTCVideoSourceStats final : public RTCMediaSourceStats {
   WEBRTC_RTCSTATS_DECL();
 
   RTCVideoSourceStats(std::string id, Timestamp timestamp);
-  ABSL_DEPRECATED("Use constructor with Timestamp instead")
-  RTCVideoSourceStats(std::string id, int64_t timestamp_us);
   RTCVideoSourceStats(const RTCVideoSourceStats& other);
   ~RTCVideoSourceStats() override;
 
@@ -675,8 +568,6 @@ class RTC_EXPORT RTCTransportStats final : public RTCStats {
   WEBRTC_RTCSTATS_DECL();
 
   RTCTransportStats(std::string id, Timestamp timestamp);
-  ABSL_DEPRECATED("Use constructor with Timestamp instead")
-  RTCTransportStats(std::string id, int64_t timestamp_us);
   RTCTransportStats(const RTCTransportStats& other);
   ~RTCTransportStats() override;
 

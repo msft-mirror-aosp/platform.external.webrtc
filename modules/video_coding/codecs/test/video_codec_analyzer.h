@@ -21,7 +21,6 @@
 #include "api/video/resolution.h"
 #include "api/video/video_frame.h"
 #include "modules/video_coding/codecs/test/video_codec_stats_impl.h"
-#include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/system/no_unique_address.h"
 #include "rtc_base/task_queue_for_test.h"
 
@@ -41,8 +40,8 @@ class VideoCodecAnalyzer {
                                 Resolution resolution) = 0;
   };
 
-  VideoCodecAnalyzer(rtc::TaskQueue& task_queue,
-                     ReferenceVideoSource* reference_video_source = nullptr);
+  explicit VideoCodecAnalyzer(
+      ReferenceVideoSource* reference_video_source = nullptr);
 
   void StartEncode(const VideoFrame& frame);
 
@@ -55,7 +54,7 @@ class VideoCodecAnalyzer {
   std::unique_ptr<VideoCodecStats> GetStats();
 
  protected:
-  rtc::TaskQueue& task_queue_;
+  TaskQueueForTest task_queue_;
 
   ReferenceVideoSource* const reference_video_source_;
 

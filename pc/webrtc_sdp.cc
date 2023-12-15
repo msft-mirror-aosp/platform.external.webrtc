@@ -20,6 +20,7 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <type_traits>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -1890,7 +1891,7 @@ void AddPacketizationLine(const T& codec, std::string* message) {
 
 template <class T>
 void AddRtcpFbLines(const T& codec, std::string* message) {
-  for (const auto& param : codec.feedback_params.params()) {
+  for (const cricket::FeedbackParam& param : codec.feedback_params.params()) {
     rtc::StringBuilder os;
     WriteRtcpFbHeader(codec.id, &os);
     os << " " << param.id();
@@ -1898,30 +1899,6 @@ void AddRtcpFbLines(const T& codec, std::string* message) {
       os << " " << param.param();
     }
     AddLine(os.str(), message);
-  }
-}
-
-template <class T>
-void AddWildcardRtcpFbLines(const std::vector<T>& codecs,
-                            std::string* message) {
-  if (codecs.empty()) {
-    return;
-  }
-  for (const auto& param : codecs[0].feedback_params.params()) {
-    bool is_common_feedback = absl::c_all_of(codecs, [&param](const T& codec) {
-      // FEC mechanisms like RED, ulpfec and flexfec have empty feedback.
-      return codec.feedback_params.params().empty() ||
-             codec.feedback_params.Has(param);
-    });
-    if (is_common_feedback) {
-      rtc::StringBuilder os;
-      WriteRtcpFbHeader(kWildcardPayloadType, &os);
-      os << " " << param.id();
-      if (!param.param().empty()) {
-        os << " " << param.param();
-      }
-      AddLine(os.str(), message);
-    }
   }
 }
 
@@ -1968,9 +1945,6 @@ void BuildRtpmap(const MediaContentDescription* media_desc,
       AddRtcpFbLines(codec, message);
       AddFmtpLine(codec, message);
     }
-    // rtcp-fb:* is added in addition to the per-codec feedback to allow
-    // downstream users time to upgrade their parsers.
-    AddWildcardRtcpFbLines(media_desc->as_video()->codecs(), message);
   } else if (media_type == cricket::MEDIA_TYPE_AUDIO) {
     std::vector<int> ptimes;
     std::vector<int> maxptimes;
@@ -2002,9 +1976,6 @@ void BuildRtpmap(const MediaContentDescription* media_desc,
         maxptimes.push_back(maxptime);
       }
     }
-    // rtcp-fb:* is added in addition to the per-codec feedback to allow
-    // downstream users time to upgrade their parsers.
-    AddWildcardRtcpFbLines(media_desc->as_audio()->codecs(), message);
     // Populate the maxptime attribute with the smallest maxptime of all codecs
     // under the same m-line.
     int min_maxptime = INT_MAX;
@@ -2647,8 +2618,8 @@ void MaybeCreateStaticPayloadAudioCodecs(const std::vector<int>& fmts,
       std::string encoding_name = kStaticPayloadAudioCodecs[payload_type].name;
       int clock_rate = kStaticPayloadAudioCodecs[payload_type].clockrate;
       size_t channels = kStaticPayloadAudioCodecs[payload_type].channels;
-      media_desc->AddCodec(cricket::AudioCodec(payload_type, encoding_name,
-                                               clock_rate, 0, channels));
+      media_desc->AddCodec(cricket::CreateAudioCodec(
+          payload_type, encoding_name, clock_rate, channels));
     }
   }
 }
@@ -2931,9 +2902,11 @@ T GetCodecWithPayloadType(const std::vector<T>& codecs, int payload_type) {
   if (codec)
     return *codec;
   // Return empty codec with `payload_type`.
-  T ret_val;
-  ret_val.id = payload_type;
-  return ret_val;
+  if constexpr (std::is_same<T, cricket::AudioCodec>::value) {
+    return cricket::CreateAudioCodec(payload_type, "", 0, 0);
+  } else if constexpr (std::is_same<T, cricket::VideoCodec>::value) {
+    return cricket::CreateVideoCodec(payload_type, "");
+  }
 }
 
 // Updates or creates a new codec entry in the media description.
@@ -3002,26 +2975,26 @@ void UpdateVideoCodecPacketization(VideoContentDescription* video_desc,
 }
 
 template <class T>
-bool PopWildcardCodec(std::vector<T>* codecs, T* wildcard_codec) {
+absl::optional<T> PopWildcardCodec(std::vector<T>* codecs) {
   for (auto iter = codecs->begin(); iter != codecs->end(); ++iter) {
     if (iter->id == kWildcardPayloadType) {
-      *wildcard_codec = *iter;
+      T wildcard_codec = *iter;
       codecs->erase(iter);
-      return true;
+      return wildcard_codec;
     }
   }
-  return false;
+  return absl::nullopt;
 }
 
 template <class T>
 void UpdateFromWildcardCodecs(cricket::MediaContentDescriptionImpl<T>* desc) {
   auto codecs = desc->codecs();
-  T wildcard_codec;
-  if (!PopWildcardCodec(&codecs, &wildcard_codec)) {
+  absl::optional<T> wildcard_codec = PopWildcardCodec(&codecs);
+  if (!wildcard_codec) {
     return;
   }
   for (auto& codec : codecs) {
-    AddFeedbackParameters(wildcard_codec.feedback_params, &codec);
+    AddFeedbackParameters(wildcard_codec->feedback_params, &codec);
   }
   desc->set_codecs(codecs);
 }

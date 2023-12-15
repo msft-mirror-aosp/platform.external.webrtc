@@ -59,7 +59,7 @@ enum RetransmissionMode : uint8_t {
   kConditionallyRetransmitHigherLayers = 0x8
 };
 
-class RTPSenderVideo {
+class RTPSenderVideo : public RTPVideoFrameSenderInterface {
  public:
   static constexpr int64_t kTLRateWindowSizeMs = 2500;
 
@@ -98,8 +98,18 @@ class RTPSenderVideo {
                  int64_t capture_time_ms,
                  rtc::ArrayView<const uint8_t> payload,
                  RTPVideoHeader video_header,
+                 absl::optional<int64_t> expected_retransmission_time_ms);
+  // `encoder_output_size` is the size of the video frame as it came out of the
+  // video encoder, excluding any additional overhead.
+  bool SendVideo(int payload_type,
+                 absl::optional<VideoCodecType> codec_type,
+                 uint32_t rtp_timestamp,
+                 int64_t capture_time_ms,
+                 rtc::ArrayView<const uint8_t> payload,
+                 size_t encoder_output_size,
+                 RTPVideoHeader video_header,
                  absl::optional<int64_t> expected_retransmission_time_ms,
-                 std::vector<uint32_t> csrcs = {});
+                 std::vector<uint32_t> csrcs) override;
 
   bool SendEncodedImage(
       int payload_type,
@@ -118,7 +128,7 @@ class RTPSenderVideo {
   // Should only be used by a RTPSenderVideoFrameTransformerDelegate and exists
   // to ensure correct syncronization.
   void SetVideoStructureAfterTransformation(
-      const FrameDependencyStructure* video_structure);
+      const FrameDependencyStructure* video_structure) override;
 
   // Sets current active VideoLayersAllocation. The allocation will be sent
   // using the rtp video layers allocation extension. The allocation will be
@@ -129,14 +139,19 @@ class RTPSenderVideo {
   // Should only be used by a RTPSenderVideoFrameTransformerDelegate and exists
   // to ensure correct syncronization.
   void SetVideoLayersAllocationAfterTransformation(
-      VideoLayersAllocation allocation);
+      VideoLayersAllocation allocation) override;
 
-  // Returns the current packetization overhead rate, in bps. Note that this is
-  // the payload overhead, eg the VP8 payload headers, not the RTP headers
-  // or extension/
+  // Returns the current post encode overhead rate, in bps. Note that this is
+  // the payload overhead, eg the VP8 payload headers and any other added
+  // metadata added by transforms. It does not include the RTP headers or
+  // extensions.
   // TODO(sprang): Consider moving this to RtpSenderEgress so it's in the same
   // place as the other rate stats.
-  uint32_t PacketizationOverheadBps() const;
+  DataRate PostEncodeOverhead() const;
+
+  // 'retransmission_mode' is either a value of enum RetransmissionMode, or
+  // computed with bitwise operators on values of enum RetransmissionMode.
+  void SetRetransmissionSetting(int32_t retransmission_settings);
 
  protected:
   static uint8_t GetTemporalId(const RTPVideoHeader& header);
@@ -176,7 +191,7 @@ class RTPSenderVideo {
 
   void LogAndSendToNetwork(
       std::vector<std::unique_ptr<RtpPacketToSend>> packets,
-      size_t unpacketized_payload_size);
+      size_t encoder_output_size);
 
   bool red_enabled() const { return red_payload_type_.has_value(); }
 
@@ -190,11 +205,10 @@ class RTPSenderVideo {
   RTPSender* const rtp_sender_;
   Clock* const clock_;
 
-  const int32_t retransmission_settings_;
-
   // These members should only be accessed from within SendVideo() to avoid
   // potential race conditions.
   rtc::RaceChecker send_checker_;
+  int32_t retransmission_settings_ RTC_GUARDED_BY(send_checker_);
   VideoRotation last_rotation_ RTC_GUARDED_BY(send_checker_);
   absl::optional<ColorSpace> last_color_space_ RTC_GUARDED_BY(send_checker_);
   bool transmit_color_space_next_frame_ RTC_GUARDED_BY(send_checker_);
@@ -224,7 +238,7 @@ class RTPSenderVideo {
   const size_t fec_overhead_bytes_;  // Per packet max FEC overhead.
 
   mutable Mutex stats_mutex_;
-  RateStatistics packetization_overhead_bitrate_ RTC_GUARDED_BY(stats_mutex_);
+  RateStatistics post_encode_overhead_bitrate_ RTC_GUARDED_BY(stats_mutex_);
 
   std::map<int, TemporalLayerStats> frame_stats_by_temporal_layer_
       RTC_GUARDED_BY(stats_mutex_);
@@ -247,8 +261,6 @@ class RTPSenderVideo {
 
   const rtc::scoped_refptr<RTPSenderVideoFrameTransformerDelegate>
       frame_transformer_delegate_;
-
-  const bool include_capture_clock_offset_;
 };
 
 }  // namespace webrtc
