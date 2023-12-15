@@ -16,6 +16,8 @@
 #include <vector>
 
 #include "absl/types/optional.h"
+#include "api/units/timestamp.h"
+#include "net/dcsctp/common/internal_types.h"
 #include "net/dcsctp/common/sequence_numbers.h"
 #include "net/dcsctp/packet/chunk/forward_tsn_chunk.h"
 #include "net/dcsctp/packet/chunk/iforward_tsn_chunk.h"
@@ -75,7 +77,7 @@ class OutstandingData {
       size_t data_chunk_header_size,
       UnwrappedTSN next_tsn,
       UnwrappedTSN last_cumulative_tsn_ack,
-      std::function<bool(IsUnordered, StreamID, MID)> discard_from_send_queue)
+      std::function<bool(StreamID, OutgoingMessageId)> discard_from_send_queue)
       : data_chunk_header_size_(data_chunk_header_size),
         next_tsn_(next_tsn),
         last_cumulative_tsn_ack_(last_cumulative_tsn_ack),
@@ -104,7 +106,7 @@ class OutstandingData {
 
   // Given the current time `now_ms`, expire and abandon outstanding (sent at
   // least once) chunks that have a limited lifetime.
-  void ExpireOutstandingChunks(TimeMs now);
+  void ExpireOutstandingChunks(webrtc::Timestamp now);
 
   bool empty() const { return outstanding_data_.empty(); }
 
@@ -128,10 +130,11 @@ class OutstandingData {
   // parameters. Returns the TSN if the item was actually added and scheduled to
   // be sent, and absl::nullopt if it shouldn't be sent.
   absl::optional<UnwrappedTSN> Insert(
+      OutgoingMessageId message_id,
       const Data& data,
-      TimeMs time_sent,
+      webrtc::Timestamp time_sent,
       MaxRetransmits max_retransmissions = MaxRetransmits::NoLimit(),
-      TimeMs expires_at = TimeMs::InfiniteFuture(),
+      webrtc::Timestamp expires_at = webrtc::Timestamp::PlusInfinity(),
       LifecycleId lifecycle_id = LifecycleId::NotSet());
 
   // Nacks all outstanding data.
@@ -145,8 +148,8 @@ class OutstandingData {
 
   // Given the current time and a TSN, it returns the measured RTT between when
   // the chunk was sent and now. It takes into acccount Karn's algorithm, so if
-  // the chunk has ever been retransmitted, it will return absl::nullopt.
-  absl::optional<DurationMs> MeasureRTT(TimeMs now, UnwrappedTSN tsn) const;
+  // the chunk has ever been retransmitted, it will return `PlusInfinity()`.
+  webrtc::TimeDelta MeasureRTT(webrtc::Timestamp now, UnwrappedTSN tsn) const;
 
   // Returns the internal state of all queued chunks. This is only used in
   // unit-tests.
@@ -175,12 +178,14 @@ class OutstandingData {
       kAbandon,
     };
 
-    Item(Data data,
-         TimeMs time_sent,
+    Item(OutgoingMessageId message_id,
+         Data data,
+         webrtc::Timestamp time_sent,
          MaxRetransmits max_retransmissions,
-         TimeMs expires_at,
+         webrtc::Timestamp expires_at,
          LifecycleId lifecycle_id)
-        : time_sent_(time_sent),
+        : message_id_(message_id),
+          time_sent_(time_sent),
           max_retransmissions_(max_retransmissions),
           expires_at_(expires_at),
           lifecycle_id_(lifecycle_id),
@@ -189,7 +194,9 @@ class OutstandingData {
     Item(const Item&) = delete;
     Item& operator=(const Item&) = delete;
 
-    TimeMs time_sent() const { return time_sent_; }
+    OutgoingMessageId message_id() const { return message_id_; }
+
+    webrtc::Timestamp time_sent() const { return time_sent_; }
 
     const Data& data() const { return data_; }
 
@@ -223,7 +230,7 @@ class OutstandingData {
 
     // Given the current time, and the current state of this DATA chunk, it will
     // indicate if it has expired (SCTP Partial Reliability Extension).
-    bool has_expired(TimeMs now) const;
+    bool has_expired(webrtc::Timestamp now) const;
 
     LifecycleId lifecycle_id() const { return lifecycle_id_; }
 
@@ -249,8 +256,10 @@ class OutstandingData {
     // NOTE: This data structure has been optimized for size, by ordering fields
     // to avoid unnecessary padding.
 
+    const OutgoingMessageId message_id_;
+
     // When the packet was sent, and placed in this queue.
-    const TimeMs time_sent_;
+    const webrtc::Timestamp time_sent_;
     // If the message was sent with a maximum number of retransmissions, this is
     // set to that number. The value zero (0) means that it will never be
     // retransmitted.
@@ -270,7 +279,7 @@ class OutstandingData {
 
     // At this exact millisecond, the item is considered expired. If the message
     // is not to be expired, this is set to the infinite future.
-    const TimeMs expires_at_;
+    const webrtc::Timestamp expires_at_;
 
     // An optional lifecycle id, which may only be set for the last fragment.
     const LifecycleId lifecycle_id_;
@@ -338,7 +347,7 @@ class OutstandingData {
   // The last cumulative TSN ack number.
   UnwrappedTSN last_cumulative_tsn_ack_;
   // Callback when to discard items from the send queue.
-  std::function<bool(IsUnordered, StreamID, MID)> discard_from_send_queue_;
+  std::function<bool(StreamID, OutgoingMessageId)> discard_from_send_queue_;
 
   std::map<UnwrappedTSN, Item> outstanding_data_;
   // The number of bytes that are in-flight (sent but not yet acked or nacked).
