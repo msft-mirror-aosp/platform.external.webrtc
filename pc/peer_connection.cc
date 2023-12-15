@@ -1780,9 +1780,9 @@ bool PeerConnection::StartRtcEventLog(std::unique_ptr<RtcEventLogOutput> output,
 
 bool PeerConnection::StartRtcEventLog(
     std::unique_ptr<RtcEventLogOutput> output) {
-  int64_t output_period_ms = webrtc::RtcEventLog::kImmediateOutput;
-  if (trials().IsEnabled("WebRTC-RtcEventLogNewFormat")) {
-    output_period_ms = 5000;
+  int64_t output_period_ms = 5000;
+  if (trials().IsDisabled("WebRTC-RtcEventLogNewFormat")) {
+    output_period_ms = webrtc::RtcEventLog::kImmediateOutput;
   }
   return StartRtcEventLog(std::move(output), output_period_ms);
 }
@@ -2850,31 +2850,6 @@ void PeerConnection::ReportNegotiatedCiphers(
   if (srtp_crypto_suite == rtc::kSrtpInvalidCryptoSuite &&
       ssl_cipher_suite == rtc::kTlsNullWithNullNull) {
     return;
-  }
-
-  if (srtp_crypto_suite != rtc::kSrtpInvalidCryptoSuite) {
-    for (cricket::MediaType media_type : media_types) {
-      switch (media_type) {
-        case cricket::MEDIA_TYPE_AUDIO:
-          RTC_HISTOGRAM_ENUMERATION_SPARSE(
-              "WebRTC.PeerConnection.SrtpCryptoSuite.Audio", srtp_crypto_suite,
-              rtc::kSrtpCryptoSuiteMaxValue);
-          break;
-        case cricket::MEDIA_TYPE_VIDEO:
-          RTC_HISTOGRAM_ENUMERATION_SPARSE(
-              "WebRTC.PeerConnection.SrtpCryptoSuite.Video", srtp_crypto_suite,
-              rtc::kSrtpCryptoSuiteMaxValue);
-          break;
-        case cricket::MEDIA_TYPE_DATA:
-          RTC_HISTOGRAM_ENUMERATION_SPARSE(
-              "WebRTC.PeerConnection.SrtpCryptoSuite.Data", srtp_crypto_suite,
-              rtc::kSrtpCryptoSuiteMaxValue);
-          break;
-        default:
-          RTC_DCHECK_NOTREACHED();
-          continue;
-      }
-    }
   }
 
   if (ssl_cipher_suite != rtc::kTlsNullWithNullNull) {

@@ -1549,6 +1549,10 @@ TEST_F(RTCStatsCollectorTest, CertificateStatsCache) {
 }
 
 TEST_F(RTCStatsCollectorTest, CollectTwoRTCDataChannelStatsWithPendingId) {
+  // Note: The test assumes data channel IDs are predictable.
+  // This is not a safe assumption, but in order to make it work for
+  // the test, we reset the ID allocator at test start.
+  SctpDataChannel::ResetInternalIdAllocatorForTesting(-1);
   pc_->AddSctpDataChannel(rtc::make_ref_counted<MockSctpDataChannel>(
       data_channel_controller_->weak_ptr(), /*id=*/-1,
       DataChannelInterface::kConnecting));
@@ -1557,6 +1561,20 @@ TEST_F(RTCStatsCollectorTest, CollectTwoRTCDataChannelStatsWithPendingId) {
       DataChannelInterface::kConnecting));
 
   rtc::scoped_refptr<const RTCStatsReport> report = stats_->GetStatsReport();
+  RTCDataChannelStats expected_data_channel0("D0", Timestamp::Zero());
+  // Default values from MockDataChannel.
+  expected_data_channel0.label = "MockSctpDataChannel";
+  expected_data_channel0.protocol = "someProtocol";
+  expected_data_channel0.state = "connecting";
+  expected_data_channel0.messages_sent = 0;
+  expected_data_channel0.bytes_sent = 0;
+  expected_data_channel0.messages_received = 0;
+  expected_data_channel0.bytes_received = 0;
+
+  ASSERT_TRUE(report->Get(expected_data_channel0.id()));
+  EXPECT_EQ(
+      expected_data_channel0,
+      report->Get(expected_data_channel0.id())->cast_to<RTCDataChannelStats>());
 }
 
 TEST_F(RTCStatsCollectorTest, CollectRTCDataChannelStats) {
@@ -1566,10 +1584,10 @@ TEST_F(RTCStatsCollectorTest, CollectRTCDataChannelStats) {
   SctpDataChannel::ResetInternalIdAllocatorForTesting(-1);
   pc_->AddSctpDataChannel(rtc::make_ref_counted<MockSctpDataChannel>(
       data_channel_controller_->weak_ptr(), 0, "MockSctpDataChannel0",
-      DataChannelInterface::kConnecting, "udp", 1, 2, 3, 4));
+      DataChannelInterface::kConnecting, "proto1", 1, 2, 3, 4));
   RTCDataChannelStats expected_data_channel0("D0", Timestamp::Zero());
   expected_data_channel0.label = "MockSctpDataChannel0";
-  expected_data_channel0.protocol = "udp";
+  expected_data_channel0.protocol = "proto1";
   expected_data_channel0.data_channel_identifier = 0;
   expected_data_channel0.state = "connecting";
   expected_data_channel0.messages_sent = 1;
@@ -1579,10 +1597,10 @@ TEST_F(RTCStatsCollectorTest, CollectRTCDataChannelStats) {
 
   pc_->AddSctpDataChannel(rtc::make_ref_counted<MockSctpDataChannel>(
       data_channel_controller_->weak_ptr(), 1, "MockSctpDataChannel1",
-      DataChannelInterface::kOpen, "tcp", 5, 6, 7, 8));
+      DataChannelInterface::kOpen, "proto2", 5, 6, 7, 8));
   RTCDataChannelStats expected_data_channel1("D1", Timestamp::Zero());
   expected_data_channel1.label = "MockSctpDataChannel1";
-  expected_data_channel1.protocol = "tcp";
+  expected_data_channel1.protocol = "proto2";
   expected_data_channel1.data_channel_identifier = 1;
   expected_data_channel1.state = "open";
   expected_data_channel1.messages_sent = 5;
@@ -1592,10 +1610,10 @@ TEST_F(RTCStatsCollectorTest, CollectRTCDataChannelStats) {
 
   pc_->AddSctpDataChannel(rtc::make_ref_counted<MockSctpDataChannel>(
       data_channel_controller_->weak_ptr(), 2, "MockSctpDataChannel2",
-      DataChannelInterface::kClosing, "udp", 9, 10, 11, 12));
+      DataChannelInterface::kClosing, "proto1", 9, 10, 11, 12));
   RTCDataChannelStats expected_data_channel2("D2", Timestamp::Zero());
   expected_data_channel2.label = "MockSctpDataChannel2";
-  expected_data_channel2.protocol = "udp";
+  expected_data_channel2.protocol = "proto1";
   expected_data_channel2.data_channel_identifier = 2;
   expected_data_channel2.state = "closing";
   expected_data_channel2.messages_sent = 9;
@@ -1605,10 +1623,10 @@ TEST_F(RTCStatsCollectorTest, CollectRTCDataChannelStats) {
 
   pc_->AddSctpDataChannel(rtc::make_ref_counted<MockSctpDataChannel>(
       data_channel_controller_->weak_ptr(), 3, "MockSctpDataChannel3",
-      DataChannelInterface::kClosed, "tcp", 13, 14, 15, 16));
+      DataChannelInterface::kClosed, "proto3", 13, 14, 15, 16));
   RTCDataChannelStats expected_data_channel3("D3", Timestamp::Zero());
   expected_data_channel3.label = "MockSctpDataChannel3";
-  expected_data_channel3.protocol = "tcp";
+  expected_data_channel3.protocol = "proto3";
   expected_data_channel3.data_channel_identifier = 3;
   expected_data_channel3.state = "closed";
   expected_data_channel3.messages_sent = 13;
@@ -1652,7 +1670,7 @@ TEST_F(RTCStatsCollectorTest, CollectRTCIceCandidateStats) {
   expected_a_local_host.candidate_type = "host";
   expected_a_local_host.priority = 0;
   expected_a_local_host.vpn = true;
-  expected_a_local_host.network_adapter_type = RTCNetworkAdapterType::kEthernet;
+  expected_a_local_host.network_adapter_type = "ethernet";
   expected_a_local_host.foundation = "foundationIsAString";
   expected_a_local_host.username_fragment = "iceusernamefragment";
 
@@ -1685,8 +1703,7 @@ TEST_F(RTCStatsCollectorTest, CollectRTCIceCandidateStats) {
   expected_a_local_prflx.candidate_type = "prflx";
   expected_a_local_prflx.priority = 2;
   expected_a_local_prflx.vpn = false;
-  expected_a_local_prflx.network_adapter_type =
-      RTCNetworkAdapterType::kCellular2g;
+  expected_a_local_prflx.network_adapter_type = "cellular2g";
   expected_a_local_prflx.foundation = "foundationIsAString";
   expected_a_local_prflx.username_fragment = "iceusernamefragment";
 
@@ -1724,7 +1741,7 @@ TEST_F(RTCStatsCollectorTest, CollectRTCIceCandidateStats) {
   expected_a_local_relay.priority = 1;
   expected_a_local_relay.url = "turn:url1";
   expected_a_local_relay.vpn = false;
-  expected_a_local_relay.network_adapter_type = RTCNetworkAdapterType::kUnknown;
+  expected_a_local_relay.network_adapter_type = "unknown";
   expected_a_local_relay.foundation = "foundationIsAString";
   expected_a_local_relay.username_fragment = "iceusernamefragment";
 
@@ -1745,8 +1762,7 @@ TEST_F(RTCStatsCollectorTest, CollectRTCIceCandidateStats) {
   expected_a_local_relay_prflx.candidate_type = "prflx";
   expected_a_local_relay_prflx.priority = 1;
   expected_a_local_relay_prflx.vpn = false;
-  expected_a_local_relay_prflx.network_adapter_type =
-      RTCNetworkAdapterType::kUnknown;
+  expected_a_local_relay_prflx.network_adapter_type = "unknown";
   expected_a_local_relay_prflx.foundation = "foundationIsAString";
   expected_a_local_relay_prflx.username_fragment = "iceusernamefragment";
 
@@ -1767,8 +1783,7 @@ TEST_F(RTCStatsCollectorTest, CollectRTCIceCandidateStats) {
   expected_a_local_host_not_paired.candidate_type = "host";
   expected_a_local_host_not_paired.priority = 0;
   expected_a_local_host_not_paired.vpn = true;
-  expected_a_local_host_not_paired.network_adapter_type =
-      RTCNetworkAdapterType::kEthernet;
+  expected_a_local_host_not_paired.network_adapter_type = "ethernet";
   expected_a_local_host_not_paired.foundation = "foundationIsAString";
   expected_a_local_host_not_paired.username_fragment = "iceusernamefragment";
 
@@ -1787,7 +1802,7 @@ TEST_F(RTCStatsCollectorTest, CollectRTCIceCandidateStats) {
   expected_b_local.candidate_type = "host";
   expected_b_local.priority = 42;
   expected_b_local.vpn = false;
-  expected_b_local.network_adapter_type = RTCNetworkAdapterType::kWifi;
+  expected_b_local.network_adapter_type = "wifi";
   expected_b_local.foundation = "foundationIsAString";
   expected_b_local.username_fragment = "iceusernamefragment";
 
@@ -1944,7 +1959,7 @@ TEST_F(RTCStatsCollectorTest, CollectRTCIceCandidatePairStats) {
       "Ttransport" + rtc::ToString(cricket::ICE_CANDIDATE_COMPONENT_RTP);
   expected_pair.local_candidate_id = "I" + local_candidate->id();
   expected_pair.remote_candidate_id = "I" + remote_candidate->id();
-  expected_pair.state = RTCStatsIceCandidatePairState::kInProgress;
+  expected_pair.state = "in-progress";
   expected_pair.priority = 5555;
   expected_pair.nominated = false;
   expected_pair.writable = true;
@@ -2043,7 +2058,7 @@ TEST_F(RTCStatsCollectorTest, CollectRTCIceCandidatePairStats) {
   expected_local_candidate.foundation = "foundationIsAString";
   expected_local_candidate.username_fragment = "local_iceusernamefragment";
   expected_local_candidate.vpn = false;
-  expected_local_candidate.network_adapter_type = RTCNetworkAdapterType::kWifi;
+  expected_local_candidate.network_adapter_type = "wifi";
   ASSERT_TRUE(report->Get(expected_local_candidate.id()));
   EXPECT_EQ(expected_local_candidate,
             report->Get(expected_local_candidate.id())
@@ -2346,11 +2361,13 @@ TEST_F(RTCStatsCollectorTest, CollectRTCInboundRtpStreamStats_Video) {
   video_media_info.receivers[0].content_type = VideoContentType::UNSPECIFIED;
   video_media_info.receivers[0].estimated_playout_ntp_timestamp_ms =
       absl::nullopt;
-  video_media_info.receivers[0].decoder_implementation_name = "";
+  video_media_info.receivers[0].decoder_implementation_name = absl::nullopt;
   video_media_info.receivers[0].min_playout_delay_ms = 50;
   video_media_info.receivers[0].power_efficient_decoder = false;
   video_media_info.receivers[0].retransmitted_packets_received = 17;
   video_media_info.receivers[0].retransmitted_bytes_received = 62;
+  video_media_info.receivers[0].fec_packets_received = 32;
+  video_media_info.receivers[0].fec_bytes_received = 54;
 
   // Note: these two values intentionally differ,
   // only the decoded one should show up.
@@ -2415,6 +2432,8 @@ TEST_F(RTCStatsCollectorTest, CollectRTCInboundRtpStreamStats_Video) {
   expected_video.power_efficient_decoder = false;
   expected_video.retransmitted_packets_received = 17;
   expected_video.retransmitted_bytes_received = 62;
+  expected_video.fec_packets_received = 32;
+  expected_video.fec_bytes_received = 54;
 
   ASSERT_TRUE(report->Get(expected_video.id()));
   EXPECT_EQ(
@@ -2601,7 +2620,7 @@ TEST_F(RTCStatsCollectorTest, CollectRTCOutboundRtpStreamStats_Video) {
   video_media_info.senders[0].quality_limitation_resolution_changes = 56u;
   video_media_info.senders[0].qp_sum = absl::nullopt;
   video_media_info.senders[0].content_type = VideoContentType::UNSPECIFIED;
-  video_media_info.senders[0].encoder_implementation_name = "";
+  video_media_info.senders[0].encoder_implementation_name = absl::nullopt;
   video_media_info.senders[0].power_efficient_encoder = false;
   video_media_info.senders[0].send_frame_width = 200;
   video_media_info.senders[0].send_frame_height = 100;
@@ -2751,12 +2770,12 @@ TEST_F(RTCStatsCollectorTest, CollectRTCTransportStats) {
   expected_rtp_transport.packets_sent = 1;
   expected_rtp_transport.bytes_received = 1337;
   expected_rtp_transport.packets_received = 4;
-  expected_rtp_transport.dtls_state = RTCDtlsTransportState::kNew;
-  expected_rtp_transport.dtls_role = RTCDtlsRole::kUnknown;
+  expected_rtp_transport.dtls_state = "new";
+  expected_rtp_transport.dtls_role = "unknown";
   expected_rtp_transport.selected_candidate_pair_changes = 1;
-  expected_rtp_transport.ice_role = RTCIceRole::kUnknown;
+  expected_rtp_transport.ice_role = "unknown";
   expected_rtp_transport.ice_local_username_fragment = "thelocalufrag";
-  expected_rtp_transport.ice_state = RTCIceTransportState::kNew;
+  expected_rtp_transport.ice_state = "new";
 
   ASSERT_TRUE(report->Get(expected_rtp_transport.id()));
   EXPECT_EQ(
@@ -2799,12 +2818,12 @@ TEST_F(RTCStatsCollectorTest, CollectRTCTransportStats) {
   expected_rtcp_transport.packets_sent = 1;
   expected_rtcp_transport.bytes_received = 42;
   expected_rtcp_transport.packets_received = 4;
-  expected_rtcp_transport.dtls_state = RTCDtlsTransportState::kConnecting;
-  expected_rtcp_transport.dtls_role = RTCDtlsRole::kUnknown;
+  expected_rtcp_transport.dtls_state = "connecting";
+  expected_rtcp_transport.dtls_role = "unknown";
   expected_rtcp_transport.selected_candidate_pair_changes = 0;
-  expected_rtcp_transport.ice_role = RTCIceRole::kUnknown;
+  expected_rtcp_transport.ice_role = "unknown";
   expected_rtcp_transport.ice_local_username_fragment = "thelocalufrag";
-  expected_rtcp_transport.ice_state = RTCIceTransportState::kChecking;
+  expected_rtcp_transport.ice_state = "checking";
 
   expected_rtp_transport.rtcp_transport_stats_id = expected_rtcp_transport.id();
   ASSERT_TRUE(report->Get(expected_rtp_transport.id()));
@@ -2920,19 +2939,19 @@ TEST_F(RTCStatsCollectorTest, CollectRTCTransportStatsWithCrypto) {
   RTCTransportStats expected_rtp_transport(
       "Ttransport" + rtc::ToString(cricket::ICE_CANDIDATE_COMPONENT_RTP),
       report->timestamp());
-  expected_rtp_transport.dtls_state = RTCDtlsTransportState::kConnected;
+  expected_rtp_transport.dtls_state = "connected";
   expected_rtp_transport.selected_candidate_pair_changes = 1;
-  expected_rtp_transport.ice_role = RTCIceRole::kUnknown;
+  expected_rtp_transport.ice_role = "unknown";
   expected_rtp_transport.bytes_sent = 0;
   expected_rtp_transport.bytes_received = 0;
   expected_rtp_transport.packets_sent = 0;
   expected_rtp_transport.packets_received = 0;
-  expected_rtp_transport.ice_role = RTCIceRole::kControlling;
+  expected_rtp_transport.ice_role = "controlling";
   expected_rtp_transport.ice_local_username_fragment = "thelocalufrag";
   expected_rtp_transport.ice_state = "connected";
   // Crypto parameters
   expected_rtp_transport.tls_version = "0203";
-  expected_rtp_transport.dtls_role = RTCDtlsRole::kClient;
+  expected_rtp_transport.dtls_role = "client";
   expected_rtp_transport.dtls_cipher = "TLS_RSA_WITH_AES_128_CBC_SHA";
   expected_rtp_transport.srtp_cipher = "AES_CM_128_HMAC_SHA1_80";
 

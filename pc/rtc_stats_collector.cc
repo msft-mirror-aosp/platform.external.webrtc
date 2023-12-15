@@ -166,13 +166,13 @@ std::string RTCMediaSourceStatsIDFromKindAndAttachment(
 
 const char* CandidateTypeToRTCIceCandidateType(const std::string& type) {
   if (type == cricket::LOCAL_PORT_TYPE)
-    return RTCIceCandidateType::kHost;
+    return "host";
   if (type == cricket::STUN_PORT_TYPE)
-    return RTCIceCandidateType::kSrflx;
+    return "srflx";
   if (type == cricket::PRFLX_PORT_TYPE)
-    return RTCIceCandidateType::kPrflx;
+    return "prflx";
   if (type == cricket::RELAY_PORT_TYPE)
-    return RTCIceCandidateType::kRelay;
+    return "relay";
   RTC_DCHECK_NOTREACHED();
   return nullptr;
 }
@@ -181,13 +181,13 @@ const char* DataStateToRTCDataChannelState(
     DataChannelInterface::DataState state) {
   switch (state) {
     case DataChannelInterface::kConnecting:
-      return RTCDataChannelState::kConnecting;
+      return "connecting";
     case DataChannelInterface::kOpen:
-      return RTCDataChannelState::kOpen;
+      return "open";
     case DataChannelInterface::kClosing:
-      return RTCDataChannelState::kClosing;
+      return "closing";
     case DataChannelInterface::kClosed:
-      return RTCDataChannelState::kClosed;
+      return "closed";
     default:
       RTC_DCHECK_NOTREACHED();
       return nullptr;
@@ -198,13 +198,13 @@ const char* IceCandidatePairStateToRTCStatsIceCandidatePairState(
     cricket::IceCandidatePairState state) {
   switch (state) {
     case cricket::IceCandidatePairState::WAITING:
-      return RTCStatsIceCandidatePairState::kWaiting;
+      return "waiting";
     case cricket::IceCandidatePairState::IN_PROGRESS:
-      return RTCStatsIceCandidatePairState::kInProgress;
+      return "in-progress";
     case cricket::IceCandidatePairState::SUCCEEDED:
-      return RTCStatsIceCandidatePairState::kSucceeded;
+      return "succeeded";
     case cricket::IceCandidatePairState::FAILED:
-      return RTCStatsIceCandidatePairState::kFailed;
+      return "failed";
     default:
       RTC_DCHECK_NOTREACHED();
       return nullptr;
@@ -214,11 +214,11 @@ const char* IceCandidatePairStateToRTCStatsIceCandidatePairState(
 const char* IceRoleToRTCIceRole(cricket::IceRole role) {
   switch (role) {
     case cricket::IceRole::ICEROLE_UNKNOWN:
-      return RTCIceRole::kUnknown;
+      return "unknown";
     case cricket::IceRole::ICEROLE_CONTROLLED:
-      return RTCIceRole::kControlled;
+      return "controlled";
     case cricket::IceRole::ICEROLE_CONTROLLING:
-      return RTCIceRole::kControlling;
+      return "controlling";
     default:
       RTC_DCHECK_NOTREACHED();
       return nullptr;
@@ -229,15 +229,15 @@ const char* DtlsTransportStateToRTCDtlsTransportState(
     DtlsTransportState state) {
   switch (state) {
     case DtlsTransportState::kNew:
-      return RTCDtlsTransportState::kNew;
+      return "new";
     case DtlsTransportState::kConnecting:
-      return RTCDtlsTransportState::kConnecting;
+      return "connecting";
     case DtlsTransportState::kConnected:
-      return RTCDtlsTransportState::kConnected;
+      return "connected";
     case DtlsTransportState::kClosed:
-      return RTCDtlsTransportState::kClosed;
+      return "closed";
     case DtlsTransportState::kFailed:
-      return RTCDtlsTransportState::kFailed;
+      return "failed";
     default:
       RTC_CHECK_NOTREACHED();
       return nullptr;
@@ -247,19 +247,19 @@ const char* DtlsTransportStateToRTCDtlsTransportState(
 const char* IceTransportStateToRTCIceTransportState(IceTransportState state) {
   switch (state) {
     case IceTransportState::kNew:
-      return RTCIceTransportState::kNew;
+      return "new";
     case IceTransportState::kChecking:
-      return RTCIceTransportState::kChecking;
+      return "checking";
     case IceTransportState::kConnected:
-      return RTCIceTransportState::kConnected;
+      return "connected";
     case IceTransportState::kCompleted:
-      return RTCIceTransportState::kCompleted;
+      return "completed";
     case IceTransportState::kFailed:
-      return RTCIceTransportState::kFailed;
+      return "failed";
     case IceTransportState::kDisconnected:
-      return RTCIceTransportState::kDisconnected;
+      return "disconnected";
     case IceTransportState::kClosed:
-      return RTCIceTransportState::kClosed;
+      return "closed";
     default:
       RTC_CHECK_NOTREACHED();
       return nullptr;
@@ -273,17 +273,17 @@ const char* NetworkTypeToStatsType(rtc::AdapterType type) {
     case rtc::ADAPTER_TYPE_CELLULAR_3G:
     case rtc::ADAPTER_TYPE_CELLULAR_4G:
     case rtc::ADAPTER_TYPE_CELLULAR_5G:
-      return RTCNetworkType::kCellular;
+      return "cellular";
     case rtc::ADAPTER_TYPE_ETHERNET:
-      return RTCNetworkType::kEthernet;
+      return "ethernet";
     case rtc::ADAPTER_TYPE_WIFI:
-      return RTCNetworkType::kWifi;
+      return "wifi";
     case rtc::ADAPTER_TYPE_VPN:
-      return RTCNetworkType::kVpn;
+      return "vpn";
     case rtc::ADAPTER_TYPE_UNKNOWN:
     case rtc::ADAPTER_TYPE_LOOPBACK:
     case rtc::ADAPTER_TYPE_ANY:
-      return RTCNetworkType::kUnknown;
+      return "unknown";
   }
   RTC_DCHECK_NOTREACHED();
   return nullptr;
@@ -292,25 +292,25 @@ const char* NetworkTypeToStatsType(rtc::AdapterType type) {
 absl::string_view NetworkTypeToStatsNetworkAdapterType(rtc::AdapterType type) {
   switch (type) {
     case rtc::ADAPTER_TYPE_CELLULAR:
-      return RTCNetworkAdapterType::kCellular;
+      return "cellular";
     case rtc::ADAPTER_TYPE_CELLULAR_2G:
-      return RTCNetworkAdapterType::kCellular2g;
+      return "cellular2g";
     case rtc::ADAPTER_TYPE_CELLULAR_3G:
-      return RTCNetworkAdapterType::kCellular3g;
+      return "cellular3g";
     case rtc::ADAPTER_TYPE_CELLULAR_4G:
-      return RTCNetworkAdapterType::kCellular4g;
+      return "cellular4g";
     case rtc::ADAPTER_TYPE_CELLULAR_5G:
-      return RTCNetworkAdapterType::kCellular5g;
+      return "cellular5g";
     case rtc::ADAPTER_TYPE_ETHERNET:
-      return RTCNetworkAdapterType::kEthernet;
+      return "ethernet";
     case rtc::ADAPTER_TYPE_WIFI:
-      return RTCNetworkAdapterType::kWifi;
+      return "wifi";
     case rtc::ADAPTER_TYPE_UNKNOWN:
-      return RTCNetworkAdapterType::kUnknown;
+      return "unknown";
     case rtc::ADAPTER_TYPE_LOOPBACK:
-      return RTCNetworkAdapterType::kLoopback;
+      return "loopback";
     case rtc::ADAPTER_TYPE_ANY:
-      return RTCNetworkAdapterType::kAny;
+      return "any";
     case rtc::ADAPTER_TYPE_VPN:
       /* should not be handled here. Vpn is modelled as a bool */
       break;
@@ -323,13 +323,13 @@ const char* QualityLimitationReasonToRTCQualityLimitationReason(
     QualityLimitationReason reason) {
   switch (reason) {
     case QualityLimitationReason::kNone:
-      return RTCQualityLimitationReason::kNone;
+      return "none";
     case QualityLimitationReason::kCpu:
-      return RTCQualityLimitationReason::kCpu;
+      return "cpu";
     case QualityLimitationReason::kBandwidth:
-      return RTCQualityLimitationReason::kBandwidth;
+      return "bandwidth";
     case QualityLimitationReason::kOther:
-      return RTCQualityLimitationReason::kOther;
+      return "other";
   }
   RTC_CHECK_NOTREACHED();
 }
@@ -425,6 +425,17 @@ void SetInboundRTPStreamStatsFromMediaReceiverInfo(
   if (media_receiver_info.nacks_sent.has_value()) {
     inbound_stats->nack_count = *media_receiver_info.nacks_sent;
   }
+  if (media_receiver_info.fec_packets_received.has_value()) {
+    inbound_stats->fec_packets_received =
+        *media_receiver_info.fec_packets_received;
+  }
+  if (media_receiver_info.fec_packets_discarded.has_value()) {
+    inbound_stats->fec_packets_discarded =
+        *media_receiver_info.fec_packets_discarded;
+  }
+  if (media_receiver_info.fec_bytes_received.has_value()) {
+    inbound_stats->fec_bytes_received = *media_receiver_info.fec_bytes_received;
+  }
 }
 
 std::unique_ptr<RTCInboundRtpStreamStats> CreateInboundAudioStreamStats(
@@ -483,10 +494,6 @@ std::unique_ptr<RTCInboundRtpStreamStats> CreateInboundAudioStreamStats(
     inbound_audio->estimated_playout_timestamp = static_cast<double>(
         *voice_receiver_info.estimated_playout_ntp_timestamp_ms);
   }
-  inbound_audio->fec_packets_received =
-      voice_receiver_info.fec_packets_received;
-  inbound_audio->fec_packets_discarded =
-      voice_receiver_info.fec_packets_discarded;
   inbound_audio->packets_discarded = voice_receiver_info.packets_discarded;
   inbound_audio->jitter_buffer_flushes =
       voice_receiver_info.jitter_buffer_flushes;
@@ -661,15 +668,16 @@ CreateInboundRTPStreamStatsFromVideoReceiverInfo(
   // TODO(bugs.webrtc.org/10529): When info's `content_info` is optional
   // support the "unspecified" value.
   if (video_receiver_info.content_type == VideoContentType::SCREENSHARE)
-    inbound_video->content_type = RTCContentType::kScreenshare;
-  if (!video_receiver_info.decoder_implementation_name.empty()) {
+    inbound_video->content_type = "screenshare";
+  if (video_receiver_info.decoder_implementation_name.has_value()) {
     inbound_video->decoder_implementation =
-        video_receiver_info.decoder_implementation_name;
+        *video_receiver_info.decoder_implementation_name;
   }
   if (video_receiver_info.power_efficient_decoder.has_value()) {
     inbound_video->power_efficient_decoder =
         *video_receiver_info.power_efficient_decoder;
   }
+
   return inbound_video;
 }
 
@@ -802,10 +810,10 @@ CreateOutboundRTPStreamStatsFromVideoSenderInfo(
   // TODO(https://crbug.com/webrtc/10529): When info's `content_info` is
   // optional, support the "unspecified" value.
   if (video_sender_info.content_type == VideoContentType::SCREENSHARE)
-    outbound_video->content_type = RTCContentType::kScreenshare;
-  if (!video_sender_info.encoder_implementation_name.empty()) {
+    outbound_video->content_type = "screenshare";
+  if (video_sender_info.encoder_implementation_name.has_value()) {
     outbound_video->encoder_implementation =
-        video_sender_info.encoder_implementation_name;
+        *video_sender_info.encoder_implementation_name;
   }
   if (video_sender_info.rid.has_value()) {
     outbound_video->rid = *video_sender_info.rid;
@@ -1394,7 +1402,11 @@ void RTCStatsCollector::ProduceDataChannelStats_n(
         "D" + rtc::ToString(stats.internal_id), timestamp);
     data_channel_stats->label = std::move(stats.label);
     data_channel_stats->protocol = std::move(stats.protocol);
-    data_channel_stats->data_channel_identifier = stats.id;
+    if (stats.id >= 0) {
+      // Do not set this value before the DTLS handshake is finished
+      // and filter out the magic value -1.
+      data_channel_stats->data_channel_identifier = stats.id;
+    }
     data_channel_stats->state = DataStateToRTCDataChannelState(stats.state);
     data_channel_stats->messages_sent = stats.messages_sent;
     data_channel_stats->bytes_sent = stats.bytes_sent;
@@ -1918,11 +1930,10 @@ void RTCStatsCollector::ProduceTransportStats_n(
       }
 
       if (channel_stats.dtls_role) {
-        transport_stats->dtls_role = *channel_stats.dtls_role == rtc::SSL_CLIENT
-                                         ? webrtc::RTCDtlsRole::kClient
-                                         : webrtc::RTCDtlsRole::kServer;
+        transport_stats->dtls_role =
+            *channel_stats.dtls_role == rtc::SSL_CLIENT ? "client" : "server";
       } else {
-        transport_stats->dtls_role = webrtc::RTCDtlsRole::kUnknown;
+        transport_stats->dtls_role = "unknown";
       }
 
       if (channel_stats.ssl_cipher_suite != rtc::kTlsNullWithNullNull &&
