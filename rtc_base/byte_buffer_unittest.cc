@@ -166,7 +166,7 @@ TEST(ByteBufferTest, TestReadWriteBuffer) {
   buffer.Clear();
 
   // Write and read bytes
-  uint8_t write_bytes[] = "foo";
+  char write_bytes[] = "foo";
   buffer.WriteBytes(write_bytes, 3);
   ByteBufferReader read_buf7(buffer);
   uint8_t read_bytes[3];
@@ -178,7 +178,7 @@ TEST(ByteBufferTest, TestReadWriteBuffer) {
   buffer.Clear();
 
   // Write and read reserved buffer space
-  uint8_t* write_dst = buffer.ReserveWriteBuffer(3);
+  char* write_dst = buffer.ReserveWriteBuffer(3);
   memcpy(write_dst, write_bytes, 3);
   ByteBufferReader read_buf8(buffer);
   memset(read_bytes, 0, 3);
