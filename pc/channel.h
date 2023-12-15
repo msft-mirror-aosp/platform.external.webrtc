@@ -45,7 +45,6 @@
 #include "rtc_base/network/sent_packet.h"
 #include "rtc_base/network_route.h"
 #include "rtc_base/socket.h"
-#include "rtc_base/third_party/sigslot/sigslot.h"
 #include "rtc_base/thread.h"
 #include "rtc_base/thread_annotations.h"
 #include "rtc_base/unique_id_generator.h"
@@ -69,8 +68,6 @@ class VideoChannel;
 class VoiceChannel;
 
 class BaseChannel : public ChannelInterface,
-                    // TODO(tommi): Remove has_slots inheritance.
-                    public sigslot::has_slots<>,
                     // TODO(tommi): Consider implementing these interfaces
                     // via composition.
                     public MediaChannelNetworkInterface,
@@ -429,12 +426,12 @@ class VoiceChannel : public BaseChannel {
                           std::string& error_desc)
       RTC_RUN_ON(worker_thread()) override;
 
-  // Last AudioSendParameters sent down to the media_channel() via
-  // SetSendParameters.
-  AudioSendParameters last_send_params_ RTC_GUARDED_BY(worker_thread());
-  // Last AudioRecvParameters sent down to the media_channel() via
-  // SetRecvParameters.
-  AudioRecvParameters last_recv_params_ RTC_GUARDED_BY(worker_thread());
+  // Last AudioSenderParameter sent down to the media_channel() via
+  // SetSenderParameters.
+  AudioSenderParameter last_send_params_ RTC_GUARDED_BY(worker_thread());
+  // Last AudioReceiverParameters sent down to the media_channel() via
+  // SetReceiverParameters.
+  AudioReceiverParameters last_recv_params_ RTC_GUARDED_BY(worker_thread());
 };
 
 // VideoChannel is a specialization for video.
@@ -498,12 +495,12 @@ class VideoChannel : public BaseChannel {
                           std::string& error_desc)
       RTC_RUN_ON(worker_thread()) override;
 
-  // Last VideoSendParameters sent down to the media_channel() via
-  // SetSendParameters.
-  VideoSendParameters last_send_params_ RTC_GUARDED_BY(worker_thread());
-  // Last VideoRecvParameters sent down to the media_channel() via
-  // SetRecvParameters.
-  VideoRecvParameters last_recv_params_ RTC_GUARDED_BY(worker_thread());
+  // Last VideoSenderParameters sent down to the media_channel() via
+  // SetSenderParameters.
+  VideoSenderParameters last_send_params_ RTC_GUARDED_BY(worker_thread());
+  // Last VideoReceiverParameters sent down to the media_channel() via
+  // SetReceiverParameters.
+  VideoReceiverParameters last_recv_params_ RTC_GUARDED_BY(worker_thread());
 };
 
 }  // namespace cricket

@@ -20,6 +20,7 @@
 #include "api/field_trials_view.h"
 #include "api/frame_transformer_interface.h"
 #include "api/scoped_refptr.h"
+#include "api/units/time_delta.h"
 #include "api/video/video_bitrate_allocation.h"
 #include "modules/rtp_rtcp/include/receive_statistics.h"
 #include "modules/rtp_rtcp/include/report_block_data.h"
@@ -94,7 +95,6 @@ class RtpRtcpInterface : public RtcpFeedbackSenderInterface {
     VideoFecGenerator* fec_generator = nullptr;
 
     BitrateStatisticsObserver* send_bitrate_observer = nullptr;
-    SendSideDelayObserver* send_side_delay_observer = nullptr;
     RtcEventLog* event_log = nullptr;
     SendPacketObserver* send_packet_observer = nullptr;
     RateLimiter* retransmission_rate_limiter = nullptr;
@@ -274,7 +274,7 @@ class RtpRtcpInterface : public RtcpFeedbackSenderInterface {
   // Returns the FlexFEC SSRC, if there is one.
   virtual absl::optional<uint32_t> FlexfecSsrc() const = 0;
 
-  // Sets sending status. Sends kRtcpByeCode when going from true to false.
+  // Sets sending status.
   // Returns -1 on failure else 0.
   virtual int32_t SetSendingStatus(bool sending) = 0;
 
@@ -375,7 +375,7 @@ class RtpRtcpInterface : public RtcpFeedbackSenderInterface {
   virtual absl::optional<TimeDelta> LastRtt() const = 0;
 
   // Returns the estimated RTT, with fallback to a default value.
-  virtual int64_t ExpectedRetransmissionTimeMs() const = 0;
+  virtual TimeDelta ExpectedRetransmissionTime() const = 0;
 
   // Forces a send of a RTCP packet. Periodic SR and RR are triggered via the
   // process function.

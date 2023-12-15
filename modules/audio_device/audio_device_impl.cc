@@ -65,11 +65,7 @@ rtc::scoped_refptr<AudioDeviceModule> AudioDeviceModule::Create(
     AudioLayer audio_layer,
     TaskQueueFactory* task_queue_factory) {
   RTC_DLOG(LS_INFO) << __FUNCTION__;
-#if defined(WEBRTC_ANDROID)
-  return CreateAndroidAudioDeviceModule(audio_layer);
-#else
   return AudioDeviceModule::CreateForTest(audio_layer, task_queue_factory);
-#endif
 }
 
 // static
@@ -876,10 +872,8 @@ int32_t AudioDeviceModuleImpl::EnableBuiltInNS(bool enable) {
 }
 
 int32_t AudioDeviceModuleImpl::GetPlayoutUnderrunCount() const {
-  RTC_LOG(LS_INFO) << __FUNCTION__;
   CHECKinitialized_();
   int32_t underrunCount = audio_device_->GetPlayoutUnderrunCount();
-  RTC_LOG(LS_INFO) << "output: " << underrunCount;
   return underrunCount;
 }
 

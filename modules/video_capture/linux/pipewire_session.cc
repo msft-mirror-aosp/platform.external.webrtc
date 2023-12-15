@@ -232,7 +232,10 @@ PipeWireSession::~PipeWireSession() {
 }
 
 void PipeWireSession::Init(VideoCaptureOptions::Callback* callback, int fd) {
-  callback_ = callback;
+  {
+    webrtc::MutexLock lock(&callback_lock_);
+    callback_ = callback;
+  }
 
   if (fd != kInvalidPipeWireFd) {
     InitPipeWire(fd);
@@ -357,6 +360,10 @@ void PipeWireSession::OnRegistryGlobal(void* data,
   if (!spa_dict_lookup(props, PW_KEY_NODE_DESCRIPTION))
     return;
 
+  auto node_role = spa_dict_lookup(props, PW_KEY_MEDIA_ROLE);
+  if (!node_role || strcmp(node_role, "Camera"))
+    return;
+
   that->nodes_.emplace_back(that, id, props);
   that->PipeWireSync();
 }
@@ -374,6 +381,8 @@ void PipeWireSession::OnRegistryGlobalRemove(void* data, uint32_t id) {
 }
 
 void PipeWireSession::Finish(VideoCaptureOptions::Status status) {
+  webrtc::MutexLock lock(&callback_lock_);
+
   if (callback_) {
     callback_->OnInitialized(status);
     callback_ = nullptr;
@@ -381,6 +390,9 @@ void PipeWireSession::Finish(VideoCaptureOptions::Status status) {
 }
 
 void PipeWireSession::Cleanup() {
+  webrtc::MutexLock lock(&callback_lock_);
+  callback_ = nullptr;
+
   StopPipeWire();
 }
 
