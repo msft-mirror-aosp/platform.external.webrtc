@@ -15,6 +15,9 @@
 #include "api/audio_codecs/audio_format.h"
 #include "api/video_codecs/av1_profile.h"
 #include "api/video_codecs/h264_profile_level_id.h"
+#ifdef RTC_ENABLE_H265
+#include "api/video_codecs/h265_profile_tier_level.h"
+#endif
 #include "api/video_codecs/vp9_profile.h"
 #include "media/base/media_constants.h"
 #include "rtc_base/checks.h"
@@ -25,7 +28,8 @@
 namespace cricket {
 namespace {
 
-std::string GetH264PacketizationModeOrDefault(const CodecParameterMap& params) {
+std::string GetH264PacketizationModeOrDefault(
+    const webrtc::CodecParameterMap& params) {
   auto it = params.find(kH264FmtpPacketizationMode);
   if (it != params.end()) {
     return it->second;
@@ -35,18 +39,36 @@ std::string GetH264PacketizationModeOrDefault(const CodecParameterMap& params) {
   return "0";
 }
 
-bool IsSameH264PacketizationMode(const CodecParameterMap& left,
-                                 const CodecParameterMap& right) {
+bool IsSameH264PacketizationMode(const webrtc::CodecParameterMap& left,
+                                 const webrtc::CodecParameterMap& right) {
   return GetH264PacketizationModeOrDefault(left) ==
          GetH264PacketizationModeOrDefault(right);
 }
 
+#ifdef RTC_ENABLE_H265
+std::string GetH265TxModeOrDefault(const webrtc::CodecParameterMap& params) {
+  auto it = params.find(kH265FmtpTxMode);
+  if (it != params.end()) {
+    return it->second;
+  }
+  // If TxMode is not present, a value of "SRST" must be inferred.
+  // https://tools.ietf.org/html/rfc7798@section-7.1
+  return "SRST";
+}
+
+bool IsSameH265TxMode(const webrtc::CodecParameterMap& left,
+                      const webrtc::CodecParameterMap& right) {
+  return absl::EqualsIgnoreCase(GetH265TxModeOrDefault(left),
+                                GetH265TxModeOrDefault(right));
+}
+#endif
+
 // Some (video) codecs are actually families of codecs and rely on parameters
 // to distinguish different incompatible family members.
 bool IsSameCodecSpecific(const std::string& name1,
-                         const CodecParameterMap& params1,
+                         const webrtc::CodecParameterMap& params1,
                          const std::string& name2,
-                         const CodecParameterMap& params2) {
+                         const webrtc::CodecParameterMap& params2) {
   // The names might not necessarily match, so check both.
   auto either_name_matches = [&](const std::string name) {
     return absl::EqualsIgnoreCase(name, name1) ||
@@ -59,59 +81,13 @@ bool IsSameCodecSpecific(const std::string& name1,
     return webrtc::VP9IsSameProfile(params1, params2);
   if (either_name_matches(kAv1CodecName))
     return webrtc::AV1IsSameProfile(params1, params2);
+#ifdef RTC_ENABLE_H265
+  if (either_name_matches(kH265CodecName)) {
+    return webrtc::H265IsSameProfileTierLevel(params1, params2) &&
+           IsSameH265TxMode(params1, params2);
+  }
+#endif
   return true;
-}
-
-bool MatchesMediaSubtype(const Codec& lhs, const Codec& rhs) {
-  // Match the codec id/name based on the typical static/dynamic name rules.
-  // Matching is case-insensitive.
-
-  // We support the ranges [96, 127] and more recently [35, 65].
-  // https://www.iana.org/assignments/rtp-parameters/rtp-parameters.xhtml#rtp-parameters-1
-  // Within those ranges we match by codec name, outside by codec id.
-  // Since no codecs are assigned an id in the range [66, 95] by us, these will
-  // never match.
-  auto id_in_dynamic_range = [](int id) {
-    const int kLowerDynamicRangeMin = 35;
-    const int kLowerDynamicRangeMax = 65;
-    const int kUpperDynamicRangeMin = 96;
-    const int kUpperDynamicRangeMax = 127;
-    return (id >= kLowerDynamicRangeMin && id <= kLowerDynamicRangeMax) ||
-           (id >= kUpperDynamicRangeMin && id <= kUpperDynamicRangeMax);
-  };
-
-  if (lhs.type != rhs.type) {
-    return false;
-  }
-
-  return (id_in_dynamic_range(lhs.id) && id_in_dynamic_range(rhs.id))
-             ? absl::EqualsIgnoreCase(lhs.name, rhs.name)
-             : lhs.id == rhs.id;
-}
-
-bool MatchesMediaParameters(const Codec& lhs, const Codec& rhs) {
-  switch (lhs.type) {
-    case Codec::Type::kAudio:
-      // If a nonzero clockrate is specified, it must match the actual
-      // clockrate. If a nonzero bitrate is specified, it must match the
-      // actual bitrate, unless the codec is VBR (0), where we just force
-      // the supplied value. The number of channels must match exactly, with
-      // the exception that channels=0 is treated synonymously as
-      // channels=1, per RFC 4566 section 6: " [The channels] parameter is
-      // OPTIONAL and may be omitted if the number of channels is one."
-      // Preference is ignored.
-      // TODO(juberti): Treat a zero clockrate as 8000Hz, the RTP default
-      // clockrate.
-      return ((rhs.clockrate == 0 /*&& lsh.clockrate == 8000*/) ||
-              lhs.clockrate == rhs.clockrate) &&
-             (rhs.bitrate == 0 || lhs.bitrate <= 0 ||
-              lhs.bitrate == rhs.bitrate) &&
-             ((rhs.channels < 2 && lhs.channels < 2) ||
-              lhs.channels == rhs.channels);
-
-    case Codec::Type::kVideo:
-      return IsSameCodecSpecific(lhs.name, lhs.params, rhs.name, rhs.params);
-  }
 }
 
 }  // namespace
@@ -211,14 +187,55 @@ bool Codec::operator==(const Codec& c) const {
 }
 
 bool Codec::Matches(const Codec& codec) const {
-  return MatchesMediaSubtype(*this, codec) &&
-         MatchesMediaParameters(*this, codec) &&
-         (packetization == codec.packetization);
-}
+  // Match the codec id/name based on the typical static/dynamic name rules.
+  // Matching is case-insensitive.
 
-bool Codec::MatchesWithoutPacketization(const Codec& codec) const {
-  return MatchesMediaSubtype(*this, codec) &&
-         MatchesMediaParameters(*this, codec);
+  // We support the ranges [96, 127] and more recently [35, 65].
+  // https://www.iana.org/assignments/rtp-parameters/rtp-parameters.xhtml#rtp-parameters-1
+  // Within those ranges we match by codec name, outside by codec id.
+  // Since no codecs are assigned an id in the range [66, 95] by us, these will
+  // never match.
+  const int kLowerDynamicRangeMin = 35;
+  const int kLowerDynamicRangeMax = 65;
+  const int kUpperDynamicRangeMin = 96;
+  const int kUpperDynamicRangeMax = 127;
+  const bool is_id_in_dynamic_range =
+      (id >= kLowerDynamicRangeMin && id <= kLowerDynamicRangeMax) ||
+      (id >= kUpperDynamicRangeMin && id <= kUpperDynamicRangeMax);
+  const bool is_codec_id_in_dynamic_range =
+      (codec.id >= kLowerDynamicRangeMin &&
+       codec.id <= kLowerDynamicRangeMax) ||
+      (codec.id >= kUpperDynamicRangeMin && codec.id <= kUpperDynamicRangeMax);
+  bool matches_id = is_id_in_dynamic_range && is_codec_id_in_dynamic_range
+                        ? (absl::EqualsIgnoreCase(name, codec.name))
+                        : (id == codec.id);
+
+  auto matches_type_specific = [&]() {
+    switch (type) {
+      case Type::kAudio:
+        // If a nonzero clockrate is specified, it must match the actual
+        // clockrate. If a nonzero bitrate is specified, it must match the
+        // actual bitrate, unless the codec is VBR (0), where we just force the
+        // supplied value. The number of channels must match exactly, with the
+        // exception that channels=0 is treated synonymously as channels=1, per
+        // RFC 4566 section 6: " [The channels] parameter is OPTIONAL and may be
+        // omitted if the number of channels is one."
+        // Preference is ignored.
+        // TODO(juberti): Treat a zero clockrate as 8000Hz, the RTP default
+        // clockrate.
+        return ((codec.clockrate == 0 /*&& clockrate == 8000*/) ||
+                clockrate == codec.clockrate) &&
+               (codec.bitrate == 0 || bitrate <= 0 ||
+                bitrate == codec.bitrate) &&
+               ((codec.channels < 2 && channels < 2) ||
+                channels == codec.channels);
+
+      case Type::kVideo:
+        return IsSameCodecSpecific(name, params, codec.name, codec.params);
+    }
+  };
+
+  return matches_id && matches_type_specific();
 }
 
 bool Codec::MatchesRtpCodec(const webrtc::RtpCodec& codec_capability) const {
@@ -233,7 +250,7 @@ bool Codec::MatchesRtpCodec(const webrtc::RtpCodec& codec_capability) const {
 }
 
 bool Codec::GetParam(const std::string& name, std::string* out) const {
-  CodecParameterMap::const_iterator iter = params.find(name);
+  webrtc::CodecParameterMap::const_iterator iter = params.find(name);
   if (iter == params.end())
     return false;
   *out = iter->second;
@@ -241,7 +258,7 @@ bool Codec::GetParam(const std::string& name, std::string* out) const {
 }
 
 bool Codec::GetParam(const std::string& name, int* out) const {
-  CodecParameterMap::const_iterator iter = params.find(name);
+  webrtc::CodecParameterMap::const_iterator iter = params.find(name);
   if (iter == params.end())
     return false;
   return rtc::FromString(iter->second, out);
