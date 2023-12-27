@@ -21,7 +21,14 @@ load(
     "ABSL_TEST_COPTS",
 )
 
-package(default_visibility = ["//visibility:public"])
+package(
+    default_visibility = ["//visibility:public"],
+    features = [
+        "header_modules",
+        "layering_check",
+        "parse_headers",
+    ],
+)
 
 licenses(["notice"])
 
@@ -99,6 +106,7 @@ cc_library(
         "//absl/base:config",
         "//absl/base:core_headers",
         "//absl/base:log_severity",
+        "//absl/numeric:int128",
         "//absl/strings",
         "//absl/strings:str_format",
         "//absl/types:optional",
@@ -182,6 +190,7 @@ cc_library(
         ":private_handle_accessor",
         "//absl/base:config",
         "//absl/base:core_headers",
+        "//absl/base:no_destructor",
         "//absl/container:flat_hash_map",
         "//absl/strings",
         "//absl/synchronization",
@@ -265,8 +274,8 @@ cc_library(
         ":reflection",
         "//absl/base:config",
         "//absl/base:core_headers",
-        "//absl/container:flat_hash_map",
         "//absl/strings",
+        "//absl/synchronization",
     ],
 )
 
@@ -284,6 +293,7 @@ cc_library(
         ":usage_internal",
         "//absl/base:config",
         "//absl/base:core_headers",
+        "//absl/base:raw_logging_internal",
         "//absl/strings",
         "//absl/synchronization",
     ],
@@ -344,6 +354,7 @@ cc_test(
         ":reflection",
         "//absl/memory",
         "//absl/strings",
+        "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -358,6 +369,7 @@ cc_test(
     linkopts = ABSL_DEFAULT_LINKOPTS,
     deps = [
         ":config",
+        "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -386,8 +398,10 @@ cc_test(
         ":reflection",
         "//absl/base:core_headers",
         "//absl/base:malloc_internal",
+        "//absl/numeric:int128",
         "//absl/strings",
         "//absl/time",
+        "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -427,6 +441,7 @@ cc_test(
     linkopts = ABSL_DEFAULT_LINKOPTS,
     deps = [
         ":marshalling",
+        "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -451,10 +466,11 @@ cc_test(
         ":parse",
         ":reflection",
         ":usage_internal",
-        "//absl/base:raw_logging_internal",
         "//absl/base:scoped_set_env",
+        "//absl/log",
         "//absl/strings",
         "//absl/types:span",
+        "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -469,6 +485,7 @@ cc_test(
     linkopts = ABSL_DEFAULT_LINKOPTS,
     deps = [
         ":path_util",
+        "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -485,6 +502,7 @@ cc_test(
     deps = [
         ":program_name",
         "//absl/strings",
+        "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -512,6 +530,7 @@ cc_test(
         ":usage_internal",
         "//absl/memory",
         "//absl/strings",
+        "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -532,6 +551,7 @@ cc_test(
         "//absl/base",
         "//absl/container:fixed_array",
         "//absl/time",
+        "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -549,6 +569,7 @@ cc_test(
         ":path_util",
         ":program_name",
         "//absl/strings",
+        "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
     ],
 )
