@@ -46,7 +46,7 @@ void RemoveSsrcsAndKeepMsids(cricket::SessionDescription* desc) {
 
 int FindFirstMediaStatsIndexByKind(
     const std::string& kind,
-    const std::vector<const webrtc::RTCInboundRTPStreamStats*>& inbound_rtps) {
+    const std::vector<const RTCInboundRtpStreamStats*>& inbound_rtps) {
   for (size_t i = 0; i < inbound_rtps.size(); i++) {
     if (*inbound_rtps[i]->kind == kind) {
       return i;
@@ -55,10 +55,15 @@ int FindFirstMediaStatsIndexByKind(
   return -1;
 }
 
-TaskQueueMetronome::TaskQueueMetronome(TimeDelta tick_period)
-    : tick_period_(tick_period) {
-  sequence_checker_.Detach();
+void ReplaceFirstSsrc(StreamParams& stream, uint32_t ssrc) {
+  stream.ssrcs[0] = ssrc;
+  for (auto& group : stream.ssrc_groups) {
+    group.ssrcs[0] = ssrc;
+  }
 }
+
+TaskQueueMetronome::TaskQueueMetronome(TimeDelta tick_period)
+    : tick_period_(tick_period) {}
 
 TaskQueueMetronome::~TaskQueueMetronome() {
   RTC_DCHECK_RUN_ON(&sequence_checker_);

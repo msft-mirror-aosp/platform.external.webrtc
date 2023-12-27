@@ -102,7 +102,7 @@ class RtpVideoStreamReceiver2 : public LossNotificationSender,
 
   void AddReceiveCodec(uint8_t payload_type,
                        VideoCodecType video_codec,
-                       const std::map<std::string, std::string>& codec_params,
+                       const webrtc::CodecParameterMap& codec_params,
                        bool raw_payload);
   void RemoveReceiveCodec(uint8_t payload_type);
 
@@ -204,6 +204,7 @@ class RtpVideoStreamReceiver2 : public LossNotificationSender,
   void SetProtectionPayloadTypes(int red_payload_type, int ulpfec_payload_type);
 
   absl::optional<int64_t> LastReceivedPacketMs() const;
+  absl::optional<uint32_t> LastReceivedFrameRtpTimestamp() const;
   absl::optional<int64_t> LastReceivedKeyframePacketMs() const;
 
  private:
@@ -392,7 +393,7 @@ class RtpVideoStreamReceiver2 : public LossNotificationSender,
   // TODO(johan): Remove pt_codec_params_ once
   // https://bugs.chromium.org/p/webrtc/issues/detail?id=6883 is resolved.
   // Maps a payload type to a map of out-of-band supplied codec parameters.
-  std::map<uint8_t, std::map<std::string, std::string>> pt_codec_params_
+  std::map<uint8_t, webrtc::CodecParameterMap> pt_codec_params_
       RTC_GUARDED_BY(packet_sequence_checker_);
   int16_t last_payload_type_ RTC_GUARDED_BY(packet_sequence_checker_) = -1;
 
