@@ -336,7 +336,7 @@ RtpVideoStreamReceiver2::RtpVideoStreamReceiver2(
   if (frame_transformer) {
     frame_transformer_delegate_ =
         rtc::make_ref_counted<RtpVideoStreamReceiverFrameTransformerDelegate>(
-            this, std::move(frame_transformer), rtc::Thread::Current(),
+            this, clock_, std::move(frame_transformer), rtc::Thread::Current(),
             config_.rtp.remote_ssrc);
     frame_transformer_delegate_->Init();
   }
@@ -404,13 +404,14 @@ void RtpVideoStreamReceiver2::RemoveReceiveCodecs() {
 absl::optional<Syncable::Info> RtpVideoStreamReceiver2::GetSyncInfo() const {
   RTC_DCHECK_RUN_ON(&packet_sequence_checker_);
   Syncable::Info info;
-  if (rtp_rtcp_->RemoteNTP(&info.capture_time_ntp_secs,
-                           &info.capture_time_ntp_frac,
-                           /*rtcp_arrival_time_secs=*/nullptr,
-                           /*rtcp_arrival_time_frac=*/nullptr,
-                           &info.capture_time_source_clock) != 0) {
+  absl::optional<RtpRtcpInterface::SenderReportStats> last_sr =
+      rtp_rtcp_->GetSenderReportStats();
+  if (!last_sr.has_value()) {
     return absl::nullopt;
   }
+  info.capture_time_ntp_secs = last_sr->last_remote_timestamp.seconds();
+  info.capture_time_ntp_frac = last_sr->last_remote_timestamp.fractions();
+  info.capture_time_source_clock = last_sr->last_remote_rtp_timestamp;
 
   if (!last_received_rtp_timestamp_ || !last_received_rtp_system_time_) {
     return absl::nullopt;
@@ -561,7 +562,13 @@ void RtpVideoStreamReceiver2::OnReceivedPayloadData(
           // Assume frequency is the same one for all video frames.
           kVideoPayloadTypeFrequency,
           rtp_packet.GetExtension<AbsoluteCaptureTimeExtension>()));
-
+  if (packet_info.absolute_capture_time().has_value()) {
+    packet_info.set_local_capture_clock_offset(
+        capture_clock_offset_updater_.ConvertsToTimeDela(
+            capture_clock_offset_updater_.AdjustEstimatedCaptureClockOffset(
+                packet_info.absolute_capture_time()
+                    ->estimated_capture_clock_offset)));
+  }
   RTPVideoHeader& video_header = packet->video_header;
   video_header.rotation = kVideoRotation_0;
   video_header.content_type = VideoContentType::UNSPECIFIED;
@@ -573,10 +580,13 @@ void RtpVideoStreamReceiver2::OnReceivedPayloadData(
       &video_header.content_type);
   rtp_packet.GetExtension<VideoTimingExtension>(&video_header.video_timing);
   if (forced_playout_delay_max_ms_ && forced_playout_delay_min_ms_) {
-    video_header.playout_delay.max_ms = *forced_playout_delay_max_ms_;
-    video_header.playout_delay.min_ms = *forced_playout_delay_min_ms_;
+    if (!video_header.playout_delay.emplace().Set(
+            TimeDelta::Millis(*forced_playout_delay_min_ms_),
+            TimeDelta::Millis(*forced_playout_delay_max_ms_))) {
+      video_header.playout_delay = absl::nullopt;
+    }
   } else {
-    rtp_packet.GetExtension<PlayoutDelayLimits>(&video_header.playout_delay);
+    video_header.playout_delay = rtp_packet.GetExtension<PlayoutDelayLimits>();
   }
 
   ParseGenericDependenciesResult generic_descriptor_state =
@@ -871,7 +881,7 @@ void RtpVideoStreamReceiver2::OnAssembledFrame(
   // Reset `reference_finder_` if `frame` is new and the codec have changed.
   if (current_codec_) {
     bool frame_is_newer =
-        AheadOf(frame->Timestamp(), last_assembled_frame_rtp_timestamp_);
+        AheadOf(frame->RtpTimestamp(), last_assembled_frame_rtp_timestamp_);
 
     if (frame->codec_type() != current_codec_) {
       if (frame_is_newer) {
@@ -889,11 +899,11 @@ void RtpVideoStreamReceiver2::OnAssembledFrame(
     }
 
     if (frame_is_newer) {
-      last_assembled_frame_rtp_timestamp_ = frame->Timestamp();
+      last_assembled_frame_rtp_timestamp_ = frame->RtpTimestamp();
     }
   } else {
     current_codec_ = frame->codec_type();
-    last_assembled_frame_rtp_timestamp_ = frame->Timestamp();
+    last_assembled_frame_rtp_timestamp_ = frame->RtpTimestamp();
   }
 
   if (buffered_frame_decryptor_ != nullptr) {
@@ -949,7 +959,7 @@ void RtpVideoStreamReceiver2::SetDepacketizerToDecoderFrameTransformer(
   RTC_DCHECK_RUN_ON(&worker_task_checker_);
   frame_transformer_delegate_ =
       rtc::make_ref_counted<RtpVideoStreamReceiverFrameTransformerDelegate>(
-          this, std::move(frame_transformer), rtc::Thread::Current(),
+          this, clock_, std::move(frame_transformer), rtc::Thread::Current(),
           config_.rtp.remote_ssrc);
   frame_transformer_delegate_->Init();
 }
@@ -1036,6 +1046,12 @@ absl::optional<int64_t> RtpVideoStreamReceiver2::LastReceivedPacketMs() const {
     return absl::optional<int64_t>(last_received_rtp_system_time_->ms());
   }
   return absl::nullopt;
+}
+
+absl::optional<uint32_t>
+RtpVideoStreamReceiver2::LastReceivedFrameRtpTimestamp() const {
+  RTC_DCHECK_RUN_ON(&packet_sequence_checker_);
+  return last_received_rtp_timestamp_;
 }
 
 absl::optional<int64_t> RtpVideoStreamReceiver2::LastReceivedKeyframePacketMs()
@@ -1134,29 +1150,24 @@ bool RtpVideoStreamReceiver2::DeliverRtcp(const uint8_t* rtcp_packet,
   rtp_rtcp_->IncomingRtcpPacket(
       rtc::MakeArrayView(rtcp_packet, rtcp_packet_length));
 
-  int64_t rtt = 0;
-  rtp_rtcp_->RTT(config_.rtp.remote_ssrc, &rtt, nullptr, nullptr, nullptr);
-  if (rtt == 0) {
+  absl::optional<TimeDelta> rtt = rtp_rtcp_->LastRtt();
+  if (!rtt.has_value()) {
     // Waiting for valid rtt.
     return true;
   }
-  uint32_t ntp_secs = 0;
-  uint32_t ntp_frac = 0;
-  uint32_t rtp_timestamp = 0;
-  uint32_t received_ntp_secs = 0;
-  uint32_t received_ntp_frac = 0;
-  if (rtp_rtcp_->RemoteNTP(&ntp_secs, &ntp_frac, &received_ntp_secs,
-                           &received_ntp_frac, &rtp_timestamp) != 0) {
+
+  absl::optional<RtpRtcpInterface::SenderReportStats> last_sr =
+      rtp_rtcp_->GetSenderReportStats();
+  if (!last_sr.has_value()) {
     // Waiting for RTCP.
     return true;
   }
-  NtpTime received_ntp(received_ntp_secs, received_ntp_frac);
-  int64_t time_since_received =
-      clock_->CurrentNtpInMilliseconds() - received_ntp.ToMs();
+  int64_t time_since_received = clock_->CurrentNtpInMilliseconds() -
+                                last_sr->last_arrival_timestamp.ToMs();
   // Don't use old SRs to estimate time.
   if (time_since_received <= 1) {
-    ntp_estimator_.UpdateRtcpTimestamp(
-        TimeDelta::Millis(rtt), NtpTime(ntp_secs, ntp_frac), rtp_timestamp);
+    ntp_estimator_.UpdateRtcpTimestamp(*rtt, last_sr->last_remote_timestamp,
+                                       last_sr->last_remote_rtp_timestamp);
     absl::optional<int64_t> remote_to_local_clock_offset =
         ntp_estimator_.EstimateRemoteToLocalClockOffset();
     if (remote_to_local_clock_offset.has_value()) {

@@ -18,6 +18,7 @@
 #include "absl/types/optional.h"
 #include "api/array_view.h"
 #include "api/task_queue/task_queue_base.h"
+#include "api/units/timestamp.h"
 #include "net/dcsctp/public/dcsctp_handover_state.h"
 #include "net/dcsctp/public/dcsctp_message.h"
 #include "net/dcsctp/public/dcsctp_options.h"
@@ -211,6 +212,16 @@ struct Metrics {
   // Number of messages requested to be sent.
   size_t tx_messages_count = 0;
 
+  // Number of packets retransmitted. Since SCTP packets can contain both
+  // retransmitted DATA chunks and DATA chunks that are transmitted for the
+  // first time, this represents an upper bound as it's incremented every time a
+  // packet contains a retransmitted DATA chunk.
+  size_t rtx_packets_count = 0;
+
+  // Total number of bytes retransmitted. This includes the payload and
+  // DATA/I-DATA headers, but not SCTP packet headers.
+  uint64_t rtx_bytes_count = 0;
+
   // The current congestion window (cwnd) in bytes, corresponding to spinfo_cwnd
   // defined in RFC6458.
   size_t cwnd_bytes = 0;
@@ -244,6 +255,10 @@ struct Metrics {
   // Indicates if RFC8260 User Message Interleaving has been negotiated by both
   // peers.
   bool uses_message_interleaving = false;
+
+  // Indicates if draft-tuexen-tsvwg-sctp-zero-checksum-00 has been negotiated
+  // by both peers.
+  bool uses_zero_checksum = false;
 
   // The number of negotiated incoming and outgoing streams, which is configured
   // locally as `DcSctpOptions::announced_maximum_incoming_streams` and
@@ -309,9 +324,21 @@ class DcSctpSocketCallbacks {
 
   // Returns the current time in milliseconds (from any epoch).
   //
+  // TODO(bugs.webrtc.org/15593): This method is deprecated, see `Now`.
+  //
   // Note that it's NOT ALLOWED to call into this library from within this
   // callback.
-  virtual TimeMs TimeMillis() = 0;
+  virtual TimeMs TimeMillis() { return TimeMs(0); }
+
+  // Returns the current time (from any epoch).
+  //
+  // This callback will eventually replace `TimeMillis()`.
+  //
+  // Note that it's NOT ALLOWED to call into this library from within this
+  // callback.
+  virtual webrtc::Timestamp Now() {
+    return webrtc::Timestamp::Millis(*TimeMillis());
+  }
 
   // Called when the library needs a random number uniformly distributed between
   // `low` (inclusive) and `high` (exclusive). The random numbers used by the
@@ -583,7 +610,9 @@ class DcSctpSocketInterface {
                                              size_t bytes) = 0;
 
   // Retrieves the latest metrics. If the socket is not fully connected,
-  // `absl::nullopt` will be returned.
+  // `absl::nullopt` will be returned. Note that metrics are not guaranteed to
+  // be carried over if this socket is handed over by calling
+  // `GetHandoverStateAndClose`.
   virtual absl::optional<Metrics> GetMetrics() const = 0;
 
   // Returns empty bitmask if the socket is in the state in which a snapshot of

@@ -32,6 +32,7 @@ if(LINUX_X86_64)
     ${aom_dsp_encoder_intrin_sse2}
     ${aom_av1_common_intrin_ssse3}
     ${aom_av1_encoder_intrin_sse3}
+    ${aom_av1_encoder_intrin_ssse3}
     ${aom_dsp_common_intrin_ssse3}
     ${aom_dsp_encoder_intrin_ssse3}
     ${aom_av1_common_intrin_sse4_1}
@@ -67,6 +68,7 @@ if(LINUX_X86_64)
     PROPERTIES COMPILE_FLAGS -msse2)
   set_source_files_properties(
     ${aom_av1_common_intrin_ssse3} ${aom_dsp_common_intrin_ssse3}
+    ${aom_av1_encoder_intrin_ssse3}
     ${aom_av1_encoder_intrin_sse3} ${aom_dsp_encoder_intrin_ssse3}
     PROPERTIES COMPILE_FLAGS -mssse3)
   set_source_files_properties(

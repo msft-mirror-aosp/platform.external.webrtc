@@ -16,8 +16,6 @@
 #include "test/codec_factory.h"
 #include "test/encode_test_driver.h"
 #include "test/util.h"
-#include "test/y4m_video_source.h"
-#include "test/yuv_video_source.h"
 #include "test/i420_video_source.h"
 #include "third_party/googletest/src/googletest/include/gtest/gtest.h"
 
@@ -38,12 +36,14 @@ class RcInterfaceTest : public ::libaom_test::EncoderTest,
   RcInterfaceTest()
       : EncoderTest(GET_PARAM(0)), aq_mode_(GET_PARAM(1)), key_interval_(3000),
         encoder_exit_(false), layer_frame_cnt_(0), superframe_cnt_(0),
-        dynamic_temporal_layers_(false), dynamic_spatial_layers_(false) {
+        frame_cnt_(0), dynamic_temporal_layers_(false),
+        dynamic_spatial_layers_(false), num_drops_(0), max_consec_drop_(0),
+        frame_drop_thresh_(0) {
     memset(&svc_params_, 0, sizeof(svc_params_));
     memset(&layer_id_, 0, sizeof(layer_id_));
   }
 
-  ~RcInterfaceTest() override {}
+  ~RcInterfaceTest() override = default;
 
  protected:
   void SetUp() override { InitializeConfig(::libaom_test::kRealTime); }
@@ -59,10 +59,15 @@ class RcInterfaceTest : public ::libaom_test::EncoderTest,
     if (video->frame() == 0 && layer_frame_cnt_ == 0) {
       encoder->Control(AOME_SET_CPUUSED, 7);
       encoder->Control(AV1E_SET_AQ_MODE, aq_mode_);
-      encoder->Control(AV1E_SET_TUNE_CONTENT, AOM_CONTENT_DEFAULT);
+      if (rc_cfg_.is_screen) {
+        encoder->Control(AV1E_SET_TUNE_CONTENT, AOM_CONTENT_SCREEN);
+      } else {
+        encoder->Control(AV1E_SET_TUNE_CONTENT, AOM_CONTENT_DEFAULT);
+      }
       encoder->Control(AOME_SET_MAX_INTRA_BITRATE_PCT,
                        rc_cfg_.max_intra_bitrate_pct);
       if (use_svc) encoder->Control(AV1E_SET_SVC_PARAMS, &svc_params_);
+      encoder->Control(AV1E_SET_MAX_CONSEC_FRAME_DROP_CBR, max_consec_drop_);
     }
     // SVC specific settings
     if (use_svc) {
@@ -91,17 +96,17 @@ class RcInterfaceTest : public ::libaom_test::EncoderTest,
         // Go down to 2 temporal layers.
         SetConfigSvc(3, 2);
         encoder->Control(AV1E_SET_SVC_PARAMS, &svc_params_);
-        rc_api_->UpdateRateControl(rc_cfg_);
+        ASSERT_TRUE(rc_api_->UpdateRateControl(rc_cfg_));
       } else if (superframe_cnt_ == 200 && layer_id_.spatial_layer_id == 0) {
         // Go down to 1 temporal layer.
         SetConfigSvc(3, 1);
         encoder->Control(AV1E_SET_SVC_PARAMS, &svc_params_);
-        rc_api_->UpdateRateControl(rc_cfg_);
+        ASSERT_TRUE(rc_api_->UpdateRateControl(rc_cfg_));
       } else if (superframe_cnt_ == 300 && layer_id_.spatial_layer_id == 0) {
         // Go back up to 3 temporal layers.
         SetConfigSvc(3, 3);
         encoder->Control(AV1E_SET_SVC_PARAMS, &svc_params_);
-        rc_api_->UpdateRateControl(rc_cfg_);
+        ASSERT_TRUE(rc_api_->UpdateRateControl(rc_cfg_));
       }
     } else if (dynamic_spatial_layers_) {
       // In this example the #spatial layers is modified on the fly,
@@ -110,12 +115,12 @@ class RcInterfaceTest : public ::libaom_test::EncoderTest,
         // Change to 2 spatial layers (240p, 480p).
         SetConfigSvc(2, 3);
         encoder->Control(AV1E_SET_SVC_PARAMS, &svc_params_);
-        rc_api_->UpdateRateControl(rc_cfg_);
+        ASSERT_TRUE(rc_api_->UpdateRateControl(rc_cfg_));
       } else if (superframe_cnt_ == 200 && layer_id_.spatial_layer_id == 0) {
         // Change to 1 spatial layer (480p).
         SetConfigSvc(1, 3);
         encoder->Control(AV1E_SET_SVC_PARAMS, &svc_params_);
-        rc_api_->UpdateRateControl(rc_cfg_);
+        ASSERT_TRUE(rc_api_->UpdateRateControl(rc_cfg_));
       } else if (superframe_cnt_ == 300 && layer_id_.spatial_layer_id == 0) {
         // Go back to 3 spatial layers (120p, 240p, 480p).
         SetConfigSvc(3, 3);
@@ -128,7 +133,7 @@ class RcInterfaceTest : public ::libaom_test::EncoderTest,
         // reference instead,
         frame_flags_ = AOM_EFLAG_FORCE_KF;
         frame_params_.frame_type = aom::kKeyFrame;
-        rc_api_->UpdateRateControl(rc_cfg_);
+        ASSERT_TRUE(rc_api_->UpdateRateControl(rc_cfg_));
       }
     }
     // TODO(marpan): Add dynamic spatial layers based on 0 layer bitrate.
@@ -142,12 +147,24 @@ class RcInterfaceTest : public ::libaom_test::EncoderTest,
       return;
     }
     layer_frame_cnt_++;
+    frame_cnt_++;
     if (layer_id_.spatial_layer_id == rc_cfg_.ss_number_layers - 1)
       superframe_cnt_++;
     int qp;
     encoder->Control(AOME_GET_LAST_QUANTIZER, &qp);
-    rc_api_->ComputeQP(frame_params_);
-    ASSERT_EQ(rc_api_->GetQP(), qp);
+    if (rc_api_->ComputeQP(frame_params_) == aom::FrameDropDecision::kOk) {
+      ASSERT_EQ(rc_api_->GetQP(), qp) << "at frame " << frame_cnt_ - 1;
+      int encoder_lpf_level;
+      encoder->Control(AOME_GET_LOOPFILTER_LEVEL, &encoder_lpf_level);
+      aom::AV1LoopfilterLevel loopfilter_level = rc_api_->GetLoopfilterLevel();
+      ASSERT_EQ(loopfilter_level.filter_level[0], encoder_lpf_level);
+      aom::AV1CdefInfo cdef_level = rc_api_->GetCdefInfo();
+      int cdef_y_strengths[16];
+      encoder->Control(AV1E_GET_LUMA_CDEF_STRENGTH, cdef_y_strengths);
+      ASSERT_EQ(cdef_level.cdef_strength_y, cdef_y_strengths[0]);
+    } else {
+      num_drops_++;
+    }
   }
 
   void FramePktHook(const aom_codec_cx_pkt_t *pkt) override {
@@ -173,6 +190,43 @@ class RcInterfaceTest : public ::libaom_test::EncoderTest,
                                          1, 0, kNumFrames);
 
     ASSERT_NO_FATAL_FAILURE(RunLoop(&video));
+  }
+
+  void RunOneLayerScreen() {
+    key_interval_ = 10000;
+    SetConfig();
+    rc_cfg_.is_screen = true;
+    rc_cfg_.width = 352;
+    rc_cfg_.height = 288;
+    rc_api_ = aom::AV1RateControlRTC::Create(rc_cfg_);
+    frame_params_.spatial_layer_id = 0;
+    frame_params_.temporal_layer_id = 0;
+
+    ::libaom_test::I420VideoSource video("hantro_collage_w352h288.yuv", 352,
+                                         288, 30, 1, 0, 140);
+
+    ASSERT_NO_FATAL_FAILURE(RunLoop(&video));
+  }
+
+  void RunOneLayerDropFramesCBR() {
+    key_interval_ = 10000;
+    max_consec_drop_ = 8;
+    frame_drop_thresh_ = 30;
+    SetConfig();
+    rc_cfg_.target_bandwidth = 100;
+    cfg_.rc_target_bitrate = 100;
+    rc_cfg_.max_quantizer = 50;
+    cfg_.rc_max_quantizer = 50;
+    rc_api_ = aom::AV1RateControlRTC::Create(rc_cfg_);
+    frame_params_.spatial_layer_id = 0;
+    frame_params_.temporal_layer_id = 0;
+
+    ::libaom_test::I420VideoSource video("niklas_640_480_30.yuv", 640, 480, 30,
+                                         1, 0, kNumFrames);
+
+    ASSERT_NO_FATAL_FAILURE(RunLoop(&video));
+    // Check that some frames were dropped, otherwise test has no value.
+    ASSERT_GE(num_drops_, 1);
   }
 
   void RunOneLayerPeriodicKey() {
@@ -264,6 +318,8 @@ class RcInterfaceTest : public ::libaom_test::EncoderTest,
     rc_cfg_.max_quantizers[0] = 52;
     rc_cfg_.min_quantizers[0] = 2;
     rc_cfg_.aq_mode = aq_mode_;
+    rc_cfg_.frame_drop_thresh = frame_drop_thresh_;
+    rc_cfg_.max_consec_drop = max_consec_drop_;
 
     // Encoder settings for ground truth.
     cfg_.g_w = 640;
@@ -282,6 +338,7 @@ class RcInterfaceTest : public ::libaom_test::EncoderTest,
     cfg_.rc_target_bitrate = 1000;
     cfg_.kf_min_dist = key_interval_;
     cfg_.kf_max_dist = key_interval_;
+    cfg_.rc_dropframe_thresh = frame_drop_thresh_;
   }
 
   void SetConfigSvc(int number_spatial_layers, int number_temporal_layers) {
@@ -419,13 +476,21 @@ class RcInterfaceTest : public ::libaom_test::EncoderTest,
   aom_svc_layer_id_t layer_id_;
   int layer_frame_cnt_;
   int superframe_cnt_;
+  int frame_cnt_;
   bool dynamic_temporal_layers_;
   bool dynamic_spatial_layers_;
+  int num_drops_;
+  int max_consec_drop_;
+  int frame_drop_thresh_;
 };
 
 TEST_P(RcInterfaceTest, OneLayer) { RunOneLayer(); }
 
+TEST_P(RcInterfaceTest, OneLayerDropFramesCBR) { RunOneLayerDropFramesCBR(); }
+
 TEST_P(RcInterfaceTest, OneLayerPeriodicKey) { RunOneLayerPeriodicKey(); }
+
+TEST_P(RcInterfaceTest, OneLayerScreen) { RunOneLayerScreen(); }
 
 TEST_P(RcInterfaceTest, Svc) { RunSvc(); }
 

@@ -28,10 +28,12 @@ an simplistic internal representation, which we turn into cmake files.
 import sys
 import os.path
 import argparse
+import re
 import platform
 import logging
 from glob import iglob
 from datetime import date
+from pathlib import Path
 
 
 # The starting location of the webrtc modules.
@@ -88,10 +90,13 @@ DEP_MAP = {
     "//testing/base/public:gunit_for_library_testonly": "gmock gtest",
     # Set of absl dependencies.
     "//third_party/absl/algorithm:container": "absl::algorithm_container",
+    "//third_party/absl/strings:string_view" : "absl::string_view",
     "//third_party/absl/algorithm": "absl::algorithm",
     "//third_party/absl/base:config": "absl::config",
+    "//third_party/absl/base:nullability": "absl::nullability",
     "//third_party/absl/base:core_headers": "absl::core_headers",
     "//third_party/absl/cleanup": "absl::cleanup",
+
     "//third_party/absl/container:flat_hash_map": "absl::flat_hash_map",
     "//third_party/absl/container:inlined_vector": "absl::algorithm_container",
     "//third_party/absl/debugging:failure_signal_handler": "absl::failure_signal_handler",
@@ -128,6 +133,7 @@ DEP_MAP = {
     "//third_party/openssl:crypto": "crypto",
     "//third_party/openssl:ssl": "ssl",
     "//third_party/pffft": "webrtc_pffft",
+    "//third_party/dav1d:dav1d_lib": "dav1d",
     "//third_party/protobuf:protobuf-lite_legacy": "libprotobuf",
     "//third_party/protobuf:py_proto_runtime": "unknown_py_proto_runtime",
     "//third_party/rnnoise:rnn_vad": "webrtc_rnnoise",
@@ -136,6 +142,7 @@ DEP_MAP = {
     "//third_party/webrtc:webrtc_libvpx": "libvpx",
     "//third_party/webrtc/files/override/webrtc/rtc_base:protobuf_utils": "libprotobuf",
     "//third_party/webrtc/files/testing:fileutils_override_google3": "emulator_test_overrides",
+    "//third_party/webrtc/files/rtc_base:net_test_helpers": "",
     # We rely on Qt5 to provide all these..
     "//third_party/GL:GLX_headers": "Qt5::Core",
     "//third_party/Xorg:Xorg_static": "Qt5::Core",
@@ -159,11 +166,10 @@ DEP_MAP = {
     # "//third_party/webrtc/files/stable/webrtc/experiments:registered_field_trials": "",
 }
 
-# These are only used in tests.
-IGNORED = [
-    "webrtc_experiments_registered_field_trials_header",
-    "webrtc_experiments_registered_field_trials",
-    "webrtc_api_field_trials_registry",
+# Regexes of dependencies that can be safely ignored and do not need to be included anywhere
+EXCLUDED_TARGETS = [
+    # ".*dav1d.*",
+    # ".*_unittests.*"
 ]
 
 # Third party git dependencies, and the corresponding AOSP location
@@ -176,6 +182,10 @@ THIRD_PARTY_GIT_DEPS = {
     "src/third_party/libyuv": "libyuv",
     "src/third_party/usrsctp/usrsctplib": "usrsctp",
 }
+
+def exclude_target(name):
+    """True if this target should be excluded when generating"""
+    return any([re.match(regex, name) for regex in EXCLUDED_TARGETS])
 
 def is_source_file(name):
     """Checks if a file is a source file.
@@ -271,7 +281,7 @@ def bazel_target_to_cmake_target(name):
     lbl = bazel_label_name(name)
 
     if not pkg.startswith(PREFIX):
-        logging.warningf("Missing library: %s", name)
+        logging.fatal("Missing library: %s", name)
         return "missing_{}".format(name).replace("/", "_")
 
     # Get the cmake target name
@@ -316,7 +326,7 @@ class Target(object):
         self.srcs = srcs
         self.hdrs = hdrs
         self.defs = defs
-        self.deps = deps
+        self.deps = [x for x in deps if not exclude_target(x)]
         self.includes = [
             "${{WEBRTC_ROOT}}/{}/{}".format(self.path, x) for x in includes
         ] + ["${WEBRTC_ROOT}", "${CMAKE_CURRENT_BINARY_DIR}"]
@@ -417,7 +427,7 @@ class ProtobufTarget(object):
         )
         self.name = self.internal_name
         self.srcs = srcs
-        self.deps = deps
+        self.deps =  [x for x in deps if not exclude_target(x)]
         self.alias = alias
 
     def cmake_snippet(self):
@@ -532,6 +542,10 @@ class BuildFileFunctions(object):
         # HACK ATTACK b/191745658, the neon build has a dependency at the wrong
         # level, so we correct it here, this should be removed once the fix is
         # in.
+        if exclude_target(name):
+            logging.info("Ignoring %s, it's in the excluded list",)
+            return
+
         if name == "common_audio_c" and "arm64" in self.platforms:
             logging.error("Fixing up common_audio_c depedency b/191745658!")
             if (
@@ -736,6 +750,15 @@ class BuildFileFunctions(object):
     def upb_proto_library(self, **kwargs):
         pass
 
+    def jspb_proto_library(self, **kwargs):
+        pass
+
+    def java_proto_library(self, **kwargs):
+        pass
+
+    def swift_proto_library(self, **kwargs):
+        pass
+
     def upb_proto_reflection_library(self, **kwargs):
         pass
 
@@ -879,7 +902,9 @@ def main():
     logging.root.setLevel(lvl)
 
     # Extract the current dependencies.
-    dependencies = extract_dependencies(os.path.join(args.root, args.deps))
+    dep_path = Path(args.root, args.deps)
+    if dep_path.exists():
+        dependencies = extract_dependencies(os.path.join(args.root, args.deps))
     targets = Targets()
 
     source = os.path.join(args.root, args.source)

@@ -60,11 +60,27 @@ function generate_from_build {
     done
 }
 
+function sync_aom {
+     # extra for libaom/vpx
+    for dep in libaom
+    do
+        rsync -rav  \
+        --exclude '**/.git' \
+        --include '*.inc' \
+        --include 'README*' \
+        --include '*.gn' \
+        --include '*.h' --include '*.cc' --include '*.c' --include '*.cpp' \
+        --include '*.asm' --include '*.S' \
+        $1/third_party/${dep} third_party/
+    done
+}
+
 function sync_deps {
     # Synchronizes all the third party dependencies that are needed for
     # a successful compilation.
-    for dep in  libvpx jsoncpp pffft opus rnnoise libsrtp libyuv crc32c libevent
+    for dep in  libvpx jsoncpp pffft opus rnnoise libsrtp libyuv crc32c dav1d
     do
+        echo "Syncing $dep"
         rsync -rav  \
         --exclude 'third_party' \
         --exclude '**/.git' \
@@ -74,22 +90,6 @@ function sync_deps {
         --include '*.gn' \
         --include '*.proto' --include '*.inl' \
         --include '*.h' --include '*.cc' --include '*.c' --include '*.cpp' \
-        --exclude '*' \
-        $1/third_party/${dep} third_party/
-    done
-    # extra for libaom/vpx
-    for dep in libaom
-    do
-        rsync -rav  \
-        --exclude '**/.git' \
-        --include '**/' --include '**/x86inc/**' --include '**/vector/**' \
-        --include '**/fastfeat/**' \
-        --include '*.inc' \
-        --include 'README*' \
-        --include '*.gn' \
-        --exclude='*' \
-        --include '*.h' --include '*.cc' --include '*.c' --include '*.cpp' \
-        --include '*.asm' --include '*.S' \
         --exclude '*' \
         $1/third_party/${dep} third_party/
     done
@@ -125,5 +125,6 @@ function sync_deps {
 
 #
 # git merge aosp/upstream-master
-generate_from_build $1 && sync_deps $2
+generate_from_build $1 && sync_deps $2 && sync_aom $2
+
 
