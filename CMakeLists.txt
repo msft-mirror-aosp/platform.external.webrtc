@@ -1,4 +1,10 @@
 set(WEBRTC_ROOT ${CMAKE_CURRENT_LIST_DIR})
+set(ENABLE_WEBRTC_UNITESTS TRUE)
+
+if(OPTION_ASAN)
+  message("Tests in asan, they are expensive/slow to run!!")
+  # set(ENABLE_WEBRTC_UNITESTS FALSE)
+endif()
 
 # Extract the test files needed for the unit tests.
 message(STATUS "Extracting webrtc test resources")
@@ -36,28 +42,32 @@ target_include_directories(webrtc_fft_size_256 PUBLIC ${WEBRTC_ROOT})
 add_library(webrtc_fft ${WEBRTC_ROOT}/modules/third_party/fft/fft.c)
 target_include_directories(webrtc_fft PUBLIC ${WEBRTC_ROOT})
 
-android_add_library(TARGET emulator_test_overrides NODISTRIBUTE SRC
-                    emu_file_utils_override.cc)
-target_link_libraries(
-  emulator_test_overrides
-  PRIVATE android-emu-base android-emu-base-headers webrtc_test_fileutils_override_api
-          absl::optional)
-target_compile_definitions(
-  emulator_test_overrides
-  PRIVATE "EMU_THIRD_PARTY_WEBRTC=\"${CMAKE_CURRENT_LIST_DIR}\""
-          "EMU_BIN_DIR=\"${CMAKE_CURRENT_BINARY_DIR}\""
-          "EMU_OBJS_DIR=\"${CMAKE_RUNTIME_OUTPUT_DIRECTORY}\"")
+# We have disabled unit tests for now..
+if(ENABLE_WEBRTC_UNITESTS)
+  android_add_library(TARGET emulator_test_overrides NODISTRIBUTE SRC
+                      emu_file_utils_override.cc)
+  target_link_libraries(
+    emulator_test_overrides
+    PRIVATE android-emu-base android-emu-base-headers
+            webrtc_test_fileutils_override_api absl::optional)
+  target_compile_definitions(
+    emulator_test_overrides
+    PRIVATE "EMU_THIRD_PARTY_WEBRTC=\"${CMAKE_CURRENT_LIST_DIR}\""
+            "EMU_BIN_DIR=\"${CMAKE_CURRENT_BINARY_DIR}\""
+            "EMU_OBJS_DIR=\"${CMAKE_RUNTIME_OUTPUT_DIRECTORY}\"")
+endif()
 
 if(LINUX_X86_64 OR LINUX_AARCH64)
   add_subdirectory(third_party/libaom)
 endif()
 
 if(LINUX_X86_64)
-#Use prebuilt libvpx from prebuilts/android-emulator-build/common/libvpx
+  # Use prebuilt libvpx from prebuilts/android-emulator-build/common/libvpx
   prebuilt(VPX)
 else()
   add_subdirectory(third_party/libvpx)
 endif()
+add_subdirectory(third_party/dav1d)
 add_subdirectory(third_party/jsoncpp)
 add_subdirectory(third_party/pffft)
 add_subdirectory(third_party/opus)
@@ -84,32 +94,39 @@ elseif(WINDOWS_MSVC_X86_64)
   include(windows_x86_64.cmake)
 endif()
 
-# We manually register the tests, as some of time can be flaky..
-set(WEBRTC_TESTS
-    webrtc_common_audio_common_audio_unittests
-    webrtc_modules_audio_coding_audio_decoder_unittests
-    # webrtc_pc_peerconnection_unittests  These are very expensive, and have
-    # some timing flakiness
-)
+if(ENABLE_WEBRTC_UNITESTS)
+  # We manually register the tests, as some of time can be flaky..
+  set(WEBRTC_TESTS
+      webrtc_common_audio_common_audio_unittests
+      webrtc_modules_audio_coding_audio_decoder_unittests
+      # webrtc_pc_peerconnection_unittests  These are very expensive, and have
+      # some timing flakiness
+  )
 
-# Arm64 has fewer tests that are supported.
-if(NOT LINUX_AARCH64)
-  list(APPEND WEBRTC_TESTS webrtc_common_video_common_video_unittests
-       #webrtc_media_rtc_media_unittests Tests are flaky after switching to libvpx 1.11
-       webrtc_pc_rtc_pc_unittests)
+  # Arm64 has fewer tests that are supported.
+  if(NOT LINUX_AARCH64)
+    list(
+      APPEND
+      WEBRTC_TESTS
+      webrtc_common_video_common_video_unittests
+      # webrtc_media_rtc_media_unittests Tests are flaky after switching to
+      # libvpx 1.11
+      webrtc_pc_rtc_pc_unittests)
+  endif()
+
+  if(OPTION_ASAN)
+    message(
+      "Disabling webrtc tests in asan, they are too expensive/slow to run.")
+    set(WEBRTC_TESTS "")
+  endif()
+
+  foreach(WEBRTC_TEST ${WEBRTC_TESTS})
+    add_test(
+      NAME ${WEBRTC_TEST}
+      COMMAND $<TARGET_FILE:${WEBRTC_TEST}>
+      WORKING_DIRECTORY $<TARGET_FILE_DIR:${WEBRTC_TEST}>)
+
+    android_install_as_debug_info(${WEBRTC_TEST})
+    android_add_default_test_properties(${WEBRTC_TEST})
+  endforeach()
 endif()
-
-if(OPTION_ASAN)
-  message("Disabling webrtc tests in asan, they are too expensive/slow to run.")
-  set(WEBRTC_TESTS "")
-endif()
-
-foreach(WEBRTC_TEST ${WEBRTC_TESTS})
-  add_test(
-    NAME ${WEBRTC_TEST}
-    COMMAND $<TARGET_FILE:${WEBRTC_TEST}>
-    WORKING_DIRECTORY $<TARGET_FILE_DIR:${WEBRTC_TEST}>)
-
-  android_install_as_debug_info(${WEBRTC_TEST})
-  android_add_default_test_properties(${WEBRTC_TEST})
-endforeach()

@@ -82,3 +82,10 @@ std::string ResourcePath(absl::string_view name, absl::string_view extension) {
 }  // namespace internal
 }  // namespace test
 }  // namespace webrtc
+
+
+namespace rtc {
+    bool HasIPv6Enabled() {
+        return true;
+    }
+}
