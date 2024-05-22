@@ -11,7 +11,6 @@
 #ifndef MODULES_CONGESTION_CONTROLLER_GOOG_CC_CONGESTION_WINDOW_PUSHBACK_CONTROLLER_H_
 #define MODULES_CONGESTION_CONTROLLER_GOOG_CC_CONGESTION_WINDOW_PUSHBACK_CONTROLLER_H_
 
-#include <stddef.h>
 #include <stdint.h>
 
 #include "absl/types/optional.h"
@@ -28,7 +27,7 @@ namespace webrtc {
 class CongestionWindowPushbackController {
  public:
   explicit CongestionWindowPushbackController(
-      const FieldTrialsView* key_value_config);
+      const FieldTrialsView& key_value_config);
   void UpdateOutstandingData(int64_t outstanding_bytes);
   void UpdatePacingQueue(int64_t pacing_bytes);
   uint32_t UpdateTargetBitrate(uint32_t bitrate_bps);

@@ -29,7 +29,7 @@
 
 // Android has a 1024 limit on log inputs. We use 60 chars as an
 // approx for the header/tag portion.
-// See android/system/logging/liblog/logd_write.c
+// See android/system/core/liblog/logd_write.c
 static const int kMaxLogLineSize = 1024 - 60;
 #endif  // WEBRTC_MAC && !defined(WEBRTC_IOS) || WEBRTC_ANDROID
 
@@ -363,19 +363,14 @@ void LogMessage::OutputToDebug(const LogLineRef& log_line) {
   // On the Mac, all stderr output goes to the Console log and causes clutter.
   // So in opt builds, don't log to stderr unless the user specifically sets
   // a preference to do so.
-  CFStringRef key = CFStringCreateWithCString(
-      kCFAllocatorDefault, "logToStdErr", kCFStringEncodingUTF8);
   CFStringRef domain = CFBundleGetIdentifier(CFBundleGetMainBundle());
-  if (key != nullptr && domain != nullptr) {
+  if (domain != nullptr) {
     Boolean exists_and_is_valid;
-    Boolean should_log =
-        CFPreferencesGetAppBooleanValue(key, domain, &exists_and_is_valid);
+    Boolean should_log = CFPreferencesGetAppBooleanValue(
+        CFSTR("logToStdErr"), domain, &exists_and_is_valid);
     // If the key doesn't exist or is invalid or is false, we will not log to
     // stderr.
     log_to_stderr = exists_and_is_valid && should_log;
-  }
-  if (key != nullptr) {
-    CFRelease(key);
   }
 #endif  // defined(WEBRTC_MAC) && !defined(WEBRTC_IOS) && defined(NDEBUG)
 

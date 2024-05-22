@@ -39,6 +39,10 @@ std::string AudioReceiveStreamInterface::Config::Rtp::ToString() const {
   ss << "{remote_ssrc: " << remote_ssrc;
   ss << ", local_ssrc: " << local_ssrc;
   ss << ", nack: " << nack.ToString();
+  ss << ", rtcp: "
+     << (rtcp_mode == RtcpMode::kCompound
+             ? "compound"
+             : (rtcp_mode == RtcpMode::kReducedSize ? "reducedSize" : "off"));
   ss << '}';
   return ss.str();
 }
@@ -112,8 +116,6 @@ AudioReceiveStreamImpl::AudioReceiveStreamImpl(
   RTC_DCHECK(audio_state_);
   RTC_DCHECK(channel_receive_);
 
-  packet_sequence_checker_.Detach();
-
   RTC_DCHECK(packet_router);
   // Configure bandwidth estimation.
   channel_receive_->RegisterReceiverCongestionControlObjects(packet_router);
@@ -128,6 +130,7 @@ AudioReceiveStreamImpl::AudioReceiveStreamImpl(
   // using the actual packet size for the configured codec.
   channel_receive_->SetNACKStatus(config.rtp.nack.rtp_history_ms != 0,
                                   config.rtp.nack.rtp_history_ms / 20);
+  channel_receive_->SetRtcpMode(config.rtp.rtcp_mode);
   channel_receive_->SetReceiveCodecs(config.decoder_map);
   // `frame_transformer` and `frame_decryptor` have been given to
   // `channel_receive_` already.
@@ -185,6 +188,7 @@ void AudioReceiveStreamImpl::Start() {
   if (playing_) {
     return;
   }
+  RTC_LOG(LS_INFO) << "AudioReceiveStreamImpl::Start: " << remote_ssrc();
   channel_receive_->StartPlayout();
   playing_ = true;
   audio_state()->AddReceivingStream(this);
@@ -195,6 +199,7 @@ void AudioReceiveStreamImpl::Stop() {
   if (!playing_) {
     return;
   }
+  RTC_LOG(LS_INFO) << "AudioReceiveStreamImpl::Stop: " << remote_ssrc();
   channel_receive_->StopPlayout();
   playing_ = false;
   audio_state()->RemoveReceivingStream(this);
@@ -232,6 +237,16 @@ void AudioReceiveStreamImpl::SetNackHistory(int history_ms) {
   channel_receive_->SetNACKStatus(history_ms != 0, history_ms / 20);
 }
 
+void AudioReceiveStreamImpl::SetRtcpMode(webrtc::RtcpMode mode) {
+  RTC_DCHECK_RUN_ON(&worker_thread_checker_);
+
+  if (config_.rtp.rtcp_mode == mode)
+    return;
+
+  config_.rtp.rtcp_mode = mode;
+  channel_receive_->SetRtcpMode(mode);
+}
+
 void AudioReceiveStreamImpl::SetNonSenderRttMeasurement(bool enabled) {
   RTC_DCHECK_RUN_ON(&worker_thread_checker_);
   config_.enable_non_sender_rtt = enabled;
@@ -261,15 +276,14 @@ webrtc::AudioReceiveStreamInterface::Stats AudioReceiveStreamImpl::GetStats(
     return stats;
   }
 
-  stats.payload_bytes_rcvd = call_stats.payload_bytes_rcvd;
-  stats.header_and_padding_bytes_rcvd =
-      call_stats.header_and_padding_bytes_rcvd;
-  stats.packets_rcvd = call_stats.packetsReceived;
+  stats.payload_bytes_received = call_stats.payload_bytes_received;
+  stats.header_and_padding_bytes_received =
+      call_stats.header_and_padding_bytes_received;
+  stats.packets_received = call_stats.packetsReceived;
   stats.packets_lost = call_stats.cumulativeLost;
   stats.nacks_sent = call_stats.nacks_sent;
   stats.capture_start_ntp_time_ms = call_stats.capture_start_ntp_time_ms_;
-  stats.last_packet_received_timestamp_ms =
-      call_stats.last_packet_received_timestamp_ms;
+  stats.last_packet_received = call_stats.last_packet_received;
   stats.codec_name = receive_codec->second.name;
   stats.codec_payload_type = receive_codec->first;
   int clockrate_khz = receive_codec->second.clockrate_hz / 1000;
@@ -375,7 +389,8 @@ AudioReceiveStreamImpl::GetAudioFrameWithInfo(int sample_rate_hz,
                                               AudioFrame* audio_frame) {
   AudioMixer::Source::AudioFrameInfo audio_frame_info =
       channel_receive_->GetAudioFrameWithInfo(sample_rate_hz, audio_frame);
-  if (audio_frame_info != AudioMixer::Source::AudioFrameInfo::kError) {
+  if (audio_frame_info != AudioMixer::Source::AudioFrameInfo::kError &&
+      !audio_frame->packet_infos_.empty()) {
     source_tracker_.OnFrameDelivered(audio_frame->packet_infos_);
   }
   return audio_frame_info;

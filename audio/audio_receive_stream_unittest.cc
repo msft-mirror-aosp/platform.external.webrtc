@@ -29,6 +29,7 @@
 #include "test/gtest.h"
 #include "test/mock_audio_decoder_factory.h"
 #include "test/mock_transport.h"
+#include "test/run_loop.h"
 
 namespace webrtc {
 namespace test {
@@ -119,6 +120,7 @@ struct ConfigHelper {
 
     channel_receive_ = new ::testing::StrictMock<MockChannelReceive>();
     EXPECT_CALL(*channel_receive_, SetNACKStatus(true, 15)).Times(1);
+    EXPECT_CALL(*channel_receive_, SetRtcpMode(_)).Times(1);
     EXPECT_CALL(*channel_receive_,
                 RegisterReceiverCongestionControlObjects(&packet_router_))
         .Times(1);
@@ -207,14 +209,16 @@ TEST(AudioReceiveStreamTest, ConfigToString) {
   AudioReceiveStreamInterface::Config config;
   config.rtp.remote_ssrc = kRemoteSsrc;
   config.rtp.local_ssrc = kLocalSsrc;
+  config.rtp.rtcp_mode = RtcpMode::kOff;
   EXPECT_EQ(
       "{rtp: {remote_ssrc: 1234, local_ssrc: 5678, nack: "
-      "{rtp_history_ms: 0}}, "
+      "{rtp_history_ms: 0}, rtcp: off}, "
       "rtcp_send_transport: null}",
       config.ToString());
 }
 
 TEST(AudioReceiveStreamTest, ConstructDestruct) {
+  test::RunLoop loop;
   for (bool use_null_audio_processing : {false, true}) {
     ConfigHelper helper(use_null_audio_processing);
     auto recv_stream = helper.CreateAudioReceiveStream();
@@ -223,6 +227,7 @@ TEST(AudioReceiveStreamTest, ConstructDestruct) {
 }
 
 TEST(AudioReceiveStreamTest, ReceiveRtcpPacket) {
+  test::RunLoop loop;
   for (bool use_null_audio_processing : {false, true}) {
     ConfigHelper helper(use_null_audio_processing);
     auto recv_stream = helper.CreateAudioReceiveStream();
@@ -236,6 +241,7 @@ TEST(AudioReceiveStreamTest, ReceiveRtcpPacket) {
 }
 
 TEST(AudioReceiveStreamTest, GetStats) {
+  test::RunLoop loop;
   for (bool use_null_audio_processing : {false, true}) {
     ConfigHelper helper(use_null_audio_processing);
     auto recv_stream = helper.CreateAudioReceiveStream();
@@ -243,11 +249,11 @@ TEST(AudioReceiveStreamTest, GetStats) {
     AudioReceiveStreamInterface::Stats stats =
         recv_stream->GetStats(/*get_and_clear_legacy_stats=*/true);
     EXPECT_EQ(kRemoteSsrc, stats.remote_ssrc);
-    EXPECT_EQ(kCallStats.payload_bytes_rcvd, stats.payload_bytes_rcvd);
-    EXPECT_EQ(kCallStats.header_and_padding_bytes_rcvd,
-              stats.header_and_padding_bytes_rcvd);
+    EXPECT_EQ(kCallStats.payload_bytes_received, stats.payload_bytes_received);
+    EXPECT_EQ(kCallStats.header_and_padding_bytes_received,
+              stats.header_and_padding_bytes_received);
     EXPECT_EQ(static_cast<uint32_t>(kCallStats.packetsReceived),
-              stats.packets_rcvd);
+              stats.packets_received);
     EXPECT_EQ(kCallStats.cumulativeLost, stats.packets_lost);
     EXPECT_EQ(kReceiveCodec.second.name, stats.codec_name);
     EXPECT_EQ(
@@ -321,6 +327,7 @@ TEST(AudioReceiveStreamTest, GetStats) {
 }
 
 TEST(AudioReceiveStreamTest, SetGain) {
+  test::RunLoop loop;
   for (bool use_null_audio_processing : {false, true}) {
     ConfigHelper helper(use_null_audio_processing);
     auto recv_stream = helper.CreateAudioReceiveStream();
@@ -332,6 +339,7 @@ TEST(AudioReceiveStreamTest, SetGain) {
 }
 
 TEST(AudioReceiveStreamTest, StreamsShouldBeAddedToMixerOnceOnStart) {
+  test::RunLoop loop;
   for (bool use_null_audio_processing : {false, true}) {
     ConfigHelper helper1(use_null_audio_processing);
     ConfigHelper helper2(helper1.audio_mixer(), use_null_audio_processing);
@@ -366,6 +374,7 @@ TEST(AudioReceiveStreamTest, StreamsShouldBeAddedToMixerOnceOnStart) {
 }
 
 TEST(AudioReceiveStreamTest, ReconfigureWithUpdatedConfig) {
+  test::RunLoop loop;
   for (bool use_null_audio_processing : {false, true}) {
     ConfigHelper helper(use_null_audio_processing);
     auto recv_stream = helper.CreateAudioReceiveStream();
@@ -393,6 +402,7 @@ TEST(AudioReceiveStreamTest, ReconfigureWithUpdatedConfig) {
 }
 
 TEST(AudioReceiveStreamTest, ReconfigureWithFrameDecryptor) {
+  test::RunLoop loop;
   for (bool use_null_audio_processing : {false, true}) {
     ConfigHelper helper(use_null_audio_processing);
     auto recv_stream = helper.CreateAudioReceiveStream();

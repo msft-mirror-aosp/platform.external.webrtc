@@ -8,17 +8,22 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include "modules/video_coding/codecs/av1/libaom_av1_encoder.h"
+
 #include <jni.h>
 
-#include "modules/video_coding/codecs/av1/libaom_av1_encoder.h"
+#include "api/environment/environment.h"
 #include "sdk/android/generated_libaom_av1_encoder_jni/LibaomAv1Encoder_jni.h"
 #include "sdk/android/src/jni/jni_helpers.h"
 
 namespace webrtc {
 namespace jni {
 
-static jlong JNI_LibaomAv1Encoder_CreateEncoder(JNIEnv* jni) {
-  return jlongFromPointer(webrtc::CreateLibaomAv1Encoder().release());
+jlong JNI_LibaomAv1Encoder_Create(JNIEnv* jni, jlong j_webrtc_env_ref) {
+  return NativeToJavaPointer(
+      CreateLibaomAv1Encoder(
+          *reinterpret_cast<const Environment*>(j_webrtc_env_ref))
+          .release());
 }
 
 }  // namespace jni

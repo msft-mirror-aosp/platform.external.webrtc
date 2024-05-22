@@ -13,9 +13,9 @@
 #include <stdio.h>
 
 #include "absl/strings/string_view.h"
+#include "api/field_trials_view.h"
 #include "rtc_base/experiments/field_trial_list.h"
 #include "rtc_base/logging.h"
-#include "system_wrappers/include/field_trial.h"
 
 namespace webrtc {
 namespace {
@@ -38,8 +38,26 @@ constexpr float kDefaultMinBitratebps = 30000;
 std::vector<VideoEncoder::ResolutionBitrateLimits>
 EncoderInfoSettings::GetDefaultSinglecastBitrateLimits(
     VideoCodecType codec_type) {
-  // Specific limits for VP9. Other codecs use VP8 limits.
+  if (codec_type == kVideoCodecAV1) {
+    // AV1 singlecast max bitrate limits are higher than AV1 SVC max limits.
+    // This is because in singlecast we normally have just one receiver, BWE is
+    // known end-to-end and the encode target bitrate guarantees delivery of
+    // video.
+    // The min bitrate limits are not used in singlecast (used in SVC/simulcast
+    // to de-/activate spatial layers) and are set to zero. Send resolution in
+    // singlecast is assumed to be regulated by QP-based quality scaler.
+    return {{320 * 180, 0, 0, 256000},
+            {480 * 270, 176000, 0, 384000},
+            {640 * 360, 256000, 0, 512000},
+            {960 * 540, 384000, 0, 1024000},
+            {1280 * 720, 576000, 0, 1536000}};
+  }
+
   if (codec_type == kVideoCodecVP9) {
+    // VP9 singlecast bitrate limits are derived ~directly from VP9 SVC bitrate
+    // limits. The current max limits are unnecessarily too strict for
+    // singlecast, where BWE is known end-to-end, especially for low
+    // resolutions.
     return {{320 * 180, 0, 30000, 150000},
             {480 * 270, 120000, 30000, 300000},
             {640 * 360, 190000, 30000, 420000},
@@ -47,6 +65,7 @@ EncoderInfoSettings::GetDefaultSinglecastBitrateLimits(
             {1280 * 720, 480000, 30000, 1500000}};
   }
 
+  // VP8 and other codecs.
   return {{320 * 180, 0, 30000, 300000},
           {480 * 270, 200000, 30000, 500000},
           {640 * 360, 300000, 30000, 800000},
@@ -156,7 +175,8 @@ EncoderInfoSettings::GetSinglecastBitrateLimitForResolutionWhenQpIsUntrusted(
   }
 }
 
-EncoderInfoSettings::EncoderInfoSettings(absl::string_view name)
+EncoderInfoSettings::EncoderInfoSettings(const FieldTrialsView& field_trials,
+                                         absl::string_view name)
     : requested_resolution_alignment_("requested_resolution_alignment"),
       apply_alignment_to_all_simulcast_layers_(
           "apply_alignment_to_all_simulcast_layers") {
@@ -175,15 +195,15 @@ EncoderInfoSettings::EncoderInfoSettings(absl::string_view name)
            [](BitrateLimit* b) { return &b->max_bitrate_bps; })},
       {});
 
-  std::string name_str(name);
-  if (field_trial::FindFullName(name_str).empty()) {
+  std::string experiment_string = field_trials.Lookup(name);
+  if (experiment_string.empty()) {
     // Encoder name not found, use common string applying to all encoders.
-    name_str = "WebRTC-GetEncoderInfoOverride";
+    experiment_string = field_trials.Lookup("WebRTC-GetEncoderInfoOverride");
   }
 
   ParseFieldTrial({&bitrate_limits, &requested_resolution_alignment_,
                    &apply_alignment_to_all_simulcast_layers_},
-                  field_trial::FindFullName(name_str));
+                  experiment_string);
 
   resolution_bitrate_limits_ = ToResolutionBitrateLimits(bitrate_limits.Get());
 }
@@ -201,14 +221,22 @@ absl::optional<uint32_t> EncoderInfoSettings::requested_resolution_alignment()
 EncoderInfoSettings::~EncoderInfoSettings() {}
 
 SimulcastEncoderAdapterEncoderInfoSettings::
-    SimulcastEncoderAdapterEncoderInfoSettings()
+    SimulcastEncoderAdapterEncoderInfoSettings(
+        const FieldTrialsView& field_trials)
     : EncoderInfoSettings(
+          field_trials,
           "WebRTC-SimulcastEncoderAdapter-GetEncoderInfoOverride") {}
 
-LibvpxVp8EncoderInfoSettings::LibvpxVp8EncoderInfoSettings()
-    : EncoderInfoSettings("WebRTC-VP8-GetEncoderInfoOverride") {}
+LibvpxVp8EncoderInfoSettings::LibvpxVp8EncoderInfoSettings(
+    const FieldTrialsView& field_trials)
+    : EncoderInfoSettings(field_trials, "WebRTC-VP8-GetEncoderInfoOverride") {}
 
-LibvpxVp9EncoderInfoSettings::LibvpxVp9EncoderInfoSettings()
-    : EncoderInfoSettings("WebRTC-VP9-GetEncoderInfoOverride") {}
+LibvpxVp9EncoderInfoSettings::LibvpxVp9EncoderInfoSettings(
+    const FieldTrialsView& field_trials)
+    : EncoderInfoSettings(field_trials, "WebRTC-VP9-GetEncoderInfoOverride") {}
+
+LibaomAv1EncoderInfoSettings::LibaomAv1EncoderInfoSettings(
+    const FieldTrialsView& field_trials)
+    : EncoderInfoSettings(field_trials, "WebRTC-Av1-GetEncoderInfoOverride") {}
 
 }  // namespace webrtc

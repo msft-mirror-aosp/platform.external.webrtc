@@ -1,12 +1,3 @@
-# Android Emulator WebRTC branch
-
-This contains the WebRTC project modified such that it can be build in the
-android emulator. It is expected to be used as part of the emulator build
-as it currently relies on a set of cmake macros that are made available by
-the emulator.
-
-## About WebRTC
-
 **WebRTC is a free, open software project** that provides browsers and mobile
 applications with Real-Time Communications (RTC) capabilities via simple APIs.
 The WebRTC components have been optimized to best serve this purpose.
@@ -38,4 +29,4 @@ native API header files.
  * [Reporting bugs](docs/bug-reporting.md)
  * [Documentation](g3doc/sitemap.md)
 
-[native-dev]: https://webrtc.googlesource.com/src/+/main/docs/native-code/index.md
+[native-dev]: https://webrtc.googlesource.com/src/+/main/docs/native-code/

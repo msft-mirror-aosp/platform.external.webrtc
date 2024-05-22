@@ -21,6 +21,7 @@
 #include "api/test/simulated_network.h"
 #include "api/test/video_quality_test_fixture.h"
 #include "api/transport/bitrate_settings.h"
+#include "api/units/data_rate.h"
 #include "api/video_codecs/video_codec.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
@@ -28,6 +29,7 @@
 #include "test/field_trial.h"
 #include "test/gtest.h"
 #include "test/run_test.h"
+#include "test/test_flags.h"
 #include "video/video_quality_test.h"
 
 // Flags common with screenshare loopback, with different default values.
@@ -199,16 +201,6 @@ ABSL_FLAG(bool,
 
 ABSL_FLAG(bool, video, true, "Add video stream");
 
-ABSL_FLAG(
-    std::string,
-    force_fieldtrials,
-    "",
-    "Field trials control experimental feature code which can be forced. "
-    "E.g. running with --force_fieldtrials=WebRTC-FooFeature/Enabled/"
-    " will assign the group Enable to field trial WebRTC-FooFeature. Multiple "
-    "trials are separated by \"/\"");
-
-// Video-specific flags.
 ABSL_FLAG(std::string,
           clip,
           "",
@@ -366,7 +358,7 @@ void Loopback() {
   BuiltInNetworkBehaviorConfig pipe_config;
   pipe_config.loss_percent = LossPercent();
   pipe_config.avg_burst_loss_length = AvgBurstLossLength();
-  pipe_config.link_capacity_kbps = LinkCapacityKbps();
+  pipe_config.link_capacity = DataRate::KilobitsPerSec(LinkCapacityKbps());
   pipe_config.queue_length_packets = QueueSize();
   pipe_config.queue_delay_ms = AvgPropagationDelayMs();
   pipe_config.delay_standard_deviation_ms = StdPropagationDelayMs();
@@ -427,15 +419,16 @@ void Loopback() {
   SL_descriptors.push_back(SL0());
   SL_descriptors.push_back(SL1());
   SL_descriptors.push_back(SL2());
-  VideoQualityTest::FillScalabilitySettings(
+
+  VideoQualityTest fixture(nullptr);
+  fixture.FillScalabilitySettings(
       &params, 0, stream_descriptors, NumStreams(), SelectedStream(),
       NumSpatialLayers(), SelectedSL(), InterLayerPred(), SL_descriptors);
 
-  auto fixture = std::make_unique<VideoQualityTest>(nullptr);
   if (DurationSecs()) {
-    fixture->RunWithAnalyzer(params);
+    fixture.RunWithAnalyzer(params);
   } else {
-    fixture->RunWithRenderers(params);
+    fixture.RunWithRenderers(params);
   }
 }
 

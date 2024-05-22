@@ -68,6 +68,7 @@ class MatchedFilterLagAggregator {
     std::vector<int> histogram_;
     int histogram_data_index_ = 0;
     int pre_echo_candidate_ = 0;
+    int number_updates_ = 0;
   };
 
   class HighestPeakAggregator {

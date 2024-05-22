@@ -14,6 +14,8 @@
 #include <memory>
 #include <vector>
 
+#include "absl/base/nullability.h"
+#include "api/environment/environment.h"
 #include "api/transport/network_control.h"
 #include "api/units/data_rate.h"
 #include "api/units/time_delta.h"
@@ -35,20 +37,15 @@ class RemoteBitrateEstimator;
 class ReceiveSideCongestionController : public CallStatsObserver {
  public:
   ReceiveSideCongestionController(
-      Clock* clock,
+      const Environment& env,
       RemoteEstimatorProxy::TransportFeedbackSender feedback_sender,
       RembThrottler::RembSender remb_sender,
-      NetworkStateEstimator* network_state_estimator);
+      absl::Nullable<NetworkStateEstimator*> network_state_estimator);
 
-  ~ReceiveSideCongestionController() override {}
+  ~ReceiveSideCongestionController() override = default;
 
   void OnReceivedPacket(const RtpPacketReceived& packet, MediaType media_type);
 
-  // TODO(perkj, bugs.webrtc.org/14859): Remove all usage. This method is
-  // currently not used by PeerConnections.
-  virtual void OnReceivedPacket(int64_t arrival_time_ms,
-                                size_t payload_size,
-                                const RTPHeader& header);
   // Implements CallStatsObserver.
   void OnRttUpdate(int64_t avg_rtt_ms, int64_t max_rtt_ms) override;
 
@@ -74,11 +71,10 @@ class ReceiveSideCongestionController : public CallStatsObserver {
   TimeDelta MaybeProcess();
 
  private:
-  void PickEstimatorFromHeader(const RTPHeader& header)
+  void PickEstimator(bool has_absolute_send_time)
       RTC_EXCLUSIVE_LOCKS_REQUIRED(mutex_);
-  void PickEstimator() RTC_EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
-  Clock& clock_;
+  const Environment env_;
   RembThrottler remb_throttler_;
   RemoteEstimatorProxy remote_estimator_proxy_;
 

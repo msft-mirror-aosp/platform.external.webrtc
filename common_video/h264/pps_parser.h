@@ -11,7 +11,6 @@
 #ifndef COMMON_VIDEO_H264_PPS_PARSER_H_
 #define COMMON_VIDEO_H264_PPS_PARSER_H_
 
-#include <cstdint>
 #include <stddef.h>
 #include <stdint.h>
 

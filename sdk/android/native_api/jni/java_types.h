@@ -242,6 +242,8 @@ std::vector<int8_t> JavaToNativeByteArray(JNIEnv* env,
                                           const JavaRef<jbyteArray>& jarray);
 std::vector<int32_t> JavaToNativeIntArray(JNIEnv* env,
                                           const JavaRef<jintArray>& jarray);
+std::vector<float> JavaToNativeFloatArray(JNIEnv* env,
+                                          const JavaRef<jfloatArray>& jarray);
 
 ScopedJavaLocalRef<jobjectArray> NativeToJavaBooleanArray(
     JNIEnv* env,
@@ -324,7 +326,7 @@ ScopedJavaLocalRef<jobject> NativeToJavaStringMap(JNIEnv* env,
 // Return a `jlong` that will correctly convert back to `ptr`.  This is needed
 // because the alternative (of silently passing a 32-bit pointer to a vararg
 // function expecting a 64-bit param) picks up garbage in the high 32 bits.
-jlong NativeToJavaPointer(void* ptr);
+jlong NativeToJavaPointer(const void* ptr);
 
 // ------------------------
 // -- Deprecated methods --
@@ -338,7 +340,7 @@ inline std::string JavaToStdString(JNIEnv* jni,
 
 // Deprecated. Use scoped jobjects instead.
 inline std::string JavaToStdString(JNIEnv* jni, jstring j_string) {
-  return JavaToStdString(jni, JavaParamRef<jstring>(j_string));
+  return JavaToStdString(jni, JavaParamRef<jstring>(jni, j_string));
 }
 
 // Deprecated. Use JavaListToNativeVector<std::string, jstring> instead.
@@ -358,7 +360,7 @@ inline std::map<std::string, std::string> JavaToStdMapStrings(
 // Deprecated. Use scoped jobjects instead.
 inline std::map<std::string, std::string> JavaToStdMapStrings(JNIEnv* jni,
                                                               jobject j_map) {
-  return JavaToStdMapStrings(jni, JavaParamRef<jobject>(j_map));
+  return JavaToStdMapStrings(jni, JavaParamRef<jobject>(jni, j_map));
 }
 
 }  // namespace webrtc

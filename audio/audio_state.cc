@@ -15,12 +15,12 @@
 #include <utility>
 #include <vector>
 
+#include "api/audio/audio_device.h"
 #include "api/sequence_checker.h"
 #include "api/task_queue/task_queue_base.h"
 #include "api/units/time_delta.h"
 #include "audio/audio_receive_stream.h"
 #include "audio/audio_send_stream.h"
-#include "modules/audio_device/include/audio_device.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
 
@@ -32,7 +32,6 @@ AudioState::AudioState(const AudioState::Config& config)
       audio_transport_(config_.audio_mixer.get(),
                        config_.audio_processing.get(),
                        config_.async_audio_processing_factory.get()) {
-  process_thread_checker_.Detach();
   RTC_DCHECK(config_.audio_mixer);
   RTC_DCHECK(config_.audio_device_module);
 }

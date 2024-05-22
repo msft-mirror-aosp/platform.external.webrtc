@@ -76,8 +76,6 @@ NetEqTest::NetEqTest(const NetEq::Config& config,
       callbacks_(callbacks),
       sample_rate_hz_(config.sample_rate_hz),
       text_log_(std::move(text_log)) {
-  RTC_CHECK(!config.enable_muted_state)
-      << "The code does not handle enable_muted_state";
   RegisterDecoders(codecs);
 }
 
@@ -177,11 +175,9 @@ NetEqTest::SimulationStepResult NetEqTest::RunToNextGetAudio() {
         callbacks_.get_audio_callback->BeforeGetAudio(neteq_.get());
       }
       AudioFrame out_frame;
-      bool muted;
-      int error = neteq_->GetAudio(&out_frame, &muted, nullptr,
+      int error = neteq_->GetAudio(&out_frame, nullptr, nullptr,
                                    ActionToOperations(next_action_));
       next_action_ = absl::nullopt;
-      RTC_CHECK(!muted) << "The code does not handle enable_muted_state";
       if (error != NetEq::kOK) {
         if (callbacks_.error_callback) {
           callbacks_.error_callback->OnGetAudioError();
@@ -190,8 +186,8 @@ NetEqTest::SimulationStepResult NetEqTest::RunToNextGetAudio() {
         sample_rate_hz_ = out_frame.sample_rate_hz_;
       }
       if (callbacks_.get_audio_callback) {
-        callbacks_.get_audio_callback->AfterGetAudio(time_now_ms, out_frame,
-                                                     muted, neteq_.get());
+        callbacks_.get_audio_callback->AfterGetAudio(
+            time_now_ms, out_frame, out_frame.muted(), neteq_.get());
       }
 
       if (output_) {
@@ -273,17 +269,8 @@ NetEqTest::SimulationStepResult NetEqTest::RunToNextGetAudio() {
       prev_lifetime_stats_ = lifetime_stats;
       const bool no_more_packets_to_decode =
           !input_->NextPacketTime() && !operations_state.next_packet_available;
-      // End the simulation if the gap is too large. This indicates an issue
-      // with the event log file.
-      const bool simulation_step_too_large = result.simulation_step_ms > 1000;
-      if (simulation_step_too_large) {
-        // If we don't reset the step time, the large gap will be included in
-        // the simulation time, which can be a large distortion.
-        result.simulation_step_ms = 10;
-      }
-      result.is_simulation_finished = simulation_step_too_large ||
-                                      no_more_packets_to_decode ||
-                                      input_->ended();
+      result.is_simulation_finished =
+          no_more_packets_to_decode || input_->ended();
       prev_ops_state_ = operations_state;
       return result;
     }
@@ -313,30 +300,29 @@ NetEqLifetimeStatistics NetEqTest::LifetimeStats() const {
 }
 
 NetEqTest::DecoderMap NetEqTest::StandardDecoderMap() {
-  DecoderMap codecs = {
-    {0, SdpAudioFormat("pcmu", 8000, 1)},
-    {8, SdpAudioFormat("pcma", 8000, 1)},
+  DecoderMap codecs = {{0, SdpAudioFormat("pcmu", 8000, 1)},
+                       {8, SdpAudioFormat("pcma", 8000, 1)},
 #ifdef WEBRTC_CODEC_ILBC
-    {102, SdpAudioFormat("ilbc", 8000, 1)},
+                       {102, SdpAudioFormat("ilbc", 8000, 1)},
 #endif
 #ifdef WEBRTC_CODEC_OPUS
-    {111, SdpAudioFormat("opus", 48000, 2)},
+                       {111, SdpAudioFormat("opus", 48000, 2)},
+                       {63, SdpAudioFormat("red", 48000, 2)},
 #endif
-    {93, SdpAudioFormat("l16", 8000, 1)},
-    {94, SdpAudioFormat("l16", 16000, 1)},
-    {95, SdpAudioFormat("l16", 32000, 1)},
-    {96, SdpAudioFormat("l16", 48000, 1)},
-    {9, SdpAudioFormat("g722", 8000, 1)},
-    {106, SdpAudioFormat("telephone-event", 8000, 1)},
-    {114, SdpAudioFormat("telephone-event", 16000, 1)},
-    {115, SdpAudioFormat("telephone-event", 32000, 1)},
-    {116, SdpAudioFormat("telephone-event", 48000, 1)},
-    {117, SdpAudioFormat("red", 8000, 1)},
-    {13, SdpAudioFormat("cn", 8000, 1)},
-    {98, SdpAudioFormat("cn", 16000, 1)},
-    {99, SdpAudioFormat("cn", 32000, 1)},
-    {100, SdpAudioFormat("cn", 48000, 1)}
-  };
+                       {93, SdpAudioFormat("l16", 8000, 1)},
+                       {94, SdpAudioFormat("l16", 16000, 1)},
+                       {95, SdpAudioFormat("l16", 32000, 1)},
+                       {96, SdpAudioFormat("l16", 48000, 1)},
+                       {9, SdpAudioFormat("g722", 8000, 1)},
+                       {106, SdpAudioFormat("telephone-event", 8000, 1)},
+                       {114, SdpAudioFormat("telephone-event", 16000, 1)},
+                       {115, SdpAudioFormat("telephone-event", 32000, 1)},
+                       {116, SdpAudioFormat("telephone-event", 48000, 1)},
+                       {117, SdpAudioFormat("red", 8000, 1)},
+                       {13, SdpAudioFormat("cn", 8000, 1)},
+                       {98, SdpAudioFormat("cn", 16000, 1)},
+                       {99, SdpAudioFormat("cn", 32000, 1)},
+                       {100, SdpAudioFormat("cn", 48000, 1)}};
   return codecs;
 }
 

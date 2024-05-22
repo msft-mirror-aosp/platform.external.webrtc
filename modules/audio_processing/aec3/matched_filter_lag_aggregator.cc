@@ -152,9 +152,31 @@ void MatchedFilterLagAggregator::PreEchoLagAggregator::Aggregate(
   histogram_data_[histogram_data_index_] = pre_echo_block_size;
   ++histogram_[histogram_data_[histogram_data_index_]];
   histogram_data_index_ = (histogram_data_index_ + 1) % histogram_data_.size();
-  int pre_echo_candidate_block_size =
-      std::distance(histogram_.begin(),
-                    std::max_element(histogram_.begin(), histogram_.end()));
+  int pre_echo_candidate_block_size = 0;
+  if (number_updates_ < kNumBlocksPerSecond * 2) {
+    number_updates_++;
+    float penalization_per_delay = 1.0f;
+    float max_histogram_value = -1.0f;
+    for (auto it = histogram_.begin();
+         std::distance(it, histogram_.end()) >=
+         static_cast<int>(kMatchedFilterWindowSizeSubBlocks);
+         it = it + kMatchedFilterWindowSizeSubBlocks) {
+      auto it_max_element =
+          std::max_element(it, it + kMatchedFilterWindowSizeSubBlocks);
+      float weighted_max_value =
+          static_cast<float>(*it_max_element) * penalization_per_delay;
+      if (weighted_max_value > max_histogram_value) {
+        max_histogram_value = weighted_max_value;
+        pre_echo_candidate_block_size =
+            std::distance(histogram_.begin(), it_max_element);
+      }
+      penalization_per_delay *= 0.7f;
+    }
+  } else {
+    pre_echo_candidate_block_size =
+        std::distance(histogram_.begin(),
+                      std::max_element(histogram_.begin(), histogram_.end()));
+  }
   pre_echo_candidate_ = (pre_echo_candidate_block_size << block_size_log2_);
 }
 

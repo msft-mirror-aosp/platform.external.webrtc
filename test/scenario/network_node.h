@@ -17,12 +17,13 @@
 #include <vector>
 
 #include "api/call/transport.h"
+#include "api/sequence_checker.h"
 #include "api/units/timestamp.h"
 #include "call/call.h"
-#include "call/simulated_network.h"
 #include "rtc_base/copy_on_write_buffer.h"
 #include "rtc_base/synchronization/mutex.h"
 #include "test/network/network_emulation.h"
+#include "test/network/simulated_network.h"
 #include "test/scenario/column_printer.h"
 #include "test/scenario/scenario_config.h"
 
@@ -53,10 +54,11 @@ class NetworkNodeTransport : public Transport {
   NetworkNodeTransport(Clock* sender_clock, Call* sender_call);
   ~NetworkNodeTransport() override;
 
-  bool SendRtp(const uint8_t* packet,
-               size_t length,
+  void UpdateAdapterId(int adapter_id);
+
+  bool SendRtp(rtc::ArrayView<const uint8_t> packet,
                const PacketOptions& options) override;
-  bool SendRtcp(const uint8_t* packet, size_t length) override;
+  bool SendRtcp(rtc::ArrayView<const uint8_t> packet) override;
 
   void Connect(EmulatedEndpoint* endpoint,
                const rtc::SocketAddress& receiver_address,
@@ -69,6 +71,9 @@ class NetworkNodeTransport : public Transport {
   }
 
  private:
+  SequenceChecker sequence_checker_;
+  int adapter_id_ RTC_GUARDED_BY(sequence_checker_) = 0;
+
   Mutex mutex_;
   Clock* const sender_clock_;
   Call* const sender_call_;

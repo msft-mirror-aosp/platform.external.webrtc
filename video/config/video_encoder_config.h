@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "absl/types/optional.h"
+#include "api/field_trials_view.h"
 #include "api/scoped_refptr.h"
 #include "api/video/resolution.h"
 #include "api/video_codecs/scalability_mode.h"
@@ -99,6 +100,7 @@ class VideoEncoderConfig {
 
     virtual void FillVideoCodecVp8(VideoCodecVP8* vp8_settings) const;
     virtual void FillVideoCodecVp9(VideoCodecVP9* vp9_settings) const;
+    virtual void FillVideoCodecAv1(VideoCodecAV1* av1_settings) const;
 
    private:
     ~EncoderSpecificSettings() override {}
@@ -123,6 +125,15 @@ class VideoEncoderConfig {
     VideoCodecVP9 specifics_;
   };
 
+  class Av1EncoderSpecificSettings : public EncoderSpecificSettings {
+   public:
+    explicit Av1EncoderSpecificSettings(const VideoCodecAV1& specifics);
+    void FillVideoCodecAv1(VideoCodecAV1* av1_settings) const override;
+
+   private:
+    VideoCodecAV1 specifics_;
+  };
+
   enum class ContentType {
     kRealtimeVideo,
     kScreen,
@@ -135,6 +146,7 @@ class VideoEncoderConfig {
     // The size of the vector may not be larger than
     // `encoder_config.number_of_streams`.
     virtual std::vector<VideoStream> CreateEncoderStreams(
+        const FieldTrialsView& field_trials,
         int frame_width,
         int frame_height,
         const VideoEncoderConfig& encoder_config) = 0;
@@ -181,9 +193,15 @@ class VideoEncoderConfig {
   // down to lower layers for the video encoding.
   // `simulcast_layers` is also used for configuring non-simulcast (when there
   // is a single VideoStream).
+  // We have the same number of `simulcast_layers` as we have negotiated
+  // encodings, for example 3 are used in both simulcast and legacy kSVC.
   std::vector<VideoStream> simulcast_layers;
 
   // Max number of encoded VideoStreams to produce.
+  // This is the same as the number of encodings negotiated (i.e. SSRCs),
+  // whether or not those encodings are `active`, except for when legacy kSVC
+  // is used. In this case we have three SSRCs but `number_of_streams` is
+  // changed to 1 to tell lower layers to limit the number of streams.
   size_t number_of_streams;
 
   // Legacy Google conference mode flag for simulcast screenshare

@@ -78,7 +78,7 @@ RtpParameters VideoRtpReceiver::GetParameters() const {
     return RtpParameters();
   auto current_ssrc = ssrc();
   return current_ssrc.has_value()
-             ? media_channel_->GetRtpReceiveParameters(current_ssrc.value())
+             ? media_channel_->GetRtpReceiverParameters(current_ssrc.value())
              : media_channel_->GetDefaultRtpReceiveParameters();
 }
 
@@ -98,7 +98,7 @@ VideoRtpReceiver::GetFrameDecryptor() const {
   return frame_decryptor_;
 }
 
-void VideoRtpReceiver::SetDepacketizerToDecoderFrameTransformer(
+void VideoRtpReceiver::SetFrameTransformer(
     rtc::scoped_refptr<FrameTransformerInterface> frame_transformer) {
   RTC_DCHECK_RUN_ON(worker_thread_);
   frame_transformer_ = std::move(frame_transformer);

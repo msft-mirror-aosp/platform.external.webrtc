@@ -8,12 +8,15 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include "sdk/android/native_api/codecs/wrapper.h"
+
 #include <memory>
 
 #include "absl/memory/memory.h"
+#include "api/environment/environment.h"
+#include "api/environment/environment_factory.h"
 #include "media/base/media_constants.h"
 #include "sdk/android/generated_native_unittests_jni/CodecsWrapperTestHelper_jni.h"
-#include "sdk/android/native_api/codecs/wrapper.h"
 #include "sdk/android/src/jni/video_encoder_wrapper.h"
 #include "test/gtest.h"
 
@@ -39,8 +42,10 @@ TEST(JavaCodecsWrapperTest, JavaToNativeResolutionBitrateLimits) {
   JNIEnv* env = AttachCurrentThreadIfNeeded();
   ScopedJavaLocalRef<jobject> j_fake_encoder =
       jni::Java_CodecsWrapperTestHelper_createFakeVideoEncoder(env);
+  const Environment webrtc_env = CreateEnvironment();
 
-  auto encoder = jni::JavaToNativeVideoEncoder(env, j_fake_encoder);
+  auto encoder = jni::JavaToNativeVideoEncoder(
+      env, j_fake_encoder, NativeToJavaPointer(&webrtc_env));
   ASSERT_TRUE(encoder);
 
   // Check that the bitrate limits correctly passed from Java to native.

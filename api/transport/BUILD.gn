@@ -18,6 +18,12 @@ rtc_library("bitrate_settings") {
   absl_deps = [ "//third_party/abseil-cpp/absl/types:optional" ]
 }
 
+rtc_library("bandwidth_estimation_settings") {
+  visibility = [ "*" ]
+  sources = [ "bandwidth_estimation_settings.h" ]
+  deps = [ "../../rtc_base/system:rtc_export" ]
+}
+
 rtc_source_set("enums") {
   visibility = [ "*" ]
   sources = [ "enums.h" ]
@@ -33,6 +39,7 @@ rtc_library("network_control") {
 
   deps = [
     "../../api:field_trials_view",
+    "../environment",
     "../rtc_event_log",
     "../units:data_rate",
     "../units:data_size",
@@ -53,6 +60,7 @@ rtc_library("field_trial_based_config") {
   ]
   deps = [
     "../../api:field_trials_registry",
+    "../../rtc_base/system:rtc_export",
     "../../system_wrappers:field_trial",
   ]
   absl_deps = [ "//third_party/abseil-cpp/absl/strings" ]
@@ -78,15 +86,15 @@ rtc_library("goog_cc") {
   deps = [
     ":network_control",
     "..:network_state_predictor_api",
-    "../../api:field_trials_view",
+    "../../api/units:time_delta",
     "../../modules/congestion_controller/goog_cc",
   ]
-  absl_deps = [ "//third_party/abseil-cpp/absl/base:core_headers" ]
 }
 
 rtc_source_set("sctp_transport_factory_interface") {
   visibility = [ "*" ]
   sources = [ "sctp_transport_factory_interface.h" ]
+  deps = [ "../../api/environment" ]
 }
 
 rtc_source_set("stun_types") {
@@ -102,6 +110,7 @@ rtc_source_set("stun_types") {
     "../../rtc_base:byte_order",
     "../../rtc_base:checks",
     "../../rtc_base:crc32",
+    "../../rtc_base:digest",
     "../../rtc_base:ip_address",
     "../../rtc_base:logging",
     "../../rtc_base:socket_address",
@@ -115,6 +124,7 @@ if (rtc_include_tests) {
   rtc_source_set("test_feedback_generator_interface") {
     testonly = true
     sources = [ "test/feedback_generator_interface.h" ]
+    visibility = [ "*" ]
     deps = [
       ":network_control",
       "..:simulated_network_api",
@@ -155,6 +165,7 @@ if (rtc_include_tests) {
 
 if (rtc_include_tests) {
   rtc_source_set("mock_network_control") {
+    visibility = [ "*" ]
     testonly = true
     sources = [ "test/mock_network_control.h" ]
     deps = [

@@ -14,11 +14,12 @@
 
 #include "absl/strings/ascii.h"
 #include "api/audio_codecs/audio_format.h"
+#include "media/base/codec.h"
 #include "media/base/media_constants.h"
 
 namespace cricket {
 
-webrtc::SdpAudioFormat AudioCodecToSdpAudioFormat(const AudioCodec& ac) {
+webrtc::SdpAudioFormat AudioCodecToSdpAudioFormat(const Codec& ac) {
   return webrtc::SdpAudioFormat(ac.name, ac.clockrate, ac.channels, ac.params);
 }
 
@@ -62,8 +63,6 @@ PayloadTypeMapper::PayloadTypeMapper()
            // Payload type assignments currently used by WebRTC.
            // Includes data to reduce collisions (and thus reassignments)
            {{kIlbcCodecName, 8000, 1}, 102},
-           {{kIsacCodecName, 16000, 1}, 103},
-           {{kIsacCodecName, 32000, 1}, 104},
            {{kCnCodecName, 16000, 1}, 105},
            {{kCnCodecName, 32000, 1}, 106},
            {{kOpusCodecName,
@@ -123,7 +122,7 @@ absl::optional<int> PayloadTypeMapper::FindMappingFor(
   return absl::nullopt;
 }
 
-absl::optional<AudioCodec> PayloadTypeMapper::ToAudioCodec(
+absl::optional<Codec> PayloadTypeMapper::ToAudioCodec(
     const webrtc::SdpAudioFormat& format) {
   // TODO(ossu): We can safely set bitrate to zero here, since that field is
   // not presented in the SDP. It is used to ferry around some target bitrate
@@ -132,8 +131,9 @@ absl::optional<AudioCodec> PayloadTypeMapper::ToAudioCodec(
   // ACM or NetEq.
   auto opt_payload_type = GetMappingFor(format);
   if (opt_payload_type) {
-    AudioCodec codec(*opt_payload_type, format.name, format.clockrate_hz, 0,
-                     format.num_channels);
+    Codec codec =
+        cricket::CreateAudioCodec(*opt_payload_type, format.name,
+                                  format.clockrate_hz, format.num_channels);
     codec.params = format.parameters;
     return std::move(codec);
   }

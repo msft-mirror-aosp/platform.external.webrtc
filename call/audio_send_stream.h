@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "absl/types/optional.h"
+#include "api/audio/audio_processing_statistics.h"
 #include "api/audio_codecs/audio_codec_pair_id.h"
 #include "api/audio_codecs/audio_encoder.h"
 #include "api/audio_codecs/audio_encoder_factory.h"
@@ -29,7 +30,6 @@
 #include "api/scoped_refptr.h"
 #include "call/audio_sender.h"
 #include "call/rtp_config.h"
-#include "modules/audio_processing/include/audio_processing_statistics.h"
 #include "modules/rtp_rtcp/include/report_block_data.h"
 
 namespace webrtc {
@@ -72,7 +72,7 @@ class AudioSendStream : public AudioSender {
     // per-pair the ReportBlockData represents the latest Report Block that was
     // received for that pair.
     std::vector<ReportBlockData> report_block_datas;
-    uint32_t nacks_rcvd = 0;
+    uint32_t nacks_received = 0;
   };
 
   struct Config {
@@ -106,6 +106,9 @@ class AudioSendStream : public AudioSender {
 
       // RTCP CNAME, see RFC 3550.
       std::string c_name;
+
+      // Compound or reduced size RTCP.
+      RtcpMode rtcp_mode = RtcpMode::kCompound;
     } rtp;
 
     // Time interval between RTCP report for audio

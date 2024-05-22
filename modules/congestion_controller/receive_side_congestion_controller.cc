@@ -10,6 +10,8 @@
 
 #include "modules/congestion_controller/include/receive_side_congestion_controller.h"
 
+#include "absl/base/nullability.h"
+#include "api/environment/environment.h"
 #include "api/media_types.h"
 #include "api/units/data_rate.h"
 #include "modules/pacing/packet_router.h"
@@ -40,15 +42,16 @@ DataRate ReceiveSideCongestionController::LatestReceiveSideEstimate() const {
   return rbe_->LatestEstimate();
 }
 
-void ReceiveSideCongestionController::PickEstimatorFromHeader(
-    const RTPHeader& header) {
-  if (header.extension.hasAbsoluteSendTime) {
+void ReceiveSideCongestionController::PickEstimator(
+    bool has_absolute_send_time) {
+  if (has_absolute_send_time) {
     // If we see AST in header, switch RBE strategy immediately.
     if (!using_absolute_send_time_) {
       RTC_LOG(LS_INFO)
           << "WrappingBitrateEstimator: Switching to absolute send time RBE.";
       using_absolute_send_time_ = true;
-      PickEstimator();
+      rbe_ = std::make_unique<RemoteBitrateEstimatorAbsSendTime>(
+          env_, &remb_throttler_);
     }
     packets_since_absolute_send_time_ = 0;
   } else {
@@ -60,33 +63,25 @@ void ReceiveSideCongestionController::PickEstimatorFromHeader(
             << "WrappingBitrateEstimator: Switching to transmission "
                "time offset RBE.";
         using_absolute_send_time_ = false;
-        PickEstimator();
+        rbe_ = std::make_unique<RemoteBitrateEstimatorSingleStream>(
+            env_, &remb_throttler_);
       }
     }
   }
 }
 
-// Instantiate RBE for Time Offset or Absolute Send Time extensions.
-void ReceiveSideCongestionController::PickEstimator() {
-  if (using_absolute_send_time_) {
-    rbe_ = std::make_unique<RemoteBitrateEstimatorAbsSendTime>(&remb_throttler_,
-                                                               &clock_);
-  } else {
-    rbe_ = std::make_unique<RemoteBitrateEstimatorSingleStream>(
-        &remb_throttler_, &clock_);
-  }
-}
-
 ReceiveSideCongestionController::ReceiveSideCongestionController(
-    Clock* clock,
+    const Environment& env,
     RemoteEstimatorProxy::TransportFeedbackSender feedback_sender,
     RembThrottler::RembSender remb_sender,
-    NetworkStateEstimator* network_state_estimator)
-    : clock_(*clock),
-      remb_throttler_(std::move(remb_sender), clock),
+    absl::Nullable<NetworkStateEstimator*> network_state_estimator)
+    : env_(env),
+      remb_throttler_(std::move(remb_sender), &env_.clock()),
       remote_estimator_proxy_(std::move(feedback_sender),
                               network_state_estimator),
-      rbe_(new RemoteBitrateEstimatorSingleStream(&remb_throttler_, clock)),
+      rbe_(std::make_unique<RemoteBitrateEstimatorSingleStream>(
+          env_,
+          &remb_throttler_)),
       using_absolute_send_time_(false),
       packets_since_absolute_send_time_(0) {}
 
@@ -107,24 +102,8 @@ void ReceiveSideCongestionController::OnReceivedPacket(
   } else {
     // Receive-side BWE.
     MutexLock lock(&mutex_);
-    RTPHeader header;
-    packet.GetHeader(&header);
-    PickEstimatorFromHeader(header);
-    rbe_->IncomingPacket(packet.arrival_time().ms(),
-                         packet.payload_size() + packet.padding_size(), header);
-  }
-}
-
-void ReceiveSideCongestionController::OnReceivedPacket(
-    int64_t arrival_time_ms,
-    size_t payload_size,
-    const RTPHeader& header) {
-  remote_estimator_proxy_.IncomingPacket(arrival_time_ms, payload_size, header);
-  if (!header.extension.hasTransportSequenceNumber) {
-    // Receive-side BWE.
-    MutexLock lock(&mutex_);
-    PickEstimatorFromHeader(header);
-    rbe_->IncomingPacket(arrival_time_ms, payload_size, header);
+    PickEstimator(packet.HasExtension<AbsoluteSendTime>());
+    rbe_->IncomingPacket(packet);
   }
 }
 
@@ -133,7 +112,7 @@ void ReceiveSideCongestionController::OnBitrateChanged(int bitrate_bps) {
 }
 
 TimeDelta ReceiveSideCongestionController::MaybeProcess() {
-  Timestamp now = clock_.CurrentTime();
+  Timestamp now = env_.clock().CurrentTime();
   mutex_.Lock();
   TimeDelta time_until_rbe = rbe_->Process();
   mutex_.Unlock();

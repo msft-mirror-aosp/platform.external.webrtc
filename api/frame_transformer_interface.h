@@ -12,18 +12,30 @@
 #define API_FRAME_TRANSFORMER_INTERFACE_H_
 
 #include <memory>
-#include <vector>
+#include <string>
 
+#include "api/ref_count.h"
 #include "api/scoped_refptr.h"
 #include "api/video/encoded_frame.h"
 #include "api/video/video_frame_metadata.h"
-#include "rtc_base/ref_count.h"
 
 namespace webrtc {
 
 // Owns the frame payload data.
 class TransformableFrameInterface {
  public:
+  // Only a known list of internal implementations of transformable frames are
+  // permitted to allow internal downcasting. This is enforced via the
+  // internally-constructable Passkey.
+  // TODO: bugs.webrtc.org/339815768 - Remove this passkey once the
+  // downcasts are removed.
+  class Passkey;
+  RTC_EXPORT explicit TransformableFrameInterface(Passkey);
+
+  TransformableFrameInterface(TransformableFrameInterface&&) = default;
+  TransformableFrameInterface& operator=(TransformableFrameInterface&&) =
+      default;
+
   virtual ~TransformableFrameInterface() = default;
 
   // Returns the frame payload data. The data is valid until the next non-const
@@ -36,6 +48,13 @@ class TransformableFrameInterface {
   virtual uint8_t GetPayloadType() const = 0;
   virtual uint32_t GetSsrc() const = 0;
   virtual uint32_t GetTimestamp() const = 0;
+  virtual void SetRTPTimestamp(uint32_t timestamp) = 0;
+
+  // TODO(https://bugs.webrtc.org/14878): Change this to pure virtual after it
+  // is implemented everywhere.
+  virtual absl::optional<Timestamp> GetCaptureTimeIdentifier() const {
+    return absl::nullopt;
+  }
 
   enum class Direction {
     kUnknown,
@@ -46,38 +65,42 @@ class TransformableFrameInterface {
   // sender frames to allow received frames to be directly re-transmitted on
   // other PeerConnectionss.
   virtual Direction GetDirection() const { return Direction::kUnknown; }
+  virtual std::string GetMimeType() const = 0;
 };
 
 class TransformableVideoFrameInterface : public TransformableFrameInterface {
  public:
+  RTC_EXPORT explicit TransformableVideoFrameInterface(Passkey passkey);
   virtual ~TransformableVideoFrameInterface() = default;
   virtual bool IsKeyFrame() const = 0;
 
-  // Returns data needed in the frame transformation logic; for example,
-  // when the transformation applied to the frame is encryption/decryption, the
-  // additional data holds the serialized generic frame descriptor extension
-  // calculated in webrtc::RtpDescriptorAuthentication.
-  // This has been superseeded by GetMetadata() and will be removed shortly.
-  [[deprecated("https://crbug.com/1414370")]] virtual std::vector<uint8_t>
-  GetAdditionalData() const = 0;
+  virtual VideoFrameMetadata Metadata() const = 0;
 
-  virtual const VideoFrameMetadata& GetMetadata() const = 0;
-  // TODO(https://crbug.com/webrtc/14709): Make pure virtual when Chromium MOCK
-  // has implemented this.
-  virtual void SetMetadata(const VideoFrameMetadata&) {}
+  virtual void SetMetadata(const VideoFrameMetadata&) = 0;
 };
 
 // Extends the TransformableFrameInterface to expose audio-specific information.
 class TransformableAudioFrameInterface : public TransformableFrameInterface {
  public:
+  RTC_EXPORT explicit TransformableAudioFrameInterface(Passkey passkey);
   virtual ~TransformableAudioFrameInterface() = default;
 
-  // Exposes the frame header, enabling the interface clients to use the
-  // information in the header as needed, for example to compile the list of
-  // csrcs.
-  virtual const RTPHeader& GetHeader() const = 0;
-
   virtual rtc::ArrayView<const uint32_t> GetContributingSources() const = 0;
+
+  virtual const absl::optional<uint16_t> SequenceNumber() const = 0;
+
+  virtual absl::optional<uint64_t> AbsoluteCaptureTimestamp() const = 0;
+
+  enum class FrameType { kEmptyFrame, kAudioFrameSpeech, kAudioFrameCN };
+
+  // TODO(crbug.com/1456628): Change this to pure virtual after it
+  // is implemented everywhere.
+  virtual FrameType Type() const { return FrameType::kEmptyFrame; }
+
+  // Audio level in -dBov. Values range from 0 to 127, representing 0 to -127
+  // dBov. 127 represents digital silence. Only present on remote frames if
+  // the audio level header extension was included.
+  virtual absl::optional<uint8_t> AudioLevel() const = 0;
 };
 
 // Objects implement this interface to be notified with the transformed frame.
@@ -85,6 +108,12 @@ class TransformedFrameCallback : public rtc::RefCountInterface {
  public:
   virtual void OnTransformedFrame(
       std::unique_ptr<TransformableFrameInterface> frame) = 0;
+
+  // Request to no longer be called on each frame, instead having frames be
+  // sent directly to OnTransformedFrame without additional work.
+  // TODO(crbug.com/1502781): Make pure virtual once all mocks have
+  // implementations.
+  virtual void StartShortCircuiting() {}
 
  protected:
   ~TransformedFrameCallback() override = default;
@@ -108,6 +137,39 @@ class FrameTransformerInterface : public rtc::RefCountInterface {
 
  protected:
   ~FrameTransformerInterface() override = default;
+};
+
+// An interface implemented by classes that can host a transform.
+// Currently this is implemented by the RTCRtpSender and RTCRtpReceiver.
+class FrameTransformerHost {
+ public:
+  virtual ~FrameTransformerHost() {}
+  virtual void SetFrameTransformer(
+      rtc::scoped_refptr<FrameTransformerInterface> frame_transformer) = 0;
+  // TODO: bugs.webrtc.org/15929 - To be added:
+  // virtual AddIncomingMediaType(RtpCodec codec) = 0;
+  // virtual AddOutgoingMediaType(RtpCodec codec) = 0;
+};
+
+//------------------------------------------------------------------------------
+// Implementation details follow
+//------------------------------------------------------------------------------
+class TransformableFrameInterface::Passkey {
+ public:
+  ~Passkey() = default;
+
+ private:
+  // Explicit list of allowed internal implmentations of
+  // TransformableFrameInterface.
+  friend class TransformableOutgoingAudioFrame;
+  friend class TransformableIncomingAudioFrame;
+  friend class TransformableVideoSenderFrame;
+  friend class TransformableVideoReceiverFrame;
+
+  friend class MockTransformableFrame;
+  friend class MockTransformableAudioFrame;
+  friend class MockTransformableVideoFrame;
+  Passkey() = default;
 };
 
 }  // namespace webrtc

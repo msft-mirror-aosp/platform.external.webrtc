@@ -12,6 +12,7 @@
 
 #include <utility>
 
+#include "absl/memory/memory.h"
 #include "common_video/h264/h264_common.h"
 #include "modules/video_coding/include/video_codec_interface.h"
 #include "modules/video_coding/include/video_error_codes.h"
@@ -151,14 +152,19 @@ int32_t VideoEncoderWrapper::Encode(
   JNIEnv* jni = AttachCurrentThreadIfNeeded();
 
   // Construct encode info.
-  ScopedJavaLocalRef<jobjectArray> j_frame_types =
-      NativeToJavaFrameTypeArray(jni, *frame_types);
+  ScopedJavaLocalRef<jobjectArray> j_frame_types;
+  if (frame_types != nullptr) {
+    j_frame_types = NativeToJavaFrameTypeArray(jni, *frame_types);
+  } else {
+    j_frame_types =
+        NativeToJavaFrameTypeArray(jni, {VideoFrameType::kVideoFrameDelta});
+  }
   ScopedJavaLocalRef<jobject> encode_info =
       Java_EncodeInfo_Constructor(jni, j_frame_types);
 
   FrameExtraInfo info;
   info.capture_time_ns = frame.timestamp_us() * rtc::kNumNanosecsPerMicrosec;
-  info.timestamp_rtp = frame.timestamp();
+  info.timestamp_rtp = frame.rtp_timestamp();
   {
     MutexLock lock(&frame_extra_infos_lock_);
     frame_extra_infos_.push_back(info);
@@ -222,6 +228,8 @@ VideoEncoderWrapper::GetScalingSettingsInternal(JNIEnv* jni) const {
       return VideoEncoder::ScalingSettings(kLowVp9QpThreshold,
                                            kHighVp9QpThreshold);
     }
+    case kVideoCodecH265:
+    // TODO(bugs.webrtc.org/13485): Use H264 QP thresholds for now.
     case kVideoCodecH264: {
       // Same as in h264_encoder_impl.cc.
       static const int kLowH264QpThreshold = 24;
@@ -298,7 +306,7 @@ void VideoEncoderWrapper::OnEncodedFrame(
   // CopyOnWriteBuffer.
   EncodedImage frame_copy = frame;
 
-  frame_copy.SetTimestamp(frame_extra_info.timestamp_rtp);
+  frame_copy.SetRtpTimestamp(frame_extra_info.timestamp_rtp);
   frame_copy.capture_time_ms_ = capture_time_ns / rtc::kNumNanosecsPerMillisec;
 
   if (frame_copy.qp_ < 0)
@@ -350,6 +358,13 @@ int VideoEncoderWrapper::ParseQp(rtc::ArrayView<const uint8_t> buffer) {
       qp = h264_bitstream_parser_.GetLastSliceQp().value_or(-1);
       success = (qp >= 0);
       break;
+#ifdef RTC_ENABLE_H265
+    case kVideoCodecH265:
+      h265_bitstream_parser_.ParseBitstream(buffer);
+      qp = h265_bitstream_parser_.GetLastSliceQp().value_or(-1);
+      success = (qp >= 0);
+      break;
+#endif
     default:  // Default is to not provide QP.
       success = false;
       break;
@@ -445,16 +460,15 @@ ScopedJavaLocalRef<jobject> VideoEncoderWrapper::ToJavaRateControlParameters(
 
 std::unique_ptr<VideoEncoder> JavaToNativeVideoEncoder(
     JNIEnv* jni,
-    const JavaRef<jobject>& j_encoder) {
-  const jlong native_encoder =
-      Java_VideoEncoder_createNativeVideoEncoder(jni, j_encoder);
-  VideoEncoder* encoder;
-  if (native_encoder == 0) {
-    encoder = new VideoEncoderWrapper(jni, j_encoder);
+    const JavaRef<jobject>& j_encoder,
+    jlong j_webrtc_env_ref) {
+  if (jlong native_encoder =
+          Java_VideoEncoder_createNative(jni, j_encoder, j_webrtc_env_ref);
+      native_encoder != 0) {
+    return absl::WrapUnique(reinterpret_cast<VideoEncoder*>(native_encoder));
   } else {
-    encoder = reinterpret_cast<VideoEncoder*>(native_encoder);
+    return std::make_unique<VideoEncoderWrapper>(jni, j_encoder);
   }
-  return std::unique_ptr<VideoEncoder>(encoder);
 }
 
 std::vector<VideoEncoder::ResolutionBitrateLimits>

@@ -334,6 +334,8 @@ rtc_library("desktop_capture") {
       "mac/desktop_configuration.h",
       "mac/desktop_configuration_monitor.cc",
       "mac/desktop_configuration_monitor.h",
+      "mac/desktop_frame_utils.cc",
+      "mac/desktop_frame_utils.h",
       "mac/full_screen_mac_application_handler.cc",
       "mac/full_screen_mac_application_handler.h",
       "mac/window_list_utils.cc",
@@ -451,8 +453,7 @@ rtc_library("desktop_capture") {
       "../../rtc_base:divide_round",
       "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.sysmem",
       "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.ui.composition",
-      "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.ui.scenic",
-      "//third_party/fuchsia-sdk/sdk/pkg/scenic_cpp",
+      "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.ui.display.singleton",
       "//third_party/fuchsia-sdk/sdk/pkg/sys_cpp",
     ]
   }
@@ -516,9 +517,11 @@ rtc_library("desktop_capture") {
     libs = [
       "d3d11.lib",
       "dxgi.lib",
+      "shcore.lib",
     ]
     deps += [
       "../../rtc_base:win32",
+      "../../rtc_base/containers:flat_map",
       "../../rtc_base/win:create_direct3d_device",
       "../../rtc_base/win:get_activation_factory",
       "../../rtc_base/win:windows_version",

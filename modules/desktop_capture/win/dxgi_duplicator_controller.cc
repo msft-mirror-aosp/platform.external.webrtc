@@ -129,10 +129,10 @@ DxgiDuplicatorController::Result DxgiDuplicatorController::DuplicateMonitor(
   return DoDuplicate(frame, monitor_id);
 }
 
-DesktopVector DxgiDuplicatorController::dpi() {
+DesktopVector DxgiDuplicatorController::system_dpi() {
   MutexLock lock(&mutex_);
   if (Initialize()) {
-    return dpi_;
+    return system_dpi_;
   }
   return DesktopVector();
 }
@@ -174,7 +174,7 @@ DxgiDuplicatorController::Result DxgiDuplicatorController::DoDuplicate(
   // TODO(zijiehe): Confirm whether IDXGIOutput::GetDesc() and
   // IDXGIOutputDuplication::GetDesc() can detect the resolution change without
   // reinitialization.
-  if (display_configuration_monitor_.IsChanged()) {
+  if (display_configuration_monitor_.IsChanged(frame->source_id_)) {
     Deinitialize();
   }
 
@@ -286,7 +286,8 @@ bool DxgiDuplicatorController::DoInitialize() {
   HDC hdc = GetDC(nullptr);
   // Use old DPI value if failed.
   if (hdc) {
-    dpi_.set(GetDeviceCaps(hdc, LOGPIXELSX), GetDeviceCaps(hdc, LOGPIXELSY));
+    system_dpi_.set(GetDeviceCaps(hdc, LOGPIXELSX),
+                    GetDeviceCaps(hdc, LOGPIXELSY));
     ReleaseDC(nullptr, hdc);
   }
 
@@ -343,7 +344,7 @@ bool DxgiDuplicatorController::DoDuplicateUnlocked(Context* context,
   }
 
   if (result) {
-    target->set_dpi(dpi_);
+    target->set_dpi(system_dpi_);
     return true;
   }
 
@@ -498,6 +499,13 @@ bool DxgiDuplicatorController::EnsureFrameCaptured(Context* context,
     // Sleep `ms_per_frame` before attempting to capture the next frame to
     // ensure the video adapter has time to update the screen.
     webrtc::SleepMs(ms_per_frame);
+  }
+  // When capturing multiple monitors, we need to update the captured region to
+  // prevent flickering by re-setting context. See
+  // https://crbug.com/webrtc/15718 for details.
+  if (shared_frame != target) {
+    context->Reset();
+    Setup(context);
   }
   return true;
 }

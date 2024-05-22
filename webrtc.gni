@@ -39,6 +39,10 @@ if (is_fuchsia) {
   import("//build/config/fuchsia/config.gni")
 }
 
+if (build_with_chromium) {
+  import("//media/media_options.gni")
+}
+
 # This declare_args is separated from the next one because args declared
 # in this one, can be read from the next one (args defined in the same
 # declare_args cannot be referenced in that scope).
@@ -49,10 +53,18 @@ declare_args() {
 }
 
 declare_args() {
+  # If set to true, C++ code will refer to the new JNI Generator symbols.
+  # If set to false the old ones will be used (to provide a nice update path).
+  rtc_jni_generator_legacy_symbols = false
+
   # Setting this to true, will make RTC_DLOG() expand to log statements instead
   # of being removed by the preprocessor.
   # This is useful for example to be able to get RTC_DLOGs on a release build.
   rtc_dlog_always_on = false
+
+  # Enables additional build targets that rely on
+  # //third_party/google_benchmarks.
+  rtc_enable_google_benchmarks = true
 
   # Setting this to true will make RTC_OBJC_EXPORT expand to code that will
   # manage symbols visibility. By default, Obj-C/Obj-C++ symbols are exported
@@ -181,6 +193,13 @@ declare_args() {
   rtc_use_h264 =
       proprietary_codecs && !is_android && !is_ios && !(is_win && !is_clang)
 
+  # Enable to use H265
+  if (build_with_chromium) {
+    rtc_use_h265 = enable_hevc_parser_and_hw_decoder
+  } else {
+    rtc_use_h265 = proprietary_codecs
+  }
+
   # Enable this flag to make webrtc::Mutex be implemented by absl::Mutex.
   rtc_use_absl_mutex = false
 
@@ -200,21 +219,14 @@ declare_args() {
     rtc_apprtcmobile_broadcast_extension = false
   }
 
-  # Determines whether OpenGL is available on iOS/macOS.
-  rtc_ios_macos_use_opengl_rendering =
-      !(is_ios && target_environment == "catalyst")
+  # Determines whether OpenGL is available on iOS.
+  rtc_ios_use_opengl_rendering = is_ios && target_environment != "catalyst"
 
   # When set to false, builtin audio encoder/decoder factories and all the
   # audio codecs they depend on will not be included in libwebrtc.{a|lib}
   # (they will still be included in libjingle_peerconnection_so.so and
   # WebRTC.framework)
   rtc_include_builtin_audio_codecs = true
-
-  # When set to false, builtin video encoder/decoder factories and all the
-  # video codecs they depends on will not be included in libwebrtc.{a|lib}
-  # (they will still be included in libjingle_peerconnection_so.so and
-  # WebRTC.framework)
-  rtc_include_builtin_video_codecs = true
 
   # When set to true and in a standalone build, it will undefine UNICODE and
   # _UNICODE (which are always defined globally by the Chromium Windows
@@ -232,10 +244,33 @@ declare_args() {
   # Includes the dav1d decoder in the internal decoder factory when set to true.
   rtc_include_dav1d_in_internal_decoder_factory = true
 
-  # When set to true, a run-time check will make sure that all field trial keys
-  # have been registered in accordance with the field trial policy. The check
-  # will only run with builds that have RTC_DCHECKs enabled.
-  rtc_strict_field_trials = false
+  # When enabled, a run-time check will make sure that all field trial keys have
+  # been registered in accordance with the field trial policy, see
+  # g3doc/field-trials.md. The value can be set to the following:
+  #
+  #  "dcheck": RTC_DCHECKs that the field trial has been registered. RTC_DCHECK
+  #            must be enabled separately.
+  #
+  #  "warn": RTC_LOGs a message with LS_WARNING severity if the field trial
+  #          hasn't been registered.
+  rtc_strict_field_trials = ""
+
+  # If different from "", symbols exported with RTC_OBJC_EXPORT will be prefixed
+  # with this string.
+  # See the definition of RTC_OBJC_TYPE_PREFIX in the code.
+  rtc_objc_prefix = ""
+
+  # Embedders can define dependencies needed by WebRTC. Dependencies can be
+  # configs or targets. This can be defined in their `.gn` file.
+  #
+  # In practise, this is use by Chromium: Targets from
+  # `//third_party/webrtc_overrides` are depending on Chrome's `//base`, but
+  # WebRTC does not declare its public dependencies. See webrtc:8603. Instead
+  # WebRTC is using a global common dependencies.
+  rtc_common_public_deps = []  # no-presubmit-check TODO(webrtc:8603)
+
+  # When true, include the Perfetto library.
+  rtc_use_perfetto = false
 }
 
 if (!build_with_mozilla) {
@@ -348,7 +383,14 @@ webrtc_root = get_path_info(".", "abspath")
 rtc_common_configs = [ webrtc_root + ":common_config" ]
 
 if (is_mac || is_ios) {
-  rtc_common_configs += [ "//build/config/compiler:enable_arc" ]
+  if (filter_include(default_compiler_configs,
+                     [ "//build/config/compiler:enable_arc" ]) == []) {
+    rtc_common_configs += [ "//build/config/compiler:enable_arc" ]
+  }
+}
+
+if (build_with_chromium) {
+  rtc_use_perfetto = true
 }
 
 # Global public configuration that should be applied to all WebRTC targets. You
@@ -369,34 +411,40 @@ rtc_library_impl_config = [ webrtc_root + ":library_impl_config" ]
 
 set_defaults("rtc_test") {
   configs = rtc_add_configs
+  public_deps = rtc_common_public_deps  # no-presubmit-check TODO(webrtc:8603)
   suppressed_configs = []
 }
 
 set_defaults("rtc_library") {
   configs = rtc_add_configs
+  public_deps = rtc_common_public_deps  # no-presubmit-check TODO(webrtc:8603)
   suppressed_configs = []
   absl_deps = []
 }
 
 set_defaults("rtc_source_set") {
   configs = rtc_add_configs
+  public_deps = rtc_common_public_deps  # no-presubmit-check TODO(webrtc:8603)
   suppressed_configs = []
   absl_deps = []
 }
 
 set_defaults("rtc_static_library") {
   configs = rtc_add_configs
+  public_deps = rtc_common_public_deps  # no-presubmit-check TODO(webrtc:8603)
   suppressed_configs = []
   absl_deps = []
 }
 
 set_defaults("rtc_executable") {
   configs = rtc_add_configs
+  public_deps = rtc_common_public_deps  # no-presubmit-check TODO(webrtc:8603)
   suppressed_configs = []
 }
 
 set_defaults("rtc_shared_library") {
   configs = rtc_add_configs
+  public_deps = rtc_common_public_deps  # no-presubmit-check TODO(webrtc:8603)
   suppressed_configs = []
 }
 
@@ -441,14 +489,13 @@ all_poison_types = [
   # Encoders and decoders for specific audio codecs such as Opus and iSAC.
   "audio_codecs",
 
-  # Default task queue implementation.
-  "default_task_queue",
-
   # Default echo detector implementation.
   "default_echo_detector",
 
-  # JSON parsing should not be needed in the "slim and modular" WebRTC.
-  "rtc_json",
+  # Implementations of the utilities exposed through `Environment`.
+  # Most webrtc classes must use propagated `Environment`. Only few top-level
+  # classes are allowed to create `Environment` from individual utilities.
+  "environment_construction",
 
   # Software video codecs (VP8 and VP9 through libvpx).
   "software_video_codecs",
@@ -989,6 +1036,7 @@ if (is_mac || is_ios) {
     umbrella_header_path =
         "$target_gen_dir/$output_name.framework/WebRTC/$output_name.h"
     modulemap_path = "$target_gen_dir/Modules/module.modulemap"
+    privacy_manifest_path = "$target_gen_dir/$target_name/PrivacyInfo.xcprivacy"
 
     action_foreach("create_bracket_include_headers_$target_name") {
       script = "//tools_webrtc/apple/copy_framework_header.py"
@@ -1029,6 +1077,7 @@ if (is_mac || is_ios) {
         deps += [
           ":copy_framework_headers_$this_target_name",
           ":copy_modulemap_$this_target_name",
+          ":copy_privacy_manifest_$this_target_name",
           ":copy_umbrella_header_$this_target_name",
           ":create_bracket_include_headers_$this_target_name",
           ":modulemap_$this_target_name",
@@ -1051,6 +1100,7 @@ if (is_mac || is_ios) {
                 ":create_bracket_include_headers_$this_target_name")
 
         deps += [
+          ":copy_privacy_manifest_$this_target_name",
           ":copy_umbrella_header_$this_target_name",
           ":create_bracket_include_headers_$this_target_name",
         ]
@@ -1060,8 +1110,13 @@ if (is_mac || is_ios) {
     if (is_mac || target_environment == "catalyst") {
       # Catalyst frameworks use the same layout as regular Mac frameworks.
       headers_dir = "Versions/A/Headers"
+
+      # The path to the privacy manifest file differs between Mac and iOS.
+      # https://developer.apple.com/documentation/bundleresources/privacy_manifest_files/adding_a_privacy_manifest_to_your_app_or_third-party_sdk
+      privacy_manifest_out_path = "Versions/A/Resources/PrivacyInfo.xcprivacy"
     } else {
       headers_dir = "Headers"
+      privacy_manifest_out_path = "PrivacyInfo.xcprivacy"
     }
 
     bundle_data("copy_framework_headers_$this_target_name") {
@@ -1110,6 +1165,25 @@ if (is_mac || is_ios) {
           [ "$root_out_dir/$output_name.framework/$headers_dir/$output_name.h" ]
 
       deps = [ ":umbrella_header_$target_name" ]
+    }
+
+    action("create_privacy_manifest_$target_name") {
+      script = "//tools_webrtc/apple/generate_privacy_manifest.py"
+
+      args = [
+        "--output",
+        rebase_path(privacy_manifest_path),
+      ]
+
+      outputs = [ privacy_manifest_path ]
+    }
+
+    copy("copy_privacy_manifest_$target_name") {
+      sources = [ privacy_manifest_path ]
+      outputs =
+          [ "$root_out_dir/$output_name.framework/$privacy_manifest_out_path" ]
+
+      deps = [ ":create_privacy_manifest_$target_name" ]
     }
   }
 }
