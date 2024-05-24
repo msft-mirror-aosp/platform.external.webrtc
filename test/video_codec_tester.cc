@@ -48,7 +48,7 @@
 #include "test/testsupport/file_utils.h"
 #include "test/testsupport/frame_reader.h"
 #include "test/testsupport/video_frame_writer.h"
-#include "third_party/libyuv/include/libyuv/compare.h"
+#include "libyuv/compare.h"
 #include "video/config/simulcast.h"
 
 namespace webrtc {

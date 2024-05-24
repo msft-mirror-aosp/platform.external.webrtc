@@ -1,0 +1,6 @@
+py_binary(
+    name = "resource_downloader",
+    srcs = ["download_resource.py"],
+    main = "download_resource.py",
+    visibility = ["//visibility:public"],
+)

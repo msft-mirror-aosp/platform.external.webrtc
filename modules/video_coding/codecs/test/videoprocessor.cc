@@ -34,8 +34,8 @@
 #include "rtc_base/checks.h"
 #include "rtc_base/time_utils.h"
 #include "test/gtest.h"
-#include "third_party/libyuv/include/libyuv/compare.h"
-#include "third_party/libyuv/include/libyuv/scale.h"
+#include "libyuv/compare.h"
+#include "libyuv/scale.h"
 
 namespace webrtc {
 namespace test {

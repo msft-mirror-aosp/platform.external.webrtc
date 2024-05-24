@@ -45,8 +45,8 @@
 
 #if defined(RTC_USE_PERFETTO)
 #include "rtc_base/event_tracer.h"
-#include "third_party/perfetto/include/perfetto/tracing/backend_type.h"
-#include "third_party/perfetto/include/perfetto/tracing/tracing.h"
+#include "perfetto/tracing/backend_type.h"
+#include "perfetto/tracing/tracing.h"
 #include "third_party/perfetto/protos/perfetto/config/trace_config.gen.h"
 #endif
 

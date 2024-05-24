@@ -1,0 +1,53 @@
+module(
+    name = "webrtc",
+)
+
+bazel_dep(
+    name = "protobuf",
+    version = "26.0",
+)
+
+bazel_dep(
+    name = "grpc",
+    version = "1.62.1",
+)
+
+bazel_dep(
+    name = "abseil-cpp",
+    version = "20240116.2",
+)
+
+bazel_dep(
+    name = "googletest",
+    version = "1.14.0",
+)
+
+bazel_dep(
+    name = "libjpeg_turbo",
+    version = "2.1.91",
+)
+
+bazel_dep(
+    name = "boringssl",
+    version = "0.0.0-20240530-2db0eb3",
+)
+
+bazel_dep(
+    name = "nasm",
+    version = "2.14.02",
+)
+
+bazel_dep(
+    name = "jsoncpp",
+    version = "1.9.5",
+)
+
+bazel_dep(
+    name = "crc32c",
+    version = "1.1.0",
+)
+
+bazel_dep(
+    name = "xxhash",
+    version = "0.8.2",
+)

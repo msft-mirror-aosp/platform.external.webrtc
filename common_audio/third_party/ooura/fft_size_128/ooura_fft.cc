@@ -24,8 +24,8 @@
 #include "common_audio/third_party/ooura/fft_size_128/ooura_fft.h"
 
 #include "common_audio/third_party/ooura/fft_size_128/ooura_fft_tables_common.h"
-#include "rtc_base/system/arch.h"
-#include "system_wrappers/include/cpu_features_wrapper.h"
+// #include "rtc_base/system/arch.h"
+// #include "system_wrappers/include/cpu_features_wrapper.h"
 
 namespace webrtc {
 

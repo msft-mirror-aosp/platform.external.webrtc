@@ -1,0 +1,63 @@
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+http_archive(
+    name = "perfetto",
+    sha256 = "bd78f0165e66026c31c8c39221ed2863697a8bba5cd39b12e4b43d0b7f71626f",
+    strip_prefix = "perfetto-45.0",
+    urls = ["https://github.com/google/perfetto/archive/refs/tags/v45.0.tar.gz"],
+)
+
+local_repository(
+    name = "jni_generator",
+    path = "../../../tools/third_party/jni_generator",
+)
+
+local_repository(
+    name = "catapult",
+    path = "../../../../../third_party/catapult",
+)
+
+local_repository(
+    name = "libyuv",
+    path = "../../../../../third_party/libyuv",
+)
+
+local_repository(
+    name = "libvpx",
+    path = "../../../../../third_party/libvpx",
+)
+
+local_repository(
+    name = "libaom",
+    path = "../../../../../third_party/libaom",
+)
+
+local_repository(
+    name = "dav1d",
+    path = "../../../../../third_party/dav1d",
+)
+
+local_repository(
+    name = "ooura_fft",
+    path = "../../../../../third_party/ooura_fft",
+)
+
+local_repository(
+    name = "pffft",
+    path = "../../../../../third_party/pffft",
+)
+
+local_repository(
+    name = "isac_fft",
+    path = "../../../../../third_party/isac_fft",
+)
+
+local_repository(
+    name = "rnnoise",
+    path = "../../../../../third_party/rnnoise",
+)
+
+local_repository(
+    name = "spl_sqrt_floor",
+    path = "../../../../../third_party/spl_sqrt_floor",
+)

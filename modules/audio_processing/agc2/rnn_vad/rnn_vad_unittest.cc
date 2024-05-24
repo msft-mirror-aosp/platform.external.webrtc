@@ -22,8 +22,8 @@
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
 #include "test/gtest.h"
-#include "third_party/rnnoise/src/rnn_activations.h"
-#include "third_party/rnnoise/src/rnn_vad_weights.h"
+#include "src/rnn_activations.h"
+#include "src/rnn_vad_weights.h"
 
 namespace webrtc {
 namespace rnn_vad {

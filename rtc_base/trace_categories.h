@@ -14,9 +14,9 @@
 #define PERFETTO_ENABLE_LEGACY_TRACE_EVENTS 1
 
 #include "rtc_base/system/rtc_export.h"
-#include "third_party/perfetto/include/perfetto/tracing/track_event.h"  // IWYU pragma: export
-#include "third_party/perfetto/include/perfetto/tracing/track_event_category_registry.h"
-#include "third_party/perfetto/include/perfetto/tracing/track_event_legacy.h"  // IWYU pragma: export
+#include "perfetto/tracing/track_event.h"  // IWYU pragma: export
+#include "perfetto/tracing/track_event_category_registry.h"
+#include "perfetto/tracing/track_event_legacy.h"  // IWYU pragma: export
 
 PERFETTO_DEFINE_TEST_CATEGORY_PREFIXES("webrtc-test");
 

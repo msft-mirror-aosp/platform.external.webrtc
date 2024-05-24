@@ -7,7 +7,7 @@
  *  in the file PATENTS.  All contributing project authors may
  *  be found in the AUTHORS file in the root of the source tree.
  */
-
+#if 0
 #include "rtc_base/task_queue_libevent.h"
 
 #include <errno.h>
@@ -334,3 +334,4 @@ std::unique_ptr<TaskQueueFactory> CreateTaskQueueLibeventFactory() {
 }
 
 }  // namespace webrtc
+#endif

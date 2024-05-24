@@ -1,0 +1,6 @@
+cc_library(
+    name = "fft",
+    srcs = ["fft.c"],
+    hdrs = ["fft.h"],
+    visibility = ["//visibility:public"],
+)

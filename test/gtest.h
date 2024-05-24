@@ -15,8 +15,8 @@
 
 RTC_PUSH_IGNORING_WUNDEF()
 // IWYU pragma: begin_exports
-#include "testing/gtest/include/gtest/gtest-spi.h"
-#include "testing/gtest/include/gtest/gtest.h"
+#include "gtest/gtest-spi.h"
+#include "gtest/gtest.h"
 // IWYU pragma: end_exports
 RTC_POP_IGNORING_WUNDEF()
 
