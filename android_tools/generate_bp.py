@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import json
 import os
@@ -10,8 +10,14 @@ PRINT_ORIGINAL_FULL = False
 IGNORED_FLAGS = [
     '-D_DEBUG',
     '-Werror',
-    '-Xclang'
-    ]
+    '-Xclang',
+    '-target-feature',
+    '+crc',
+    '+crypto',
+]
+IGNORED_DEFINES = [
+    'HAVE_ARM64_CRC32C=1'
+]
 DEFAULT_CFLAGS = [
     '-DHAVE_ARM64_CRC32C=0',
     '-DUSE_AURA=1',
@@ -25,9 +31,7 @@ DEFAULT_CFLAGS = [
     '-D_GNU_SOURCE',
     '-D_LARGEFILE64_SOURCE',
     '-D_LARGEFILE_SOURCE',
-    '-Wno-all',
-    '-Wno-error',
-    '-Wno-everything',
+    '-Wno-global-constructors',
     '-Wno-implicit-const-int-float-conversion',
     '-Wno-missing-field-initializers',
     '-Wno-unreachable-code-aggressive',
@@ -82,7 +86,6 @@ def FormatNames(target):
     target['original_name'] = target['name']
     target['name'] = FormatName(target['name'])
     target['deps'] = sorted([FormatName(d) for d in target['deps']])
-    target['sources'] = list(map(lambda s: (':' + FormatName(s[1:])) if s.startswith(':') else s, target['sources']))
     return target
 
 def FilterFlags(flags, to_skip = set()):
@@ -288,24 +291,6 @@ def GenerateGroup(target):
     # PrintOrigin(target)
     pass
 
-def GenerateSourceSet(target):
-    sources = target.get('sources', [])
-    # arch is not defined for filegroups so put all the sources in the top level,
-    # the static libraries that depend on the filegroup will add it in the
-    # appropriate arch.
-    for arch in target.get('arch', {}).values():
-        sources += arch.get('sources', [])
-    if len(sources) == 0:
-        return ''
-    PrintOrigin(target)
-
-    name = target['name']
-    print('filegroup {')
-    print('    name: "{0}",'.format(name))
-    print('    srcs: {0},'.format(FormatList(sources)))
-    print('}')
-    return name
-
 def GenerateStaticLib(target, targets):
     PrintOrigin(target)
     name = target['name']
@@ -330,9 +315,6 @@ def GenerateStaticLib(target, targets):
         cflags_cc = target['cflags_cc']
         if len(cflags_cc) > 0:
             print('    cppflags: {0},'.format(FormatList(cflags_cc)))
-    static_libs = sorted([d for d in target.get('deps', []) if targets[d]['type'] == 'static_library'])
-    if len(static_libs) > 0:
-        print('    static_libs: {0},'.format(FormatList(static_libs)))
     if 'arch' in target:
         print('   arch: {')
         for arch_name in ARCHS:
@@ -351,9 +333,6 @@ def GenerateStaticLib(target, targets):
                 cflags_cc = arch['cflags_cc']
                 if len(cflags_cc) > 0:
                     print('            cppflags: {0},'.format(FormatList(cflags_cc)))
-            if 'deps' in arch:
-                  static_libs = [d for d in arch['deps'] if targets[d]['type'] == 'static_library']
-                  print('            static_libs: {0},'.format(FormatList(static_libs)))
             if 'sources' in arch:
                   sources = arch['sources']
                   print('            srcs: {0},'.format(FormatList(sources)))
@@ -373,14 +352,11 @@ def DFS(seed, targets):
             continue
         visited.add(nxt)
         stack += targets[nxt]['deps']
-        stack += [s[1:] for s in targets[nxt]['sources'] if s.startswith(':')]
         if 'arch' not in targets[nxt]:
             continue
         for arch in targets[nxt]['arch']:
             if 'deps' in arch:
                 stack += arch['deps']
-            if 'sources' in arch:
-                stack += [s[1:] for s in arch['sources'] if s.startswith(':')]
     return visited
 
 def Preprocess(project):
@@ -391,8 +367,11 @@ def Preprocess(project):
         if target['type'] == 'shared_library':
             # Don't bother creating shared libraries
             target['type'] = 'static_library'
+        if target['type'] == 'source_set':
+            # Convert source_sets to static libraires to avoid recompiling sources multiple times.
+            target['type'] = 'static_library'
         if 'defines' in target:
-            target['cflags'] = target.get('cflags', []) + ['-D{0}'.format(d) for d in target['defines']]
+            target['cflags'] = target.get('cflags', []) + ['-D{0}'.format(d) for d in target['defines'] if d not in IGNORED_DEFINES]
             target.pop('defines')
         if 'sources' not in target:
             continue
@@ -427,69 +406,34 @@ def Preprocess(project):
         # Don't depend on ignored targets
         target['deps'] = [d for d in target['deps'] if d not in ignored_targets]
 
-    # filegroups can't have dependencies, so put their dependencies in the static libraries that
-    # depend on them.
-    for target in targets.values():
-        if target['type'] == 'static_library':
-            source_sets = TransitiveDependencies(target['name'], 'source_set', targets)
-            source_sets_deps = {}
-            for a in ['global'] + ARCHS:
-                deps = set()
-                if a == 'global':
-                    for ss in [targets[n].get('deps', []) for n in source_sets[a]]:
-                        deps |= set(ss)
-                else:
-                    for ss in [targets[n].get('arch', {}).get(a, {}).get('deps') for n in source_sets[a]]:
-                        deps |= set(ss)
-                source_sets_deps[a] = deps
-            target['deps'] = sorted(set(target['deps']) | source_sets['global'] | source_sets_deps['global'])
-            for a in ARCHS:
-                deps = source_sets[a] | source_sets_deps[a]
-                if len(deps) == 0:
-                    continue
-                if 'arch' not in target:
-                    target['arch'] = {}
-                if a not in target['arch']:
-                    target['arch'][a] = {}
-                if 'deps' not in target['arch'][a]:
-                    target['arch'][a]['deps'] = []
-                deps |= set(target['arch'][a]['deps'])
-                target['arch'][a]['deps'] = sorted(deps)
-
-    # Ignore empty source sets
-    empty_sets = set()
+    # Ignore empty static libraries
+    empty_libs = set()
     for name, target in targets.items():
-        if target['type'] == 'source_set' and 'sources' not in target:
-            empty_sets.add(name)
-    for s in empty_sets:
+        if target['type'] == 'static_library' and 'sources' not in target and name != '//:webrtc':
+            empty_libs.add(name)
+    for empty_lib in empty_libs:
+        empty_lib_deps = targets[empty_lib].get('deps', [])
+        for target in targets.values():
+            target['deps'] = FlattenEmptyLibs(target['deps'], empty_lib, empty_lib_deps)
+    for s in empty_libs:
         targets.pop(s)
-    for target in targets.values():
-        target['deps'] = [d for d in target['deps'] if d not in empty_sets]
-
-    # Move source_set dependencies to the sources fields of static libs
-    for target in targets.values():
-        if 'sources' not in target:
-            target['sources'] = []
-        if target['type'] != 'static_library':
-            continue
-        source_sets = {d for d in target['deps'] if targets[d]['type'] == 'source_set'}
-        target['deps'] = sorted(list(set(target['deps']) - source_sets))
-        target['sources'] += [':' + ss for ss in source_sets]
-        target['sources'] = sorted(target['sources'])
-        if 'arch' in target:
-            for arch in target['arch'].values():
-                if 'deps' in arch:
-                    source_sets = {d for d in arch['deps'] if targets[d]['type'] == 'source_set'}
-                    if len(source_sets) == 0:
-                        continue;
-                    arch['deps'] = sorted(list(set(arch['deps']) - source_sets))
-                    arch['sources'] = sorted(arch.get('sources', []) + [':' + ss for ss in source_sets])
 
     # Select libwebrtc, libaudio_processing and its dependencies
     selected = set()
     selected |= DFS('//:webrtc', targets)
     selected |= DFS('//modules/audio_processing:audio_processing', targets)
+
     return {FormatName(n): FormatNames(targets[n]) for n in selected}
+
+def _FlattenEmptyLibs(deps, empty_lib, empty_lib_deps):
+    for x in deps:
+        if x == empty_lib:
+            yield from empty_lib_deps
+        else:
+            yield x
+
+def FlattenEmptyLibs(deps, empty_lib, empty_lib_deps):
+    return list(_FlattenEmptyLibs(deps, empty_lib, empty_lib_deps))
 
 def NonNoneFrom(l):
     for a in l:
@@ -668,8 +612,6 @@ for name, target in sorted(targets.items()):
     typ = target['type']
     if typ == 'static_library':
         GenerateStaticLib(target, targets)
-    elif typ == 'source_set':
-        GenerateSourceSet(target)
     elif typ == 'group':
         GenerateGroup(target)
     else:
