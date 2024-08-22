@@ -1,0 +1,73 @@
+load("@rules_license//rules:license.bzl", "license")
+load("@rules_license//rules:license_kind.bzl", "license_kind")
+
+package(
+    default_applicable_licenses = [":license"],
+    default_visibility = ["//visibility:public"],
+)
+
+license(
+    name = "license",
+    license_kinds = [
+        ":SPDX-license-identifier-BSD-3-Clause",
+    ],
+    visibility = [":__subpackages__"],
+)
+
+license_kind(
+    name = "SPDX-license-identifier-BSD-3-Clause",
+    conditions = ["notice"],
+    url = "https://spdx.org/licenses/BSD-3-Clause.html",
+)
+
+proto_library(
+    name = "histogram_proto",
+    srcs = ["tracing/proto/histogram.proto"],
+    visibility = ["//visibility:public"],
+)
+
+cc_proto_library(
+    name = "histogram_cc_proto",
+    visibility = ["//visibility:public"],
+    deps = [":histogram_proto"],
+)
+
+cc_library(
+    name = "histogram",
+    srcs = [
+        "tracing/value/histogram.cc",
+        "tracing/value/running_statistics.cc",
+    ],
+    hdrs = [
+        "tracing/value/histogram.h",
+        "tracing/value/running_statistics.h",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":histogram_cc_proto",
+    ],
+)
+
+cc_library(
+    name = "reserved_infos",
+    srcs = [
+        "tracing/value/diagnostics/reserved_infos.cc",
+    ],
+    hdrs = [
+        "tracing/value/diagnostics/reserved_infos.h",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+cc_test(
+    name = "histogram_unittests",
+    srcs = [
+        "tracing/value/histogram_unittest.cc",
+        "tracing/value/running_statistics_unittest.cc",
+    ],
+    deps = [
+        ":histogram",
+        ":histogram_cc_proto",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
