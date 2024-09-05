@@ -37,7 +37,7 @@
 #include "test/gmock.h"
 #include "test/gtest.h"
 #include "test/testsupport/file_utils.h"
-#include "third_party/libyuv/include/libyuv/planar_functions.h"
+#include "libyuv/planar_functions.h"
 
 namespace webrtc {
 namespace test {

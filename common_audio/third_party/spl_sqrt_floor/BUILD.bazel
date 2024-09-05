@@ -1,0 +1,15 @@
+cc_library(
+    name = "spl_sqrt_floor",
+    srcs = select({
+        "@platforms//cpu:armv7": ["spl_sqrt_floor_arm.S"],
+        "//conditions:default": ["spl_sqrt_floor.c"],
+    }),
+    hdrs = ["spl_sqrt_floor.h"],
+    visibility = [
+        "//visibility:public",
+    ],
+    deps = select({
+        "@platforms//cpu:armv7": ["//rtc_base/system:asm_defines"],
+        "//conditions:default": [],
+    }),
+)

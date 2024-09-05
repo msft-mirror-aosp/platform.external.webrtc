@@ -10,15 +10,17 @@
 #include "net/dcsctp/packet/crc32c.h"
 
 #include <cstdint>
+#include <string_view>
 
-#include "third_party/crc32c/src/include/crc32c/crc32c.h"
+#include "absl/crc/crc32c.h"
 
 namespace dcsctp {
 
 uint32_t GenerateCrc32C(rtc::ArrayView<const uint8_t> data) {
-  uint32_t crc32c = crc32c_value(data.data(), data.size());
+  auto view = std::string_view((const char*)data.data(), data.size());
+  uint32_t crc32c = (uint32_t) absl::ComputeCrc32c(view);
 
-  // Byte swapping for little endian byte order:
+  // // Byte swapping for little endian byte order:
   uint8_t byte0 = crc32c;
   uint8_t byte1 = crc32c >> 8;
   uint8_t byte2 = crc32c >> 16;

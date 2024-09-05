@@ -10,7 +10,7 @@
 
 #include "sdk/objc/unittests/frame_buffer_helpers.h"
 
-#include "third_party/libyuv/include/libyuv.h"
+#include "libyuv.h"
 
 void DrawGradientInRGBPixelBuffer(CVPixelBufferRef pixelBuffer) {
   CVPixelBufferLockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);

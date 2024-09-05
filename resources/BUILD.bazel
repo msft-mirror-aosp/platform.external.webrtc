@@ -1,0 +1,6 @@
+load("//resources/bazel:fetch_resource.bzl", "generate_resource_genrules")
+
+generate_resource_genrules(
+    name = "generated_resources",
+    resource_files = glob(["**/*.sha1"]),
+)

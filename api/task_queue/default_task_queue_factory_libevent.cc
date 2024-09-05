@@ -17,6 +17,7 @@ namespace webrtc {
 
 std::unique_ptr<TaskQueueFactory> CreateDefaultTaskQueueFactory(
     const FieldTrialsView* field_trials) {
+      return nullptr;
   return CreateTaskQueueLibeventFactory();
 }
 

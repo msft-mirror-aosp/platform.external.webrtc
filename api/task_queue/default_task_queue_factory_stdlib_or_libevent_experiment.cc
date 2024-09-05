@@ -32,7 +32,8 @@ std::unique_ptr<TaskQueueFactory> CreateDefaultTaskQueueFactory(
 
   RTC_LOG(LS_INFO) << "WebRTC-TaskQueue-ReplaceLibeventWithStdlib: "
                    << "using TaskQueueLibeventFactory.";
-  return CreateTaskQueueLibeventFactory();
+  // return CreateTaskQueueLibeventFactory();
+  return nullptr;
 }
 
 }  // namespace webrtc

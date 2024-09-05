@@ -36,7 +36,7 @@
 #include "rtc_base/logging.h"
 #include "rtc_base/time_utils.h"
 #include "sdk/objc/components/video_codec/nalu_rewriter.h"
-#include "third_party/libyuv/include/libyuv/convert_from.h"
+#include "convert_from.h"
 
 @interface RTC_OBJC_TYPE (RTCVideoEncoderH264)
 ()
