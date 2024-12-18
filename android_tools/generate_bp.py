@@ -204,10 +204,8 @@ def GenerateDefault(targets_by_arch):
             for flag in flags:
                 print('        "{0}",'.format(flag.replace('"', '\\"')))
             print('    ],')
-    print('    header_libs: [')
-    print('      "libwebrtc_absl_headers",')
-    print('    ],')
     print('    static_libs: [')
+    print('        "libabsl",')
     print('        "libaom",')
     print('        "libevent",')
     print('        "libopus",')
@@ -400,11 +398,17 @@ def Preprocess(project):
         # Skip all "action" targets
         if target['type'] in {'action', 'action_foreach'}:
             ignored_targets.add(name)
-    targets = {name: target for name, target in targets.items() if name not in ignored_targets}
+
+    def is_ignored(target):
+        if target.startswith('//third_party/abseil-cpp'):
+            return True
+        return target in ignored_targets
+
+    targets = {name: target for name, target in targets.items() if not is_ignored(name)}
 
     for target in targets.values():
         # Don't depend on ignored targets
-        target['deps'] = [d for d in target['deps'] if d not in ignored_targets]
+        target['deps'] = [d for d in target['deps'] if not is_ignored(d) ]
 
     # Ignore empty static libraries
     empty_libs = set()
