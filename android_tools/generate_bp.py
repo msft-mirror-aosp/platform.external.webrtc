@@ -9,8 +9,12 @@ PRINT_ORIGINAL_FULL = False
 # This flags are augmented with flags added to the json files but not present in .gn or .gni files
 IGNORED_FLAGS = [
     '-D_DEBUG',
+    '-Wall',  # already globally enabled
     '-Werror',
+    '-Wextra',  # already globally enabled
+    '-Wglobal-constructors',  # disabled in DEFAULT_CFLAGS below
     '-Xclang',
+    '-march=armv8-a',  # TARGET_ARCH_VARIANT may be newer
     '-target-feature',
     '+crc',
     '+crypto',
@@ -19,6 +23,7 @@ IGNORED_DEFINES = [
     'HAVE_ARM64_CRC32C=1'
 ]
 DEFAULT_CFLAGS = [
+    '-DABSL_ALLOCATOR_NOTHROW=1',
     '-DHAVE_ARM64_CRC32C=0',
     '-DUSE_AURA=1',
     '-DUSE_GLIB=1',
@@ -36,6 +41,7 @@ DEFAULT_CFLAGS = [
     '-Wno-missing-field-initializers',
     '-Wno-unreachable-code-aggressive',
     '-Wno-unreachable-code-break',
+    "-Wno-unused-parameter",
 ]
 
 DEFAULT_CFLAGS_BY_ARCH = {
