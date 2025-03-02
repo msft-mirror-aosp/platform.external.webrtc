@@ -53,12 +53,8 @@ cc_defaults {
         "third_party/crc32c/src/include",
     ],
     cflags: [
-        "-Wextra",
-        "-Wno-unused-parameter",
         "-Wshadow",
-        "-Wstring-conversion",
         "-Wexit-time-destructors",
-        "-Wglobal-constructors",
         "-Wno-shadow",
         "-Wctad-maybe-unsupported",
         "-Wc++11-narrowing",
@@ -92,6 +88,7 @@ cc_defaults {
         "-Wno-missing-field-initializers",
         "-Wno-unreachable-code-aggressive",
         "-Wno-unreachable-code-break",
+        "-Wno-unused-parameter",
     ],
     conlyflags: [
         "-Wstrict-prototypes",
@@ -2000,7 +1997,6 @@ cc_library_static {
             cflags: [
                 "-DHAVE_MM_PREFETCH=0",
                 "-DHAVE_SSE42=0",
-                "-march=armv8-a",
             ],
         },
         riscv64: {
