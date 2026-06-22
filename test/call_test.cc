@@ -10,36 +10,74 @@
 
 #include "test/call_test.h"
 
-#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <list>
+#include <map>
 #include <memory>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "api/audio/audio_device.h"
+#include "api/audio/builtin_audio_processing_builder.h"
+#include "api/audio_codecs/audio_decoder_factory.h"
 #include "api/audio_codecs/builtin_audio_decoder_factory.h"
 #include "api/audio_codecs/builtin_audio_encoder_factory.h"
+#include "api/call/transport.h"
 #include "api/environment/environment.h"
 #include "api/environment/environment_factory.h"
+#include "api/field_trials.h"
+#include "api/rtc_event_log/rtc_event_log.h"
+#include "api/rtp_headers.h"
+#include "api/rtp_parameters.h"
+#include "api/scoped_refptr.h"
 #include "api/task_queue/task_queue_base.h"
+#include "api/task_queue/task_queue_factory.h"
 #include "api/test/create_frame_generator.h"
+#include "api/test/simulated_network.h"
+#include "api/transport/bitrate_settings.h"
+#include "api/units/time_delta.h"
 #include "api/video/builtin_video_bitrate_allocator_factory.h"
+#include "api/video/video_codec_type.h"
+#include "api/video/video_rotation.h"
+#include "api/video_codecs/sdp_video_format.h"
+#include "api/video_codecs/video_decoder_factory.h"
+#include "call/audio_receive_stream.h"
+#include "call/audio_send_stream.h"
+#include "call/audio_state.h"
+#include "call/call.h"
+#include "call/call_config.h"
 #include "call/fake_network_pipe.h"
+#include "call/flexfec_receive_stream.h"
 #include "call/packet_receiver.h"
+#include "call/video_receive_stream.h"
+#include "call/video_send_stream.h"
 #include "modules/audio_device/include/test_audio_device.h"
 #include "modules/audio_mixer/audio_mixer_impl.h"
+#include "modules/rtp_rtcp/source/rtp_packet_received.h"
 #include "rtc_base/checks.h"
-#include "rtc_base/event.h"
 #include "rtc_base/task_queue_for_test.h"
+#include "rtc_base/thread.h"
+#include "test/create_test_environment.h"
+#include "test/encoder_settings.h"
+#include "test/fake_decoder.h"
 #include "test/fake_encoder.h"
+#include "test/fake_vp8_encoder.h"
+#include "test/frame_generator_capturer.h"
+#include "test/gtest.h"
 #include "test/network/simulated_network.h"
 #include "test/rtp_rtcp_observer.h"
-#include "test/testsupport/file_utils.h"
 #include "test/video_test_constants.h"
 #include "video/config/video_encoder_config.h"
 
 namespace webrtc {
 namespace test {
 
-CallTest::CallTest()
-    : env_(CreateEnvironment(&field_trials_)),
+CallTest::CallTest(FieldTrials field_trials)
+    : field_trials_(std::move(field_trials)),
+      env_(CreateTestEnvironment({.field_trials = &field_trials_})),
       send_env_(env_),
       recv_env_(env_),
       audio_send_config_(/*send_transport=*/nullptr),
@@ -63,9 +101,12 @@ CallTest::CallTest()
       num_flexfec_streams_(0),
       audio_decoder_factory_(CreateBuiltinAudioDecoderFactory()),
       audio_encoder_factory_(CreateBuiltinAudioEncoderFactory()),
+      network_thread_(Thread::CreateWithSocketServer()),
       task_queue_(env_.task_queue_factory().CreateTaskQueue(
           "CallTestTaskQueue",
-          TaskQueueFactory::Priority::NORMAL)) {}
+          TaskQueueFactory::Priority::kNormal)) {
+  network_thread_->Start();
+}
 
 CallTest::~CallTest() = default;
 
@@ -111,13 +152,14 @@ void CallTest::RunBaseTest(BaseTest* test) {
     num_flexfec_streams_ = test->GetNumFlexfecStreams();
     RTC_DCHECK(num_video_streams_ > 0 || num_audio_streams_ > 0);
     CallConfig send_config = SendCallConfig();
+    CallConfig recv_config = RecvCallConfig();
     test->ModifySenderBitrateConfig(&send_config.bitrate_config);
     if (num_audio_streams_ > 0) {
       CreateFakeAudioDevices(test->CreateCapturer(), test->CreateRenderer());
       test->OnFakeAudioDevicesCreated(fake_send_audio_device_.get(),
                                       fake_recv_audio_device_.get());
-      apm_send_ = AudioProcessingBuilder().Create();
-      apm_recv_ = AudioProcessingBuilder().Create();
+      apm_send_ = BuiltinAudioProcessingBuilder().Build(send_config.env);
+      apm_recv_ = BuiltinAudioProcessingBuilder().Build(recv_config.env);
       EXPECT_EQ(0, fake_send_audio_device_->Init());
       EXPECT_EQ(0, fake_recv_audio_device_->Init());
       AudioState::Config audio_state_config;
@@ -128,9 +170,8 @@ void CallTest::RunBaseTest(BaseTest* test) {
       fake_send_audio_device_->RegisterAudioCallback(
           send_config.audio_state->audio_transport());
     }
-    CreateSenderCall(send_config);
+    CreateSenderCall(std::move(send_config));
     if (test->ShouldCreateReceivers()) {
-      CallConfig recv_config = RecvCallConfig();
       test->ModifyReceiverBitrateConfig(&recv_config.bitrate_config);
       if (num_audio_streams_ > 0) {
         AudioState::Config audio_state_config;
@@ -141,7 +182,7 @@ void CallTest::RunBaseTest(BaseTest* test) {
         fake_recv_audio_device_->RegisterAudioCallback(
             recv_config.audio_state->audio_transport());
       }
-      CreateReceiverCall(recv_config);
+      CreateReceiverCall(std::move(recv_config));
     }
     test->OnCallsCreated(sender_call_.get(), receiver_call_.get());
     CreateReceiveTransport(test->GetReceiveTransportConfig(), test);
@@ -150,10 +191,10 @@ void CallTest::RunBaseTest(BaseTest* test) {
                              receive_transport_.get(),
                              receive_simulated_network_);
     if (test->ShouldCreateReceivers()) {
-      if (num_video_streams_ > 0)
+      network_thread()->BlockingCall([this]() {
         receiver_call_->SignalChannelNetworkState(MediaType::VIDEO, kNetworkUp);
-      if (num_audio_streams_ > 0)
         receiver_call_->SignalChannelNetworkState(MediaType::AUDIO, kNetworkUp);
+      });
     } else {
       // Sender-only call delivers to itself.
       send_transport_->SetReceiver(sender_call_->Receiver());
@@ -219,45 +260,90 @@ void CallTest::RunBaseTest(BaseTest* test) {
   });
 }
 
-CallConfig CallTest::SendCallConfig() const {
-  CallConfig sender_config(send_env_);
+CallConfig CallTest::SendCallConfig(TaskQueueBase* worker_task_queue) const {
+  if (worker_task_queue == nullptr) {
+    worker_task_queue = task_queue_.get();
+  }
+  CallConfig sender_config(send_env_, worker_task_queue, network_thread_.get());
   sender_config.network_state_predictor_factory =
       network_state_predictor_factory_.get();
   sender_config.network_controller_factory = network_controller_factory_.get();
   return sender_config;
 }
 
-CallConfig CallTest::RecvCallConfig() const {
-  return CallConfig(recv_env_);
+CallConfig CallTest::RecvCallConfig(TaskQueueBase* worker_task_queue) const {
+  if (worker_task_queue == nullptr) {
+    worker_task_queue = task_queue_.get();
+  }
+  return CallConfig(recv_env_, worker_task_queue, network_thread_.get());
 }
 
-void CallTest::CreateCalls() {
-  CreateCalls(SendCallConfig(), RecvCallConfig());
+void CallTest::CreateCalls(TaskQueueBase* worker_task_queue) {
+  CreateCalls(SendCallConfig(worker_task_queue),
+              RecvCallConfig(worker_task_queue));
 }
 
-void CallTest::CreateCalls(const CallConfig& sender_config,
-                           const CallConfig& receiver_config) {
-  CreateSenderCall(sender_config);
-  CreateReceiverCall(receiver_config);
+void CallTest::CreateCalls(CallConfig sender_config,
+                           CallConfig receiver_config) {
+  CreateSenderCall(std::move(sender_config));
+  CreateReceiverCall(std::move(receiver_config));
 }
 
-void CallTest::CreateSenderCall() {
-  CreateSenderCall(SendCallConfig());
+void CallTest::CreateSenderCall(TaskQueueBase* worker_task_queue) {
+  CreateSenderCall(SendCallConfig(worker_task_queue));
 }
 
-void CallTest::CreateSenderCall(const CallConfig& config) {
-  sender_call_ = Call::Create(config);
+void CallTest::CreateSenderCall(CallConfig config) {
+  TaskQueueBase* worker = config.worker_task_queue;
+  if (worker->IsCurrent()) {
+    sender_call_ = Call::Create(std::move(config));
+  } else {
+    SendTask(worker, [this, config = std::move(config)]() mutable {
+      sender_call_ = Call::Create(std::move(config));
+    });
+  }
 }
 
-void CallTest::CreateReceiverCall(const CallConfig& config) {
-  receiver_call_ = Call::Create(config);
+void CallTest::CreateReceiverCall(TaskQueueBase* worker_task_queue) {
+  CreateReceiverCall(RecvCallConfig(worker_task_queue));
+}
+
+void CallTest::CreateReceiverCall(CallConfig config) {
+  TaskQueueBase* worker = config.worker_task_queue;
+  if (worker->IsCurrent()) {
+    receiver_call_ = Call::Create(std::move(config));
+  } else {
+    SendTask(worker, [this, config = std::move(config)]() mutable {
+      receiver_call_ = Call::Create(std::move(config));
+    });
+  }
 }
 
 void CallTest::DestroyCalls() {
-  send_transport_.reset();
-  receive_transport_.reset();
-  sender_call_.reset();
-  receiver_call_.reset();
+  if (sender_call_) {
+    TaskQueueBase* worker = sender_call_->worker_thread();
+    if (worker->IsCurrent()) {
+      send_transport_.reset();
+      sender_call_.reset();
+    } else {
+      SendTask(worker, [this]() {
+        send_transport_.reset();
+        sender_call_.reset();
+      });
+    }
+  }
+  if (receiver_call_) {
+    TaskQueueBase* worker = receiver_call_->worker_thread();
+    if (worker->IsCurrent()) {
+      receive_transport_.reset();
+      receiver_call_.reset();
+    } else {
+      SendTask(worker, [this]() {
+        receive_transport_.reset();
+        receiver_call_.reset();
+      });
+    }
+  }
 }
 
 void CallTest::CreateVideoSendConfig(VideoSendStream::Config* video_config,
@@ -310,6 +396,7 @@ void CallTest::CreateAudioAndFecSendConfigs(size_t num_audio_streams,
     audio_send_config.rtp.ssrc = VideoTestConstants::kAudioSendSsrc;
     AddRtpExtensionByUri(RtpExtension::kTransportSequenceNumberUri,
                          &audio_send_config.rtp.extensions);
+    audio_send_config.include_in_congestion_control_allocation = true;
 
     audio_send_config.send_codec_spec = AudioSendStream::Config::SendCodecSpec(
         VideoTestConstants::kAudioSendPayloadType,
@@ -374,15 +461,15 @@ void CallTest::CreateMatchingVideoReceiveConfigs(
     const VideoSendStream::Config& video_send_config,
     Transport* rtcp_send_transport) {
   CreateMatchingVideoReceiveConfigs(video_send_config, rtcp_send_transport,
-                                    &fake_decoder_factory_, absl::nullopt,
-                                    false, 0);
+                                    &fake_decoder_factory_, std::nullopt, false,
+                                    0);
 }
 
 void CallTest::CreateMatchingVideoReceiveConfigs(
     const VideoSendStream::Config& video_send_config,
     Transport* rtcp_send_transport,
     VideoDecoderFactory* decoder_factory,
-    absl::optional<size_t> decode_sub_stream,
+    std::optional<size_t> decode_sub_stream,
     bool receiver_reference_time_report,
     int rtp_history_ms) {
   AddMatchingVideoReceiveConfigs(
@@ -396,12 +483,11 @@ void CallTest::AddMatchingVideoReceiveConfigs(
     const VideoSendStream::Config& video_send_config,
     Transport* rtcp_send_transport,
     VideoDecoderFactory* decoder_factory,
-    absl::optional<size_t> decode_sub_stream,
+    std::optional<size_t> decode_sub_stream,
     bool receiver_reference_time_report,
     int rtp_history_ms) {
   RTC_DCHECK(!video_send_config.rtp.ssrcs.empty());
   VideoReceiveStreamInterface::Config default_config(rtcp_send_transport);
-  default_config.rtp.local_ssrc = VideoTestConstants::kReceiverLocalVideoSsrc;
   default_config.rtp.nack.rtp_history_ms = rtp_history_ms;
   // Enable RTT calculation so NTP time estimator will work.
   default_config.rtp.rtcp_xr.receiver_reference_time_report =
@@ -456,11 +542,10 @@ void CallTest::CreateMatchingAudioConfigs(Transport* transport,
 
 AudioReceiveStreamInterface::Config CallTest::CreateMatchingAudioConfig(
     const AudioSendStream::Config& send_config,
-    rtc::scoped_refptr<AudioDecoderFactory> audio_decoder_factory,
+    scoped_refptr<AudioDecoderFactory> audio_decoder_factory,
     Transport* transport,
     std::string sync_group) {
   AudioReceiveStreamInterface::Config audio_config;
-  audio_config.rtp.local_ssrc = VideoTestConstants::kReceiverLocalAudioSsrc;
   audio_config.rtcp_send_transport = transport;
   audio_config.rtp.remote_ssrc = send_config.rtp.ssrc;
   audio_config.decoder_factory = audio_decoder_factory;
@@ -475,9 +560,8 @@ void CallTest::CreateMatchingFecConfig(
     const VideoSendStream::Config& send_config) {
   FlexfecReceiveStream::Config config(transport);
   config.payload_type = send_config.rtp.flexfec.payload_type;
-  config.rtp.remote_ssrc = send_config.rtp.flexfec.ssrc;
+  config.remote_ssrc = send_config.rtp.flexfec.ssrc;
   config.protected_media_ssrcs = send_config.rtp.flexfec.protected_media_ssrcs;
-  config.rtp.local_ssrc = VideoTestConstants::kReceiverLocalVideoSsrc;
   if (!video_receive_configs_.empty()) {
     video_receive_configs_[0].rtp.protected_by_flexfec = true;
     video_receive_configs_[0].rtp.packet_sink_ = this;
@@ -502,8 +586,8 @@ void CallTest::CreateFrameGeneratorCapturerWithDrift(Clock* clock,
   auto frame_generator_capturer =
       std::make_unique<test::FrameGeneratorCapturer>(
           clock,
-          test::CreateSquareFrameGenerator(width, height, absl::nullopt,
-                                           absl::nullopt),
+          test::CreateSquareFrameGenerator(width, height, std::nullopt,
+                                           std::nullopt),
           framerate * speed, env_.task_queue_factory());
   frame_generator_capturer_ = frame_generator_capturer.get();
   frame_generator_capturer->Init();
@@ -518,8 +602,8 @@ void CallTest::CreateFrameGeneratorCapturer(int framerate,
   auto frame_generator_capturer =
       std::make_unique<test::FrameGeneratorCapturer>(
           &env_.clock(),
-          test::CreateSquareFrameGenerator(width, height, absl::nullopt,
-                                           absl::nullopt),
+          test::CreateSquareFrameGenerator(width, height, std::nullopt,
+                                           std::nullopt),
           framerate, env_.task_queue_factory());
   frame_generator_capturer_ = frame_generator_capturer.get();
   frame_generator_capturer->Init();
@@ -530,10 +614,10 @@ void CallTest::CreateFrameGeneratorCapturer(int framerate,
 void CallTest::CreateFakeAudioDevices(
     std::unique_ptr<TestAudioDeviceModule::Capturer> capturer,
     std::unique_ptr<TestAudioDeviceModule::Renderer> renderer) {
-  fake_send_audio_device_ = TestAudioDeviceModule::Create(
-      &env_.task_queue_factory(), std::move(capturer), nullptr, 1.f);
-  fake_recv_audio_device_ = TestAudioDeviceModule::Create(
-      &env_.task_queue_factory(), nullptr, std::move(renderer), 1.f);
+  fake_send_audio_device_ =
+      TestAudioDeviceModule::Create(env_, std::move(capturer), nullptr, 1.f);
+  fake_recv_audio_device_ =
+      TestAudioDeviceModule::Create(env_, nullptr, std::move(renderer), 1.f);
 }
 
 void CallTest::CreateVideoStreams() {
@@ -550,7 +634,7 @@ void CallTest::CreateVideoSendStreams() {
 
   // We currently only support testing external fec controllers with a single
   // VideoSendStream.
-  if (fec_controller_factory_.get()) {
+  if (fec_controller_factory_) {
     RTC_DCHECK_LE(video_send_configs_.size(), 1);
   }
 
@@ -570,10 +654,10 @@ void CallTest::CreateVideoSendStreams() {
   video_send_streams_.resize(video_send_configs_.size(), nullptr);
 
   for (size_t i : streams_creation_order) {
-    if (fec_controller_factory_.get()) {
+    if (fec_controller_factory_) {
       video_send_streams_[i] = sender_call_->CreateVideoSendStream(
           video_send_configs_[i].Copy(), video_encoder_configs_[i].Copy(),
-          fec_controller_factory_->CreateFecController(send_env_));
+          nullptr, fec_controller_factory_->CreateFecController(send_env_));
     } else {
       video_send_streams_[i] = sender_call_->CreateVideoSendStream(
           video_send_configs_[i].Copy(), video_encoder_configs_[i].Copy());
@@ -613,10 +697,10 @@ void CallTest::CreateSendTransport(const BuiltInNetworkBehaviorConfig& config,
   auto network = std::make_unique<SimulatedNetwork>(config);
   send_simulated_network_ = network.get();
   send_transport_ = std::make_unique<PacketTransport>(
-      task_queue(), sender_call_.get(), observer,
+      env_, network_thread_.get(), sender_call_.get(), observer,
       test::PacketTransport::kSender, payload_type_map_,
-      std::make_unique<FakeNetworkPipe>(Clock::GetRealTimeClock(),
-                                        std::move(network), receiver),
+      std::make_unique<FakeNetworkPipe>(&env_.clock(), std::move(network),
+                                        receiver),
       rtp_extensions_, rtp_extensions_);
 }
 
@@ -626,10 +710,9 @@ void CallTest::CreateReceiveTransport(
   auto network = std::make_unique<SimulatedNetwork>(config);
   receive_simulated_network_ = network.get();
   receive_transport_ = std::make_unique<PacketTransport>(
-      task_queue(), nullptr, observer, test::PacketTransport::kReceiver,
-      payload_type_map_,
-      std::make_unique<FakeNetworkPipe>(Clock::GetRealTimeClock(),
-                                        std::move(network),
+      env_, network_thread_.get(), nullptr, observer,
+      test::PacketTransport::kReceiver, payload_type_map_,
+      std::make_unique<FakeNetworkPipe>(&env_.clock(), std::move(network),
                                         sender_call_->Receiver()),
       rtp_extensions_, rtp_extensions_);
 }
@@ -744,20 +827,20 @@ void CallTest::OnRtpPacket(const RtpPacketReceived& packet) {
     flexfec_recv_stream->OnRtpPacket(packet);
 }
 
-absl::optional<RtpExtension> CallTest::GetRtpExtensionByUri(
+std::optional<RtpExtension> CallTest::GetRtpExtensionByUri(
     const std::string& uri) const {
   for (const auto& extension : rtp_extensions_) {
     if (extension.uri == uri) {
       return extension;
     }
   }
-  return absl::nullopt;
+  return std::nullopt;
 }
 
 void CallTest::AddRtpExtensionByUri(
     const std::string& uri,
     std::vector<RtpExtension>* extensions) const {
-  const absl::optional<RtpExtension> extension = GetRtpExtensionByUri(uri);
+  const std::optional<RtpExtension> extension = GetRtpExtensionByUri(uri);
   if (extension) {
     extensions->push_back(*extension);
   }

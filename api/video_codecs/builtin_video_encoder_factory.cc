@@ -11,11 +11,12 @@
 #include "api/video_codecs/builtin_video_encoder_factory.h"
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
-#include "absl/types/optional.h"
 #include "api/environment/environment.h"
+#include "api/video/resolution.h"
 #include "api/video_codecs/sdp_video_format.h"
 #include "api/video_codecs/video_encoder.h"
 #include "api/video_codecs/video_encoder_factory.h"
@@ -54,9 +55,10 @@ class BuiltinVideoEncoderFactory : public VideoEncoderFactory {
 
   CodecSupport QueryCodecSupport(
       const SdpVideoFormat& format,
-      absl::optional<std::string> scalability_mode) const override {
-    return internal_encoder_factory_->QueryCodecSupport(format,
-                                                        scalability_mode);
+      std::optional<std::string> scalability_mode,
+      std::optional<Resolution> resolution) const override {
+    return internal_encoder_factory_->QueryCodecSupport(
+        format, scalability_mode, resolution);
   }
 
  private:

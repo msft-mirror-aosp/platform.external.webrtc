@@ -10,12 +10,19 @@
 
 #include "api/rtc_error.h"
 
+#include <string>
 #include <utility>
 
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/logging.h"
+#include "test/gmock.h"
 #include "test/gtest.h"
 
 namespace webrtc {
 namespace {
+using ::testing::HasSubstr;
 
 constexpr int kDefaultMoveOnlyIntValue = 0xbadf00d;
 
@@ -144,6 +151,11 @@ TEST(RTCErrorTest, SetMessage) {
   EXPECT_STREQ(e.message(), "string");
 }
 
+TEST(RTCErrorTest, Stringify) {
+  RTCError e(RTCErrorType::INVALID_PARAMETER, "foo");
+  EXPECT_EQ(absl::StrCat(e), "INVALID_PARAMETER with message: \"foo\"");
+}
+
 // Test that the default constructor creates an "INTERNAL_ERROR".
 TEST(RTCErrorOrTest, DefaultConstructor) {
   RTCErrorOr<MoveOnlyInt> e;
@@ -207,6 +219,70 @@ TEST(RTCErrorOrTest, MoveValue) {
   RTCErrorOr<MoveOnlyInt> e(MoveOnlyInt(88));
   MoveOnlyInt value = e.MoveValue();
   EXPECT_EQ(value.value, 88);
+}
+
+TEST(RTCErrorOrTest, StringifyWithUnprintableValue) {
+  RTCErrorOr<MoveOnlyInt> e(MoveOnlyInt(1337));
+  EXPECT_EQ(absl::StrCat(e), "OK");
+}
+
+TEST(RTCErrorOrTest, StringifyWithStringValue) {
+  RTCErrorOr<absl::string_view> e("foo");
+  EXPECT_EQ(absl::StrCat(e), "OK with value: foo");
+}
+
+TEST(RTCErrorOrTest, StringifyWithPrintableValue) {
+  RTCErrorOr<int> e(1337);
+  EXPECT_EQ(absl::StrCat(e), "OK with value: 1337");
+}
+
+TEST(RTCErrorOrTest, StringifyWithError) {
+  RTCErrorOr<int> e({RTCErrorType::SYNTAX_ERROR, "message"});
+  EXPECT_EQ(absl::StrCat(e), "SYNTAX_ERROR with message: \"message\"");
+}
+
+// Test integration with StringBuilder by constructing an RTCError() with a rich
+// error string in a return statement.
+TEST(RTCErrorOrTest, BuildString) {
+  auto foo = [&]() {
+    return RTCError(RTCErrorType::SYNTAX_ERROR)
+           << "Building " << 1 << " error string";
+  };
+  auto ret = foo();
+  EXPECT_FALSE(ret.ok());
+  EXPECT_EQ(ret.type(), RTCErrorType::SYNTAX_ERROR);
+  EXPECT_STREQ(ret.message(), "Building 1 error string");
+
+  RTCError error(RTCErrorType::INVALID_MODIFICATION);
+  error.string_builder() << "StringyBuilder " << "#" << 2;
+  EXPECT_EQ(error.type(), RTCErrorType::INVALID_MODIFICATION);
+  EXPECT_STREQ(error.message(), "StringyBuilder #2");
+}
+
+// Tests `RTC_LOG_ERROR`.
+TEST(RTCErrorOrTest, BuildStringLog) {
+  class LogSinkImpl : public LogSink {
+   public:
+    void OnLogMessage(const std::string& message) override {
+      log_.append(message);
+    }
+    std::string log_;
+  } log_monitor;
+
+  auto foo = [&]() {
+    return RTC_LOG_ERROR(RTCError::InvalidParameter("BuildStringLog"));
+  };
+
+  LogMessage::AddLogToStream(&log_monitor, LS_ERROR);
+  auto ret = foo();
+  LogMessage::RemoveLogToStream(&log_monitor);
+  EXPECT_THAT(log_monitor.log_, HasSubstr("BuildStringLog"));
+#if defined(__FILE_NAME__)  // Works with clang.
+  EXPECT_THAT(log_monitor.log_, HasSubstr(__FILE_NAME__));
+#endif
+  EXPECT_FALSE(ret.ok());
+  EXPECT_EQ(ret.type(), RTCErrorType::INVALID_PARAMETER);
+  EXPECT_STREQ(ret.message(), "BuildStringLog");
 }
 
 // Death tests.

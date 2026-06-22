@@ -8,14 +8,22 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include <memory>
+#include <optional>
+#include <vector>
+
 #include "api/environment/environment.h"
-#include "api/environment/environment_factory.h"
 #include "api/test/mock_video_encoder.h"
+#include "api/video_codecs/scalability_mode.h"
+#include "api/video_codecs/sdp_video_format.h"
+#include "api/video_codecs/video_encoder.h"
+#include "api/video_codecs/video_encoder_factory.h"
 #include "api/video_codecs/video_encoder_factory_template.h"
 #include "api/video_codecs/video_encoder_factory_template_libaom_av1_adapter.h"
 #include "api/video_codecs/video_encoder_factory_template_libvpx_vp8_adapter.h"
 #include "api/video_codecs/video_encoder_factory_template_libvpx_vp9_adapter.h"
 #include "api/video_codecs/video_encoder_factory_template_open_h264_adapter.h"
+#include "test/create_test_environment.h"
 #include "test/gmock.h"
 #include "test/gtest.h"
 
@@ -42,8 +50,8 @@ struct FooEncoderTemplateAdapter {
   static std::vector<SdpVideoFormat> SupportedFormats() { return {kFooSdp}; }
 
   static std::unique_ptr<VideoEncoder> CreateEncoder(
-      const Environment& env,
-      const SdpVideoFormat& format) {
+      const Environment& /* env */,
+      const SdpVideoFormat& /* format */) {
     return std::make_unique<StrictMock<MockVideoEncoder>>();
   }
 
@@ -59,8 +67,8 @@ struct BarEncoderTemplateAdapter {
   }
 
   static std::unique_ptr<VideoEncoder> CreateEncoder(
-      const Environment& env,
-      const SdpVideoFormat& format) {
+      const Environment& /* env */,
+      const SdpVideoFormat& /* format */) {
     return std::make_unique<StrictMock<MockVideoEncoder>>();
   }
 
@@ -73,7 +81,7 @@ struct BarEncoderTemplateAdapter {
 };
 
 TEST(VideoEncoderFactoryTemplate, OneTemplateAdapterCreateEncoder) {
-  const Environment env = CreateEnvironment();
+  const Environment env = CreateTestEnvironment();
   VideoEncoderFactoryTemplate<FooEncoderTemplateAdapter> factory;
   EXPECT_THAT(factory.GetSupportedFormats(), UnorderedElementsAre(kFooSdp));
   EXPECT_THAT(factory.Create(env, kFooSdp), NotNull());
@@ -82,13 +90,14 @@ TEST(VideoEncoderFactoryTemplate, OneTemplateAdapterCreateEncoder) {
 
 TEST(VideoEncoderFactoryTemplate, OneTemplateAdapterCodecSupport) {
   VideoEncoderFactoryTemplate<FooEncoderTemplateAdapter> factory;
-  EXPECT_THAT(factory.QueryCodecSupport(kFooSdp, absl::nullopt),
+  EXPECT_THAT(factory.QueryCodecSupport(kFooSdp, std::nullopt, std::nullopt),
               Field(&CodecSupport::is_supported, true));
-  EXPECT_THAT(factory.QueryCodecSupport(kFooSdp, "L1T2"),
+  EXPECT_THAT(factory.QueryCodecSupport(kFooSdp, "L1T2", std::nullopt),
               Field(&CodecSupport::is_supported, true));
-  EXPECT_THAT(factory.QueryCodecSupport(kFooSdp, "S3T3"),
+  EXPECT_THAT(factory.QueryCodecSupport(kFooSdp, "S3T3", std::nullopt),
               Field(&CodecSupport::is_supported, false));
-  EXPECT_THAT(factory.QueryCodecSupport(SdpVideoFormat("FooX"), absl::nullopt),
+  EXPECT_THAT(factory.QueryCodecSupport(SdpVideoFormat("FooX"), std::nullopt,
+                                        std::nullopt),
               Field(&CodecSupport::is_supported, false));
 }
 
@@ -100,7 +109,7 @@ TEST(VideoEncoderFactoryTemplate, TwoTemplateAdaptersNoDuplicates) {
 }
 
 TEST(VideoEncoderFactoryTemplate, TwoTemplateAdaptersCreateEncoders) {
-  const Environment env = CreateEnvironment();
+  const Environment env = CreateTestEnvironment();
   VideoEncoderFactoryTemplate<FooEncoderTemplateAdapter,
                               BarEncoderTemplateAdapter>
       factory;
@@ -117,24 +126,25 @@ TEST(VideoEncoderFactoryTemplate, TwoTemplateAdaptersCodecSupport) {
   VideoEncoderFactoryTemplate<FooEncoderTemplateAdapter,
                               BarEncoderTemplateAdapter>
       factory;
-  EXPECT_THAT(factory.QueryCodecSupport(kFooSdp, absl::nullopt),
+  EXPECT_THAT(factory.QueryCodecSupport(kFooSdp, std::nullopt, std::nullopt),
               Field(&CodecSupport::is_supported, true));
-  EXPECT_THAT(factory.QueryCodecSupport(kFooSdp, "L1T2"),
+  EXPECT_THAT(factory.QueryCodecSupport(kFooSdp, "L1T2", std::nullopt),
               Field(&CodecSupport::is_supported, true));
-  EXPECT_THAT(factory.QueryCodecSupport(kFooSdp, "S3T3"),
+  EXPECT_THAT(factory.QueryCodecSupport(kFooSdp, "S3T3", std::nullopt),
               Field(&CodecSupport::is_supported, false));
-  EXPECT_THAT(factory.QueryCodecSupport(kBarLowSdp, absl::nullopt),
+  EXPECT_THAT(factory.QueryCodecSupport(kBarLowSdp, std::nullopt, std::nullopt),
               Field(&CodecSupport::is_supported, true));
-  EXPECT_THAT(factory.QueryCodecSupport(kBarHighSdp, absl::nullopt),
+  EXPECT_THAT(
+      factory.QueryCodecSupport(kBarHighSdp, std::nullopt, std::nullopt),
+      Field(&CodecSupport::is_supported, true));
+  EXPECT_THAT(factory.QueryCodecSupport(kBarLowSdp, "S2T1", std::nullopt),
               Field(&CodecSupport::is_supported, true));
-  EXPECT_THAT(factory.QueryCodecSupport(kBarLowSdp, "S2T1"),
-              Field(&CodecSupport::is_supported, true));
-  EXPECT_THAT(factory.QueryCodecSupport(kBarHighSdp, "S3T2"),
+  EXPECT_THAT(factory.QueryCodecSupport(kBarHighSdp, "S3T2", std::nullopt),
               Field(&CodecSupport::is_supported, false));
 }
 
 TEST(VideoEncoderFactoryTemplate, LibvpxVp8) {
-  const Environment env = CreateEnvironment();
+  const Environment env = CreateTestEnvironment();
   VideoEncoderFactoryTemplate<LibvpxVp8EncoderTemplateAdapter> factory;
   auto formats = factory.GetSupportedFormats();
   EXPECT_THAT(formats.size(), 1);
@@ -145,7 +155,7 @@ TEST(VideoEncoderFactoryTemplate, LibvpxVp8) {
 }
 
 TEST(VideoEncoderFactoryTemplate, LibvpxVp9) {
-  const Environment env = CreateEnvironment();
+  const Environment env = CreateTestEnvironment();
   VideoEncoderFactoryTemplate<LibvpxVp9EncoderTemplateAdapter> factory;
   auto formats = factory.GetSupportedFormats();
   EXPECT_THAT(formats, Not(IsEmpty()));
@@ -159,7 +169,7 @@ TEST(VideoEncoderFactoryTemplate, LibvpxVp9) {
 //                              target remove this #ifdef.
 #if defined(WEBRTC_USE_H264)
 TEST(VideoEncoderFactoryTemplate, OpenH264) {
-  const Environment env = CreateEnvironment();
+  const Environment env = CreateTestEnvironment();
   VideoEncoderFactoryTemplate<OpenH264EncoderTemplateAdapter> factory;
   auto formats = factory.GetSupportedFormats();
   EXPECT_THAT(formats, Not(IsEmpty()));
@@ -171,7 +181,7 @@ TEST(VideoEncoderFactoryTemplate, OpenH264) {
 #endif  // defined(WEBRTC_USE_H264)
 
 TEST(VideoEncoderFactoryTemplate, LibaomAv1) {
-  const Environment env = CreateEnvironment();
+  const Environment env = CreateTestEnvironment();
   VideoEncoderFactoryTemplate<LibaomAv1EncoderTemplateAdapter> factory;
   auto formats = factory.GetSupportedFormats();
   EXPECT_THAT(formats.size(), 1);

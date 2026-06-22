@@ -9,25 +9,33 @@
  */
 #include "net/dcsctp/tx/rr_send_queue.h"
 
+#include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <deque>
-#include <limits>
 #include <map>
+#include <optional>
 #include <set>
+#include <span>
+#include <tuple>
 #include <utility>
 #include <vector>
 
 #include "absl/algorithm/container.h"
-#include "absl/types/optional.h"
-#include "api/array_view.h"
+#include "absl/strings/string_view.h"
+#include "api/units/time_delta.h"
+#include "api/units/timestamp.h"
 #include "net/dcsctp/common/internal_types.h"
 #include "net/dcsctp/packet/data.h"
+#include "net/dcsctp/public/dcsctp_handover_state.h"
 #include "net/dcsctp/public/dcsctp_message.h"
 #include "net/dcsctp/public/dcsctp_socket.h"
 #include "net/dcsctp/public/types.h"
 #include "net/dcsctp/tx/send_queue.h"
+#include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/strings/str_join.h"
+#include "rtc_base/strings/string_builder.h"
 
 namespace dcsctp {
 using ::webrtc::TimeDelta;
@@ -82,11 +90,12 @@ bool RRSendQueue::IsConsistent() const {
     }
   }
   if (expected_active_streams != actual_active_streams) {
-    auto fn = [&](rtc::StringBuilder& sb, const auto& p) { sb << *p; };
+    auto fn = [&](webrtc::StringBuilder& sb, const auto& p) { sb << *p; };
     RTC_DLOG(LS_ERROR) << "Active streams mismatch, is=["
-                       << StrJoin(actual_active_streams, ",", fn)
+                       << webrtc::StrJoin(actual_active_streams, ",", fn)
                        << "], expected=["
-                       << StrJoin(expected_active_streams, ",", fn) << "]";
+                       << webrtc::StrJoin(expected_active_streams, ",", fn)
+                       << "]";
     return false;
   }
 
@@ -136,7 +145,7 @@ void RRSendQueue::OutgoingStream::Add(DcSctpMessage message,
   RTC_DCHECK(IsConsistent());
 }
 
-absl::optional<SendQueue::DataToSend> RRSendQueue::OutgoingStream::Produce(
+std::optional<SendQueue::DataToSend> RRSendQueue::OutgoingStream::Produce(
     Timestamp now,
     size_t max_size) {
   RTC_DCHECK(pause_state_ != PauseState::kPaused &&
@@ -166,9 +175,10 @@ absl::optional<SendQueue::DataToSend> RRSendQueue::OutgoingStream::Produce(
     }
 
     // Grab the next `max_size` fragment from this message and calculate flags.
-    rtc::ArrayView<const uint8_t> chunk_payload =
-        item.message.payload().subview(item.remaining_offset, max_size);
-    rtc::ArrayView<const uint8_t> message_payload = message.payload();
+    std::span<const uint8_t> message_payload = message.payload();
+    std::span<const uint8_t> chunk_payload = message_payload.subspan(
+        item.remaining_offset,
+        std::min(message_payload.size() - item.remaining_offset, max_size));
     Data::IsBeginning is_beginning(chunk_payload.data() ==
                                    message_payload.data());
     Data::IsEnd is_end((chunk_payload.data() + chunk_payload.size()) ==
@@ -218,7 +228,7 @@ absl::optional<SendQueue::DataToSend> RRSendQueue::OutgoingStream::Produce(
     return chunk;
   }
   RTC_DCHECK(IsConsistent());
-  return absl::nullopt;
+  return std::nullopt;
 }
 
 void RRSendQueue::OutgoingStream::HandleMessageExpired(
@@ -331,8 +341,8 @@ void RRSendQueue::OutgoingStream::Reset() {
                                             item.remaining_size);
     item.remaining_offset = 0;
     item.remaining_size = item.message.payload().size();
-    item.mid = absl::nullopt;
-    item.ssn = absl::nullopt;
+    item.mid = std::nullopt;
+    item.ssn = std::nullopt;
     item.current_fsn = FSN(0);
     if (old_pause_state == PauseState::kPaused ||
         old_pause_state == PauseState::kResetting) {
@@ -381,8 +391,8 @@ bool RRSendQueue::IsEmpty() const {
   return total_buffered_amount() == 0;
 }
 
-absl::optional<SendQueue::DataToSend> RRSendQueue::Produce(Timestamp now,
-                                                           size_t max_size) {
+std::optional<SendQueue::DataToSend> RRSendQueue::Produce(Timestamp now,
+                                                          size_t max_size) {
   return scheduler_.Produce(now, max_size);
 }
 

@@ -8,30 +8,35 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include <jni.h>
+
+#include <cstdint>
+
 #include "rtc_base/checks.h"
 #include "sdk/android/generated_video_jni/JavaI420Buffer_jni.h"
-#include "libyuv/scale.h"
+#include "third_party/jni_zero/jni_zero.h"
+#include "third_party/libyuv/include/libyuv/scale.h"
 
 namespace webrtc {
 namespace jni {
 
 static void JNI_JavaI420Buffer_CropAndScaleI420(
     JNIEnv* jni,
-    const JavaParamRef<jobject>& j_src_y,
+    const jni_zero::JavaRef<jobject>& j_src_y,
     jint src_stride_y,
-    const JavaParamRef<jobject>& j_src_u,
+    const jni_zero::JavaRef<jobject>& j_src_u,
     jint src_stride_u,
-    const JavaParamRef<jobject>& j_src_v,
+    const jni_zero::JavaRef<jobject>& j_src_v,
     jint src_stride_v,
     jint crop_x,
     jint crop_y,
     jint crop_width,
     jint crop_height,
-    const JavaParamRef<jobject>& j_dst_y,
+    const jni_zero::JavaRef<jobject>& j_dst_y,
     jint dst_stride_y,
-    const JavaParamRef<jobject>& j_dst_u,
+    const jni_zero::JavaRef<jobject>& j_dst_u,
     jint dst_stride_u,
-    const JavaParamRef<jobject>& j_dst_v,
+    const jni_zero::JavaRef<jobject>& j_dst_v,
     jint dst_stride_v,
     jint scale_width,
     jint scale_height) {

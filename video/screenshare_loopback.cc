@@ -8,28 +8,24 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include <stdio.h>
-
-#include <memory>
+#include <cstdio>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "absl/flags/flag.h"
 #include "absl/flags/parse.h"
-#include "absl/types/optional.h"
 #include "api/test/simulated_network.h"
 #include "api/test/video_quality_test_fixture.h"
 #include "api/transport/bitrate_settings.h"
 #include "api/units/data_rate.h"
+#include "api/video_codecs/sdp_video_format.h"
 #include "api/video_codecs/video_codec.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/string_encode.h"
-#include "system_wrappers/include/field_trial.h"
-#include "test/field_trial.h"
 #include "test/gtest.h"
 #include "test/run_test.h"
-#include "test/test_flags.h"
 #include "video/video_quality_test.h"
 
 using ::webrtc::BitrateConstraints;
@@ -141,8 +137,11 @@ ABSL_FLAG(int,
           link_capacity,
           0,
           "Capacity (kbps) of the fake link. 0 means infinite.");
-int LinkCapacityKbps() {
-  return absl::GetFlag(FLAGS_link_capacity);
+webrtc::DataRate LinkCapacity() {
+  int link_capacity_kbps = absl::GetFlag(FLAGS_link_capacity);
+  return link_capacity_kbps == 0
+             ? webrtc::DataRate::Infinity()
+             : webrtc::DataRate::KilobitsPerSec(link_capacity_kbps);
 }
 
 ABSL_FLAG(int, queue_size, 0, "Size of the bottleneck link queue in packets.");
@@ -307,15 +306,14 @@ ABSL_FLAG(std::string,
 std::vector<std::string> Slides() {
   std::vector<std::string> slides;
   std::string slides_list = absl::GetFlag(FLAGS_slides);
-  rtc::tokenize(slides_list, ',', &slides);
+  webrtc::tokenize(slides_list, ',', &slides);
   return slides;
 }
 
 void Loopback() {
   BuiltInNetworkBehaviorConfig pipe_config;
   pipe_config.loss_percent = LossPercent();
-  pipe_config.link_capacity =
-      webrtc::DataRate::KilobitsPerSec(LinkCapacityKbps());
+  pipe_config.link_capacity = LinkCapacity();
   pipe_config.queue_length_packets = QueueSize();
   pipe_config.queue_delay_ms = AvgPropagationDelayMs();
   pipe_config.delay_standard_deviation_ms = StdPropagationDelayMs();
@@ -365,7 +363,7 @@ void Loopback() {
   SL_descriptors.push_back(SL0());
   SL_descriptors.push_back(SL1());
 
-  VideoQualityTest fixture(nullptr);
+  VideoQualityTest fixture;
   fixture.FillScalabilitySettings(
       &params, 0, stream_descriptors, NumStreams(), SelectedStream(),
       NumSpatialLayers(), SelectedSL(), InterLayerPred(), SL_descriptors);
@@ -381,12 +379,7 @@ int main(int argc, char* argv[]) {
   ::testing::InitGoogleTest(&argc, argv);
   absl::ParseCommandLine(argc, argv);
 
-  rtc::LogMessage::SetLogToStderr(absl::GetFlag(FLAGS_logs));
-
-  // InitFieldTrialsFromString stores the char*, so the char array must outlive
-  // the application.
-  const std::string field_trials = absl::GetFlag(FLAGS_force_fieldtrials);
-  webrtc::field_trial::InitFieldTrialsFromString(field_trials.c_str());
+  webrtc::LogMessage::SetLogToStderr(absl::GetFlag(FLAGS_logs));
 
   webrtc::test::RunTest(Loopback);
   return 0;

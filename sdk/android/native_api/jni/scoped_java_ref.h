@@ -16,22 +16,25 @@
 
 #include <jni.h>
 
-#include <utility>
-
-#include "sdk/android/native_api/jni/jvm.h"
 #include "third_party/jni_zero/jni_zero.h"
 
 namespace webrtc {
-using jni_zero::JavaParamRef;
+template <typename T>
+using JavaParamRef = jni_zero::JavaRef<T>;
+using jni_zero::AdoptRef;
+using jni_zero::CreateLeaky;
 using jni_zero::JavaRef;
 using jni_zero::ScopedJavaGlobalRef;
 using jni_zero::ScopedJavaLocalRef;
 
 template <typename T>
-inline ScopedJavaLocalRef<T> static_java_ref_cast(JNIEnv* env,
-                                                  JavaRef<jobject> const& ref) {
-  ScopedJavaLocalRef<jobject> owned_ref(env, ref);
-  return ScopedJavaLocalRef<T>(env, static_cast<T>(owned_ref.Release()));
+inline jni_zero::ScopedJavaLocalRef<T> static_java_ref_cast(
+    JNIEnv* env,
+    jni_zero::JavaRef<jobject> const& ref) {
+  jni_zero::ScopedJavaLocalRef<jobject> owned_ref =
+      jni_zero::ScopedJavaLocalRef<jobject>(ref);
+  return jni_zero::ScopedJavaLocalRef<T>::Adopt(
+      env, static_cast<T>(owned_ref.Release()));
 }
 
 }  // namespace webrtc

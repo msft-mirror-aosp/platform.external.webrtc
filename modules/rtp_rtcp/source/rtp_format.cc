@@ -10,9 +10,11 @@
 
 #include "modules/rtp_rtcp/source/rtp_format.h"
 
+#include <cstdint>
 #include <memory>
+#include <span>
+#include <vector>
 
-#include "absl/types/variant.h"
 #include "modules/rtp_rtcp/source/rtp_format_h264.h"
 #include "modules/rtp_rtcp/source/rtp_format_video_generic.h"
 #include "modules/rtp_rtcp/source/rtp_format_vp8.h"
@@ -29,44 +31,45 @@
 namespace webrtc {
 
 std::unique_ptr<RtpPacketizer> RtpPacketizer::Create(
-    absl::optional<VideoCodecType> type,
-    rtc::ArrayView<const uint8_t> payload,
+    PacketizationFormat format,
+    std::span<const uint8_t> payload,
     PayloadSizeLimits limits,
     // Codec-specific details.
-    const RTPVideoHeader& rtp_video_header,
-    bool enable_av1_even_split) {
-  if (!type) {
-    // Use raw packetizer.
-    return std::make_unique<RtpPacketizerGeneric>(payload, limits);
-  }
-
-  switch (*type) {
-    case kVideoCodecH264: {
+    const RTPVideoHeader& rtp_video_header) {
+  using enum PacketizationFormat;
+  switch (format) {
+    case kRaw: {
+      return std::make_unique<RtpPacketizerGeneric>(payload, limits);
+    }
+    case kH264: {
       const auto& h264 =
-          absl::get<RTPVideoHeaderH264>(rtp_video_header.video_type_header);
+          std::get<RTPVideoHeaderH264>(rtp_video_header.video_type_header);
       return std::make_unique<RtpPacketizerH264>(payload, limits,
                                                  h264.packetization_mode);
     }
-    case kVideoCodecVP8: {
+    case kVP8: {
       const auto& vp8 =
-          absl::get<RTPVideoHeaderVP8>(rtp_video_header.video_type_header);
+          std::get<RTPVideoHeaderVP8>(rtp_video_header.video_type_header);
       return std::make_unique<RtpPacketizerVp8>(payload, limits, vp8);
     }
-    case kVideoCodecVP9: {
+    case kVP9: {
       const auto& vp9 =
-          absl::get<RTPVideoHeaderVP9>(rtp_video_header.video_type_header);
+          std::get<RTPVideoHeaderVP9>(rtp_video_header.video_type_header);
       return std::make_unique<RtpPacketizerVp9>(payload, limits, vp9);
     }
-    case kVideoCodecAV1:
+    case kAV1:
       return std::make_unique<RtpPacketizerAv1>(
           payload, limits, rtp_video_header.frame_type,
-          rtp_video_header.is_last_frame_in_picture, enable_av1_even_split);
+          rtp_video_header.is_last_frame_in_picture);
+    case kH265: {
 #ifdef RTC_ENABLE_H265
-    case kVideoCodecH265: {
       return std::make_unique<RtpPacketizerH265>(payload, limits);
-    }
+#else
+      return std::make_unique<RtpPacketizerGeneric>(payload, limits,
+                                                    rtp_video_header);
 #endif
-    default: {
+    }
+    case kGeneric: {
       return std::make_unique<RtpPacketizerGeneric>(payload, limits,
                                                     rtp_video_header);
     }

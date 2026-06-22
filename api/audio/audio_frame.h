@@ -14,7 +14,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "api/array_view.h"
+#include <array>
+#include <optional>
+#include <span>
+
+#include "api/audio/audio_view.h"
 #include "api/audio/channel_layout.h"
 #include "api/rtp_packet_infos.h"
 #include "rtc_base/checks.h"
@@ -60,6 +64,10 @@ class AudioFrame {
   enum : size_t {
     // Stereo, 32 kHz, 120 ms (2 * 32 * 120)
     // Stereo, 192 kHz, 20 ms (2 * 192 * 20)
+    // 8 channels (kMaxConcurrentChannels), 48 kHz, 20 ms (8 * 48 * 20).
+    // 24 channels (kMaxNumberOfAudioChannels), 32 kHz kHz, 10 ms (24 * 32 * 10)
+    // At 48 kHz, 10 ms buffers, the maximum number of channels AudioFrame can
+    // hold, is 16. (16 * 48 * 10).
     kMaxDataSizeSamples = 7680,
     kMaxDataSizeBytes = kMaxDataSizeSamples * sizeof(int16_t),
   };
@@ -96,7 +104,7 @@ class AudioFrame {
   // ResetWithoutMuting() to skip this wasteful zeroing.
   void ResetWithoutMuting();
 
-  // TODO: b/335805780 - Accept ArrayView.
+  // TODO: b/335805780 - Accept InterleavedView.
   void UpdateFrame(uint32_t timestamp,
                    const int16_t* data,
                    size_t samples_per_channel,
@@ -107,30 +115,17 @@ class AudioFrame {
 
   void CopyFrom(const AudioFrame& src);
 
-  // Sets a wall-time clock timestamp in milliseconds to be used for profiling
-  // of time between two points in the audio chain.
-  // Example:
-  //   t0: UpdateProfileTimeStamp()
-  //   t1: ElapsedProfileTimeMs() => t1 - t0 [msec]
-  void UpdateProfileTimeStamp();
-  // Returns the time difference between now and when UpdateProfileTimeStamp()
-  // was last called. Returns -1 if UpdateProfileTimeStamp() has not yet been
-  // called.
-  int64_t ElapsedProfileTimeMs() const;
-
   // data() returns a zeroed static buffer if the frame is muted.
-  // TODO: b/335805780 - Return ArrayView.
+  // TODO: b/335805780 - Return InterleavedView.
   const int16_t* data() const;
 
   // Returns a read-only view of all the valid samples held by the AudioFrame.
-  // Note that for a muted AudioFrame, the size of the returned view will be
-  // 0u and the contained data will be nullptr.
-  rtc::ArrayView<const int16_t> data_view() const;
+  // For a muted AudioFrame, the samples will all be 0.
+  InterleavedView<const int16_t> data_view() const;
 
   // mutable_frame() always returns a non-static buffer; the first call to
   // mutable_frame() zeros the buffer and marks the frame as unmuted.
-  // TODO: b/335805780 - Return ArrayView based on the current values for
-  // samples per channel and num channels.
+  // TODO: b/335805780 - Return an InterleavedView.
   int16_t* mutable_data();
 
   // Grants write access to the audio buffer. The size of the returned writable
@@ -139,15 +134,15 @@ class AudioFrame {
   // internal member variables; `samples_per_channel()` and `num_channels()`
   // respectively.
   // If the state is currently muted, the returned view will be zeroed out.
-  rtc::ArrayView<int16_t> mutable_data(size_t samples_per_channel,
-                                       size_t num_channels);
+  InterleavedView<int16_t> mutable_data(size_t samples_per_channel,
+                                        size_t num_channels);
 
   // Prefer to mute frames using AudioFrameOperations::Mute.
   void Mute();
   // Frame is muted by default.
   bool muted() const;
 
-  size_t max_16bit_samples() const { return kMaxDataSizeSamples; }
+  size_t max_16bit_samples() const { return data_.size(); }
   size_t samples_per_channel() const { return samples_per_channel_; }
   size_t num_channels() const { return num_channels_; }
 
@@ -162,7 +157,7 @@ class AudioFrame {
     absolute_capture_timestamp_ms_ = absolute_capture_time_stamp_ms;
   }
 
-  absl::optional<int64_t> absolute_capture_timestamp_ms() const {
+  std::optional<int64_t> absolute_capture_timestamp_ms() const {
     return absolute_capture_timestamp_ms_;
   }
 
@@ -183,12 +178,6 @@ class AudioFrame {
   size_t num_channels_ = 0;
   SpeechType speech_type_ = kUndefined;
   VADActivity vad_activity_ = kVadUnknown;
-  // Monotonically increasing timestamp intended for profiling of audio frames.
-  // Typically used for measuring elapsed time between two different points in
-  // the audio path. No lock is used to save resources and we are thread safe
-  // by design.
-  // TODO(nisse@webrtc.org): consider using absl::optional.
-  int64_t profile_timestamp_ms_ = 0;
 
   // Information about packets used to assemble this audio frame. This is needed
   // by `SourceTracker` when the frame is delivered to the RTCRtpReceiver's
@@ -210,17 +199,17 @@ class AudioFrame {
   // A permanently zeroed out buffer to represent muted frames. This is a
   // header-only class, so the only way to avoid creating a separate zeroed
   // buffer per translation unit is to wrap a static in an inline function.
-  static rtc::ArrayView<const int16_t> zeroed_data();
+  static std::span<const int16_t> zeroed_data();
 
-  int16_t data_[kMaxDataSizeSamples];
+  std::array<int16_t, kMaxDataSizeSamples> data_;
   bool muted_ = true;
   ChannelLayout channel_layout_ = CHANNEL_LAYOUT_NONE;
 
   // Absolute capture timestamp when this audio frame was originally captured.
   // This is only valid for audio frames captured on this machine. The absolute
   // capture timestamp of a received frame is found in `packet_infos_`.
-  // This timestamp MUST be based on the same clock as rtc::TimeMillis().
-  absl::optional<int64_t> absolute_capture_timestamp_ms_;
+  // This timestamp MUST be based on the same clock as TimeMillis().
+  std::optional<int64_t> absolute_capture_timestamp_ms_;
 };
 
 }  // namespace webrtc

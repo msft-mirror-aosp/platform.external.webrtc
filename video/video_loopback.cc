@@ -9,27 +9,24 @@
  */
 #include "video/video_loopback.h"
 
-#include <stdio.h>
-
-#include <memory>
+#include <cstdio>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "absl/flags/flag.h"
 #include "absl/flags/parse.h"
-#include "absl/types/optional.h"
 #include "api/test/simulated_network.h"
 #include "api/test/video_quality_test_fixture.h"
 #include "api/transport/bitrate_settings.h"
 #include "api/units/data_rate.h"
+#include "api/video_codecs/scalability_mode.h"
 #include "api/video_codecs/video_codec.h"
+#include "modules/video_coding/svc/scalability_mode_util.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
-#include "system_wrappers/include/field_trial.h"
-#include "test/field_trial.h"
 #include "test/gtest.h"
 #include "test/run_test.h"
-#include "test/test_flags.h"
 #include "video/video_quality_test.h"
 
 // Flags common with screenshare loopback, with different default values.
@@ -206,6 +203,11 @@ ABSL_FLAG(std::string,
           "",
           "Name of the clip to show. If empty, using chroma generator.");
 
+ABSL_FLAG(std::string,
+          scalability_mode,
+          "",
+          "Scalability mode to use (e.g. 'L1T3').");
+
 namespace webrtc {
 namespace {
 
@@ -256,7 +258,7 @@ InterLayerPredMode InterLayerPred() {
   }
 }
 
-std::string Codec() {
+std::string CodecName() {
   return absl::GetFlag(FLAGS_codec);
 }
 
@@ -284,8 +286,10 @@ int AvgBurstLossLength() {
   return static_cast<int>(absl::GetFlag(FLAGS_avg_burst_loss_length));
 }
 
-int LinkCapacityKbps() {
-  return static_cast<int>(absl::GetFlag(FLAGS_link_capacity));
+DataRate LinkCapacity() {
+  int link_capacity_kbps = absl::GetFlag(FLAGS_link_capacity);
+  return link_capacity_kbps == 0 ? DataRate::Infinity()
+                                 : DataRate::KilobitsPerSec(link_capacity_kbps);
 }
 
 int QueueSize() {
@@ -352,13 +356,17 @@ std::string Clip() {
   return absl::GetFlag(FLAGS_clip);
 }
 
+std::optional<ScalabilityMode> GetScalabilityMode() {
+  return ScalabilityModeFromString(absl::GetFlag(FLAGS_scalability_mode));
+}
+
 }  // namespace
 
 void Loopback() {
   BuiltInNetworkBehaviorConfig pipe_config;
   pipe_config.loss_percent = LossPercent();
   pipe_config.avg_burst_loss_length = AvgBurstLossLength();
-  pipe_config.link_capacity = DataRate::KilobitsPerSec(LinkCapacityKbps());
+  pipe_config.link_capacity = LinkCapacity();
   pipe_config.queue_length_packets = QueueSize();
   pipe_config.queue_delay_ms = AvgPropagationDelayMs();
   pipe_config.delay_standard_deviation_ms = StdPropagationDelayMs();
@@ -385,7 +393,7 @@ void Loopback() {
   params.video[0].max_bitrate_bps = MaxBitrateKbps() * 1000;
   params.video[0].suspend_below_min_bitrate =
       absl::GetFlag(FLAGS_suspend_below_min_bitrate);
-  params.video[0].codec = Codec();
+  params.video[0].codec = CodecName();
   params.video[0].num_temporal_layers = NumTemporalLayers();
   params.video[0].selected_tl = SelectedTL();
   params.video[0].min_transmit_bps = 0;
@@ -411,6 +419,13 @@ void Loopback() {
   if (NumStreams() > 1 && Stream0().empty() && Stream1().empty()) {
     params.ss[0].infer_streams = true;
   }
+  std::optional<ScalabilityMode> scalability_mode = GetScalabilityMode();
+  if (scalability_mode.has_value()) {
+    // Either scalability mode OR spatial/temporal layer config, not both.
+    RTC_DCHECK_EQ(NumTemporalLayers(), 1);
+    RTC_DCHECK_EQ(NumSpatialLayers(), 1);
+    params.ss[0].scalability_mode = scalability_mode;
+  }
 
   std::vector<std::string> stream_descriptors;
   stream_descriptors.push_back(Stream0());
@@ -420,7 +435,7 @@ void Loopback() {
   SL_descriptors.push_back(SL1());
   SL_descriptors.push_back(SL2());
 
-  VideoQualityTest fixture(nullptr);
+  VideoQualityTest fixture;
   fixture.FillScalabilitySettings(
       &params, 0, stream_descriptors, NumStreams(), SelectedStream(),
       NumSpatialLayers(), SelectedSL(), InterLayerPred(), SL_descriptors);
@@ -436,14 +451,14 @@ int RunLoopbackTest(int argc, char* argv[]) {
   ::testing::InitGoogleTest(&argc, argv);
   absl::ParseCommandLine(argc, argv);
 
-  rtc::LogMessage::SetLogToStderr(absl::GetFlag(FLAGS_logs));
+  if (absl::GetFlag(FLAGS_logs)) {
+    // Make sure log level is set, otherwise --logs does not work for release
+    // builds.
+    LogMessage::LogToDebug(LoggingSeverity::LS_INFO);
+    LogMessage::SetLogToStderr(true);
+  }
 
-  // InitFieldTrialsFromString stores the char*, so the char array must outlive
-  // the application.
-  const std::string field_trials = absl::GetFlag(FLAGS_force_fieldtrials);
-  webrtc::field_trial::InitFieldTrialsFromString(field_trials.c_str());
-
-  webrtc::test::RunTest(webrtc::Loopback);
+  test::RunTest(Loopback);
   return 0;
 }
 }  // namespace webrtc

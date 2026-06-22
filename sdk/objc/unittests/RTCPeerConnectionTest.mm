@@ -11,10 +11,10 @@
 #import <Foundation/Foundation.h>
 #import <XCTest/XCTest.h>
 
+#include "test/gtest.h"
+
 #include <memory>
 #include <vector>
-
-#include "rtc_base/gunit.h"
 
 #import "api/peerconnection/RTCConfiguration+Private.h"
 #import "api/peerconnection/RTCConfiguration.h"
@@ -38,7 +38,8 @@
   RTC_OBJC_TYPE(RTCIceServer) *server =
       [[RTC_OBJC_TYPE(RTCIceServer) alloc] initWithURLStrings:urlStrings];
 
-  RTC_OBJC_TYPE(RTCConfiguration) *config = [[RTC_OBJC_TYPE(RTCConfiguration) alloc] init];
+  RTC_OBJC_TYPE(RTCConfiguration) *config =
+      [[RTC_OBJC_TYPE(RTCConfiguration) alloc] init];
   config.sdpSemantics = RTCSdpSemanticsUnifiedPlan;
   config.iceServers = @[ server ];
   config.iceTransportPolicy = RTCIceTransportPolicyRelay;
@@ -57,27 +58,33 @@
       RTCContinualGatheringPolicyGatherContinually;
   config.shouldPruneTurnPorts = YES;
   config.activeResetSrtpParams = YES;
-  config.cryptoOptions =
-      [[RTC_OBJC_TYPE(RTCCryptoOptions) alloc] initWithSrtpEnableGcmCryptoSuites:YES
-                                             srtpEnableAes128Sha1_32CryptoCipher:YES
-                                          srtpEnableEncryptedRtpHeaderExtensions:NO
-                                                    sframeRequireFrameEncryption:NO];
+  config.cryptoOptions = [[RTC_OBJC_TYPE(RTCCryptoOptions) alloc]
+           initWithSrtpEnableGcmCryptoSuites:YES
+                   srtpPreferGcmCryptoSuites:NO
+         srtpEnableAes128Sha1_32CryptoCipher:YES
+         srtpEnableAes128Sha1_80CryptoCipher:NO
+      srtpEnableEncryptedRtpHeaderExtensions:NO
+                sframeRequireFrameEncryption:NO];
 
   RTC_OBJC_TYPE(RTCMediaConstraints) *contraints =
-      [[RTC_OBJC_TYPE(RTCMediaConstraints) alloc] initWithMandatoryConstraints:@{}
-                                                           optionalConstraints:nil];
+      [[RTC_OBJC_TYPE(RTCMediaConstraints) alloc]
+          initWithMandatoryConstraints:@{}
+                   optionalConstraints:nil];
   RTC_OBJC_TYPE(RTCPeerConnectionFactory) *factory =
       [[RTC_OBJC_TYPE(RTCPeerConnectionFactory) alloc] init];
 
   RTC_OBJC_TYPE(RTCConfiguration) * newConfig;
   @autoreleasepool {
     RTC_OBJC_TYPE(RTCPeerConnection) *peerConnection =
-        [factory peerConnectionWithConfiguration:config constraints:contraints delegate:nil];
+        [factory peerConnectionWithConfiguration:config
+                                     constraints:contraints
+                                        delegate:nil];
     newConfig = peerConnection.configuration;
 
-    EXPECT_TRUE([peerConnection setBweMinBitrateBps:[NSNumber numberWithInt:100000]
-                                  currentBitrateBps:[NSNumber numberWithInt:5000000]
-                                      maxBitrateBps:[NSNumber numberWithInt:500000000]]);
+    EXPECT_TRUE([peerConnection
+        setBweMinBitrateBps:[NSNumber numberWithInt:100000]
+          currentBitrateBps:[NSNumber numberWithInt:5000000]
+              maxBitrateBps:[NSNumber numberWithInt:500000000]]);
     EXPECT_FALSE([peerConnection setBweMinBitrateBps:[NSNumber numberWithInt:2]
                                    currentBitrateBps:[NSNumber numberWithInt:1]
                                        maxBitrateBps:nil]);
@@ -95,18 +102,26 @@
   EXPECT_EQ(config.rtcpMuxPolicy, newConfig.rtcpMuxPolicy);
   EXPECT_EQ(config.tcpCandidatePolicy, newConfig.tcpCandidatePolicy);
   EXPECT_EQ(config.candidateNetworkPolicy, newConfig.candidateNetworkPolicy);
-  EXPECT_EQ(config.audioJitterBufferMaxPackets, newConfig.audioJitterBufferMaxPackets);
-  EXPECT_EQ(config.audioJitterBufferFastAccelerate, newConfig.audioJitterBufferFastAccelerate);
-  EXPECT_EQ(config.iceConnectionReceivingTimeout, newConfig.iceConnectionReceivingTimeout);
+  EXPECT_EQ(config.audioJitterBufferMaxPackets,
+            newConfig.audioJitterBufferMaxPackets);
+  EXPECT_EQ(config.audioJitterBufferFastAccelerate,
+            newConfig.audioJitterBufferFastAccelerate);
+  EXPECT_EQ(config.iceConnectionReceivingTimeout,
+            newConfig.iceConnectionReceivingTimeout);
   EXPECT_EQ(config.iceBackupCandidatePairPingInterval,
             newConfig.iceBackupCandidatePairPingInterval);
-  EXPECT_EQ(config.continualGatheringPolicy, newConfig.continualGatheringPolicy);
+  EXPECT_EQ(config.continualGatheringPolicy,
+            newConfig.continualGatheringPolicy);
   EXPECT_EQ(config.shouldPruneTurnPorts, newConfig.shouldPruneTurnPorts);
   EXPECT_EQ(config.activeResetSrtpParams, newConfig.activeResetSrtpParams);
   EXPECT_EQ(config.cryptoOptions.srtpEnableGcmCryptoSuites,
             newConfig.cryptoOptions.srtpEnableGcmCryptoSuites);
+  EXPECT_EQ(config.cryptoOptions.srtpPreferGcmCryptoSuites,
+            newConfig.cryptoOptions.srtpPreferGcmCryptoSuites);
   EXPECT_EQ(config.cryptoOptions.srtpEnableAes128Sha1_32CryptoCipher,
             newConfig.cryptoOptions.srtpEnableAes128Sha1_32CryptoCipher);
+  EXPECT_EQ(config.cryptoOptions.srtpEnableAes128Sha1_80CryptoCipher,
+            newConfig.cryptoOptions.srtpEnableAes128Sha1_80CryptoCipher);
   EXPECT_EQ(config.cryptoOptions.srtpEnableEncryptedRtpHeaderExtensions,
             newConfig.cryptoOptions.srtpEnableEncryptedRtpHeaderExtensions);
   EXPECT_EQ(config.cryptoOptions.sframeRequireFrameEncryption,
@@ -118,12 +133,14 @@
   RTC_OBJC_TYPE(RTCIceServer) *server =
       [[RTC_OBJC_TYPE(RTCIceServer) alloc] initWithURLStrings:urlStrings];
 
-  RTC_OBJC_TYPE(RTCConfiguration) *config = [[RTC_OBJC_TYPE(RTCConfiguration) alloc] init];
+  RTC_OBJC_TYPE(RTCConfiguration) *config =
+      [[RTC_OBJC_TYPE(RTCConfiguration) alloc] init];
   config.sdpSemantics = RTCSdpSemanticsUnifiedPlan;
   config.iceServers = @[ server ];
   RTC_OBJC_TYPE(RTCMediaConstraints) *contraints =
-      [[RTC_OBJC_TYPE(RTCMediaConstraints) alloc] initWithMandatoryConstraints:@{}
-                                                           optionalConstraints:nil];
+      [[RTC_OBJC_TYPE(RTCMediaConstraints) alloc]
+          initWithMandatoryConstraints:@{}
+                   optionalConstraints:nil];
   RTC_OBJC_TYPE(RTCPeerConnectionFactory) *factory =
       [[RTC_OBJC_TYPE(RTCPeerConnectionFactory) alloc] init];
 
@@ -143,18 +160,22 @@
   RTC_OBJC_TYPE(RTCPeerConnectionFactory) *factory =
       [[RTC_OBJC_TYPE(RTCPeerConnectionFactory) alloc] init];
 
-  RTC_OBJC_TYPE(RTCConfiguration) *config = [[RTC_OBJC_TYPE(RTCConfiguration) alloc] init];
+  RTC_OBJC_TYPE(RTCConfiguration) *config =
+      [[RTC_OBJC_TYPE(RTCConfiguration) alloc] init];
   config.sdpSemantics = RTCSdpSemanticsUnifiedPlan;
   RTC_OBJC_TYPE(RTCMediaConstraints) *contraints =
-      [[RTC_OBJC_TYPE(RTCMediaConstraints) alloc] initWithMandatoryConstraints:@{}
-                                                           optionalConstraints:nil];
+      [[RTC_OBJC_TYPE(RTCMediaConstraints) alloc]
+          initWithMandatoryConstraints:@{}
+                   optionalConstraints:nil];
   RTC_OBJC_TYPE(RTCPeerConnection) *peerConnection =
-      [factory peerConnectionWithConfiguration:config constraints:contraints delegate:nil];
+      [factory peerConnectionWithConfiguration:config
+                                   constraints:contraints
+                                      delegate:nil];
 
   dispatch_semaphore_t negotiatedSem = dispatch_semaphore_create(0);
-  [peerConnection setRemoteDescription:[[RTC_OBJC_TYPE(RTCSessionDescription) alloc]
-                                           initWithType:RTCSdpTypeOffer
-                                                    sdp:@"invalid"]
+  [peerConnection setRemoteDescription:[[RTC_OBJC_TYPE(RTCSessionDescription)
+                                           alloc] initWithType:RTCSdpTypeOffer
+                                                           sdp:@"invalid"]
                      completionHandler:^(NSError *error) {
                        ASSERT_NE(error, nil);
                        if (error != nil) {
@@ -165,8 +186,9 @@
   NSTimeInterval timeout = 5;
   ASSERT_EQ(
       0,
-      dispatch_semaphore_wait(negotiatedSem,
-                              dispatch_time(DISPATCH_TIME_NOW, (int64_t)(timeout * NSEC_PER_SEC))));
+      dispatch_semaphore_wait(
+          negotiatedSem,
+          dispatch_time(DISPATCH_TIME_NOW, (int64_t)(timeout * NSEC_PER_SEC))));
   [peerConnection close];
 }
 
@@ -174,18 +196,23 @@
   RTC_OBJC_TYPE(RTCPeerConnectionFactory) *factory =
       [[RTC_OBJC_TYPE(RTCPeerConnectionFactory) alloc] init];
 
-  RTC_OBJC_TYPE(RTCConfiguration) *config = [[RTC_OBJC_TYPE(RTCConfiguration) alloc] init];
+  RTC_OBJC_TYPE(RTCConfiguration) *config =
+      [[RTC_OBJC_TYPE(RTCConfiguration) alloc] init];
   config.sdpSemantics = RTCSdpSemanticsUnifiedPlan;
   RTC_OBJC_TYPE(RTCMediaConstraints) *contraints =
-      [[RTC_OBJC_TYPE(RTCMediaConstraints) alloc] initWithMandatoryConstraints:@{}
-                                                           optionalConstraints:nil];
+      [[RTC_OBJC_TYPE(RTCMediaConstraints) alloc]
+          initWithMandatoryConstraints:@{}
+                   optionalConstraints:nil];
   RTC_OBJC_TYPE(RTCPeerConnection) *peerConnection =
-      [factory peerConnectionWithConfiguration:config constraints:contraints delegate:nil];
+      [factory peerConnectionWithConfiguration:config
+                                   constraints:contraints
+                                      delegate:nil];
 
   dispatch_semaphore_t negotiatedSem = dispatch_semaphore_create(0);
-  [peerConnection addIceCandidate:[[RTC_OBJC_TYPE(RTCIceCandidate) alloc] initWithSdp:@"invalid"
-                                                                        sdpMLineIndex:-1
-                                                                               sdpMid:nil]
+  [peerConnection addIceCandidate:[[RTC_OBJC_TYPE(RTCIceCandidate) alloc]
+                                        initWithSdp:@"invalid"
+                                      sdpMLineIndex:-1
+                                             sdpMid:nil]
                 completionHandler:^(NSError *error) {
                   ASSERT_NE(error, nil);
                   if (error != nil) {
@@ -196,8 +223,9 @@
   NSTimeInterval timeout = 5;
   ASSERT_EQ(
       0,
-      dispatch_semaphore_wait(negotiatedSem,
-                              dispatch_time(DISPATCH_TIME_NOW, (int64_t)(timeout * NSEC_PER_SEC))));
+      dispatch_semaphore_wait(
+          negotiatedSem,
+          dispatch_time(DISPATCH_TIME_NOW, (int64_t)(timeout * NSEC_PER_SEC))));
   [peerConnection close];
 }
 

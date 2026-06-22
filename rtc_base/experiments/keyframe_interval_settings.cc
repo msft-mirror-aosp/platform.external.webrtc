@@ -10,7 +10,10 @@
 
 #include "rtc_base/experiments/keyframe_interval_settings.h"
 
+#include <optional>
+
 #include "api/field_trials_view.h"
+#include "rtc_base/experiments/field_trial_parser.h"
 
 namespace webrtc {
 
@@ -27,8 +30,7 @@ KeyframeIntervalSettings::KeyframeIntervalSettings(
                   key_value_config.Lookup(kFieldTrialName));
 }
 
-absl::optional<int> KeyframeIntervalSettings::MinKeyframeSendIntervalMs()
-    const {
+std::optional<int> KeyframeIntervalSettings::MinKeyframeSendIntervalMs() const {
   return min_keyframe_send_interval_ms_.GetOptional();
 }
 }  // namespace webrtc

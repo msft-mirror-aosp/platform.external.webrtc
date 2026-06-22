@@ -10,20 +10,34 @@
 
 #include <stdint.h>
 
+#include <cstddef>
+#include <memory>
+#include <string>
+#include <vector>
+
 #include "absl/algorithm/container.h"
-#include "absl/base/macros.h"
 #include "absl/container/inlined_vector.h"
-#include "api/array_view.h"
+#include "absl/strings/string_view.h"
 #include "api/environment/environment_factory.h"
 #include "api/field_trials_view.h"
+#include "api/video/encoded_image.h"
+#include "api/video/i420_buffer.h"
+#include "api/video/video_bitrate_allocation.h"
+#include "api/video/video_codec_type.h"
 #include "api/video/video_frame.h"
+#include "api/video/video_frame_type.h"
+#include "api/video_codecs/spatial_layer.h"
 #include "api/video_codecs/video_codec.h"
 #include "api/video_codecs/video_encoder.h"
-#include "media/base/media_constants.h"
+#include "common_video/generic_frame_descriptor/generic_frame_info.h"
+#include "modules/video_coding/codecs/interface/common_constants.h"
 #include "modules/video_coding/codecs/interface/libvpx_interface.h"
+#include "modules/video_coding/codecs/vp9/include/vp9_globals.h"
 #include "modules/video_coding/codecs/vp9/libvpx_vp9_encoder.h"
 #include "modules/video_coding/frame_dependencies_calculator.h"
-#include "rtc_base/numerics/safe_compare.h"
+#include "modules/video_coding/include/video_codec_interface.h"
+#include "modules/video_coding/include/video_error_codes.h"
+#include "rtc_base/checks.h"
 #include "test/fuzzers/fuzz_data_helper.h"
 
 // Fuzzer simulates various svc configurations and libvpx encoder dropping
@@ -31,8 +45,6 @@
 // Validates vp9 encoder wrapper produces consistent frame references.
 namespace webrtc {
 namespace {
-
-using test::FuzzDataHelper;
 
 constexpr int kBitrateEnabledBps = 100'000;
 
@@ -76,6 +88,10 @@ class FrameValidator : public EncodedImageCallback {
     return Result(Result::OK);
   }
 
+  void OnFrameDropped(uint32_t rtp_timestamp,
+                      int spatial_id,
+                      bool is_end_of_temporal_unit) override {}
+
  private:
   // With 4 spatial layers and patterns up to 8 pictures, it should be enough to
   // keep the last 32 frames to validate dependencies.
@@ -115,7 +131,7 @@ class FrameValidator : public EncodedImageCallback {
     }
   }
 
-  void CheckGenericReferences(rtc::ArrayView<const int64_t> frame_dependencies,
+  void CheckGenericReferences(std::span<const int64_t> frame_dependencies,
                               const GenericFrameInfo& generic_info) const {
     for (int64_t dependency_frame_id : frame_dependencies) {
       RTC_CHECK_GE(dependency_frame_id, 0);
@@ -126,7 +142,7 @@ class FrameValidator : public EncodedImageCallback {
   }
 
   void CheckGenericAndCodecSpecificReferencesAreConsistent(
-      rtc::ArrayView<const int64_t> frame_dependencies,
+      std::span<const int64_t> frame_dependencies,
       const CodecSpecificInfo& info,
       const LayerFrame& layer_frame) const {
     const CodecSpecificInfoVP9& vp9_info = info.codecSpecific.VP9;
@@ -134,8 +150,7 @@ class FrameValidator : public EncodedImageCallback {
 
     RTC_CHECK_EQ(generic_info.spatial_id, layer_frame.spatial_id);
     RTC_CHECK_EQ(generic_info.temporal_id, layer_frame.temporal_id);
-    auto picture_id_diffs =
-        rtc::MakeArrayView(vp9_info.p_diff, vp9_info.num_ref_pics);
+    auto picture_id_diffs = std::span(vp9_info.p_diff, vp9_info.num_ref_pics);
     RTC_CHECK_EQ(
         frame_dependencies.size(),
         picture_id_diffs.size() + (vp9_info.inter_layer_predicted ? 1 : 0));
@@ -176,10 +191,10 @@ class FieldTrials : public FieldTrialsView {
   ~FieldTrials() override = default;
   std::string Lookup(absl::string_view key) const override {
     static constexpr absl::string_view kBinaryFieldTrials[] = {
-        "WebRTC-Vp9ExternalRefCtrl",
         "WebRTC-Vp9IssueKeyFrameOnLayerDeactivation",
+        "WebRTC-LibvpxVp9Encoder-PostEncodeFrameDrop",
     };
-    for (size_t i = 0; i < ABSL_ARRAYSIZE(kBinaryFieldTrials); ++i) {
+    for (size_t i = 0; i < std::size(kBinaryFieldTrials); ++i) {
       if (key == kBinaryFieldTrials[i]) {
         return (flags_ & (1u << i)) ? "Enabled" : "Disabled";
       }
@@ -189,15 +204,13 @@ class FieldTrials : public FieldTrialsView {
     if (key == "WebRTC-CongestionWindow" ||
         key == "WebRTC-UseBaseHeavyVP8TL3RateAllocation" ||
         key == "WebRTC-VideoRateControl" ||
+        key == "WebRTC-Video-CalculatePsnr" ||
         key == "WebRTC-GetEncoderInfoOverride" ||
         key == "WebRTC-VP9-GetEncoderInfoOverride" ||
         key == "WebRTC-VP9-PerformanceFlags" ||
-        key == "WebRTC-VP9QualityScaler") {
-      return "";
-    }
-
-    // TODO: bugs.webrtc.org/15827 - Fuzz frame drop config.
-    if (key == "WebRTC-LibvpxVp9Encoder-SvcFrameDropConfig") {
+        key == "WebRTC-VP9QualityScaler" ||
+        key == "WebRTC-VP9-SvcForSimulcast" ||
+        key == "WebRTC-StableTargetRate") {
       return "";
     }
 
@@ -295,7 +308,7 @@ struct LibvpxState {
   LibvpxState() {
     pkt.kind = VPX_CODEC_CX_FRAME_PKT;
     pkt.data.frame.buf = pkt_buffer;
-    pkt.data.frame.sz = ABSL_ARRAYSIZE(pkt_buffer);
+    pkt.data.frame.sz = std::size(pkt_buffer);
     layer_id.spatial_layer_id = -1;
   }
 
@@ -529,18 +542,16 @@ static_assert(DropBelow(0b1101, /*sid=*/3, 4) == false, "");
 
 }  // namespace
 
-void FuzzOneInput(const uint8_t* data, size_t size) {
-  FuzzDataHelper helper(rtc::MakeArrayView(data, size));
-
+void FuzzOneInput(FuzzDataHelper fuzz_data) {
   FrameValidator validator;
-  FieldTrials field_trials(helper);
+  FieldTrials field_trials(fuzz_data);
   // Setup call callbacks for the fake
   LibvpxState state;
 
   // Initialize encoder
   LibvpxVp9Encoder encoder(CreateEnvironment(&field_trials), {},
                            std::make_unique<StubLibvpx>(&state));
-  VideoCodec codec = CodecSettings(helper);
+  VideoCodec codec = CodecSettings(fuzz_data);
   if (encoder.InitEncode(&codec, EncoderSettings()) != WEBRTC_VIDEO_CODEC_OK) {
     return;
   }
@@ -565,9 +576,10 @@ void FuzzOneInput(const uint8_t* data, size_t size) {
                                   int{codec.width}, int{codec.height}))
                               .build();
 
-  // Start producing frames at random.
-  while (helper.CanReadBytes(1)) {
-    uint8_t action = helper.Read<uint8_t>();
+  // Restrict max number of actions to prevent timeout on large inputs.
+  int num_actions = 0;
+  while (fuzz_data.CanReadBytes(1) && ++num_actions <= 1000) {
+    uint8_t action = fuzz_data.Read<uint8_t>();
     switch (action & 0b11) {
       case kEncode: {
         // bitmask of the action: SSSS-K00, where
@@ -582,21 +594,24 @@ void FuzzOneInput(const uint8_t* data, size_t size) {
             // Don't encode disabled spatial layers.
             continue;
           }
-          bool drop = true;
-          switch (state.frame_drop.framedrop_mode) {
-            case FULL_SUPERFRAME_DROP:
-              drop = encode_spatial_layers == 0;
-              break;
-            case LAYER_DROP:
-              drop = (encode_spatial_layers & (1 << sid)) == 0;
-              break;
-            case CONSTRAINED_LAYER_DROP:
-              drop = DropBelow(encode_spatial_layers, sid,
-                               state.config.ss_number_layers);
-              break;
-            case CONSTRAINED_FROM_ABOVE_DROP:
-              drop = DropAbove(encode_spatial_layers, sid);
-              break;
+          bool drop = false;
+          // Never drop keyframe.
+          if ((state.pkt.data.frame.flags & VPX_FRAME_IS_KEY) == 0) {
+            switch (state.frame_drop.framedrop_mode) {
+              case FULL_SUPERFRAME_DROP:
+                drop = encode_spatial_layers == 0;
+                break;
+              case LAYER_DROP:
+                drop = (encode_spatial_layers & (1 << sid)) == 0;
+                break;
+              case CONSTRAINED_LAYER_DROP:
+                drop = DropBelow(encode_spatial_layers, sid,
+                                 state.config.ss_number_layers);
+                break;
+              case CONSTRAINED_FROM_ABOVE_DROP:
+                drop = DropAbove(encode_spatial_layers, sid);
+                break;
+            }
           }
           if (!drop) {
             state.layer_id.spatial_layer_id = sid;

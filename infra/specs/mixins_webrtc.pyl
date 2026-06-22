@@ -21,14 +21,6 @@
       }
     }
   },
-  'crosshatch': {
-    'swarming': {
-      'dimensions': {
-        'device_type': 'crosshatch',
-        'os': 'Android',
-      },
-    },
-  },
   # Hack to use the test-launcher-summary-output flag + emulator folders for gtest-output
   # but it's currently the only way to get the file out of the emulator.
   'fuchsia-gtest-output': {
@@ -38,33 +30,28 @@
       '--test-arg=--undefok=test_launcher_summary_output'
     ],
   },
-  'ios-device-16.7': {
+  'ios_runtime_cache_17_5': {
     'swarming': {
-      'dimensions': {
-        'os': 'iOS-16.7.1',
-        'pool': 'chrome.tests',
-        'device_status': 'available'
-      }
-    }
-  },
-  'ios-device-perf': {
-    'swarming': {
-      'idempotent': False,
-      'dimensions': {
-        'os': 'iOS-15.7.8',
-        'pool': 'WebRTC',
-        'id': 'mac-254-e504',
-        'device_status': 'available'
-      },
+      'named_caches': [
+        {
+          'name': 'runtime_ios_17_5',
+          'path': 'Runtime-ios-17.5',
+        },
+      ],
     },
   },
-  'ios_runtime_cache_15_5': {
+  'ios_runtime_cache_18_2': {
     'swarming': {
-      'named_caches': [{
-        'name': 'runtime_ios_15_5',
-        'path': 'Runtime-ios-15.5'
-      }]
-    }
+      'named_caches': [
+        {
+          'name': 'runtime_ios_18_2',
+          'path': 'Runtime-ios-18.2',
+        },
+      ],
+    },
+  },
+  'isolate_profile_data': {
+    'isolate_profile_data': True
   },
   'limited-capacity': {
     # Sometimes there are multiple tests that can be run only on one machine.
@@ -81,17 +68,36 @@
       }
     }
   },
-  'mac11': {
+  'mac_12_arm64': {
     'swarming': {
       'dimensions': {
-        'os': 'Mac-11'
+        'cpu': 'arm64',
+        'os': 'Mac-12'
       }
     }
   },
-  'linux-bionic': {
+  'mac_15_x64': {
     'swarming': {
       'dimensions': {
-        'os': 'Ubuntu-18.04',
+        'cpu': 'x86-64',
+        'os': 'Mac-15'
+      }
+    }
+  },
+  'mac_26_arm64': {
+    'swarming': {
+      'dimensions': {
+        'cpu': 'arm64',
+        'os': 'Mac-26'
+      }
+    }
+  },
+  'panther_on_14': {
+    'swarming': {
+      'dimensions': {
+        'device_type': 'panther',
+        'device_os': 'AP2A.240705.004',  # Android 14
+        'os': 'Android'
       }
     }
   },
@@ -182,33 +188,25 @@
       'shards': 8,
     },
   },
-  'timeout-2h': {
-    'swarming': {
-      'hard_timeout': 7200,
-      'io_timeout': 7200,
-    },
-  },
   'timeout-3h': {
     'swarming': {
       'hard_timeout': 10800,
       'io_timeout': 10800,
     },
   },
+  'win11': {
+    'swarming': {
+      'dimensions': {
+        'os': 'Windows-11-22000'
+      }
+    }
+  },
   'webrtc-xctest': {
     'args': [
       '--xctest',
     ],
   },
-  'xcode_14_main': {
-    'args': ['--xcode-build-version', '14c18'],
-    'swarming': {
-      'dimensions': {
-        'caches': 'xcode_ios_14c18',
-      },
-      'named_caches': [{
-        'name': 'xcode_ios_14c18',
-        'path': 'Xcode.app'
-      }]
-    }
-  },
+  'xcodebuild_sim_runner': {
+    'args': ['--xcodebuild-sim-runner']
+  }
 }

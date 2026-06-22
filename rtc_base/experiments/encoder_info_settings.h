@@ -11,12 +11,13 @@
 #ifndef RTC_BASE_EXPERIMENTS_ENCODER_INFO_SETTINGS_H_
 #define RTC_BASE_EXPERIMENTS_ENCODER_INFO_SETTINGS_H_
 
-#include <string>
+#include <cstdint>
+#include <optional>
 #include <vector>
 
 #include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
 #include "api/field_trials_view.h"
+#include "api/video/video_codec_type.h"
 #include "api/video_codecs/video_encoder.h"
 #include "rtc_base/experiments/field_trial_parser.h"
 
@@ -34,7 +35,7 @@ class EncoderInfoSettings {
     int max_bitrate_bps = 0;        // The maximum bitrate.
   };
 
-  absl::optional<uint32_t> requested_resolution_alignment() const;
+  std::optional<uint32_t> requested_resolution_alignment() const;
   bool apply_alignment_to_all_simulcast_layers() const {
     return apply_alignment_to_all_simulcast_layers_.Get();
   }
@@ -46,16 +47,16 @@ class EncoderInfoSettings {
   static std::vector<VideoEncoder::ResolutionBitrateLimits>
   GetDefaultSinglecastBitrateLimits(VideoCodecType codec_type);
 
-  static absl::optional<VideoEncoder::ResolutionBitrateLimits>
+  static std::optional<VideoEncoder::ResolutionBitrateLimits>
   GetDefaultSinglecastBitrateLimitsForResolution(VideoCodecType codec_type,
                                                  int frame_size_pixels);
 
   static std::vector<VideoEncoder::ResolutionBitrateLimits>
-  GetDefaultSinglecastBitrateLimitsWhenQpIsUntrusted();
+  GetDefaultSinglecastBitrateLimitsWhenQpIsUntrusted(VideoCodecType codec_type);
 
-  static absl::optional<VideoEncoder::ResolutionBitrateLimits>
+  static std::optional<VideoEncoder::ResolutionBitrateLimits>
   GetSinglecastBitrateLimitForResolutionWhenQpIsUntrusted(
-      absl::optional<int> frame_size_pixels,
+      std::optional<int> frame_size_pixels,
       const std::vector<VideoEncoder::ResolutionBitrateLimits>&
           resolution_bitrate_limits);
 

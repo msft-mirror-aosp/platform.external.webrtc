@@ -39,18 +39,21 @@ if (rtc_enable_protobuf) {
     deps = [
       ":network_tester_config_proto",
       ":network_tester_packet_proto",
+      "../../api:scoped_refptr",
       "../../api:sequence_checker",
+      "../../api/environment",
       "../../api/task_queue",
       "../../api/task_queue:default_task_queue_factory",
       "../../api/task_queue:pending_task_safety_flag",
+      "../../api/units:time_delta",
       "../../api/units:timestamp",
       "../../p2p:basic_packet_socket_factory",
-      "../../p2p:rtc_p2p",
       "../../rtc_base:async_packet_socket",
       "../../rtc_base:checks",
       "../../rtc_base:ip_address",
       "../../rtc_base:logging",
       "../../rtc_base:macromagic",
+      "../../rtc_base:net_helpers",
       "../../rtc_base:protobuf_utils",
       "../../rtc_base:socket_address",
       "../../rtc_base:socket_server",
@@ -59,10 +62,8 @@ if (rtc_enable_protobuf) {
       "../../rtc_base/network:received_packet",
       "../../rtc_base/synchronization:mutex",
       "../../rtc_base/system:no_unique_address",
-    ]
-    absl_deps = [
+      "../../system_wrappers",
       "//third_party/abseil-cpp/absl/functional:any_invocable",
-      "//third_party/abseil-cpp/absl/types:optional",
     ]
   }
 
@@ -86,11 +87,13 @@ if (rtc_enable_protobuf) {
 
     deps = [
       ":network_tester",
-      "../../rtc_base:gunit_helpers",
+      "../../api/environment",
       "../../rtc_base:random",
-      "../../rtc_base:threading",
+      "../../test:create_test_environment",
       "../../test:fileutils",
+      "../../test:run_loop",
       "../../test:test_support",
+      "../../test:wait_until",
       "//testing/gtest",
     ]
 
@@ -108,6 +111,8 @@ if (rtc_enable_protobuf) {
 
     deps = [
       ":network_tester",
+      "../../api/environment",
+      "../../api/environment:environment_factory",
       "../../rtc_base:null_socket_server",
       "../../rtc_base:threading",
     ]
@@ -119,7 +124,7 @@ if (is_android) {
     testonly = true
     apk_name = "NetworkTesterMobile"
     android_manifest = "androidapp/AndroidManifest.xml"
-    min_sdk_version = 21
+    min_sdk_version = 23
     target_sdk_version = 24
 
     deps = [
@@ -163,24 +168,24 @@ if (is_android) {
       "androidapp/res/values/dimens.xml",
       "androidapp/res/values/strings.xml",
     ]
-
-    # Needed for Bazel converter.
-    resource_dirs = [ "androidapp/res" ]
-    assert(resource_dirs != [])  # Mark as used.
   }
 
   rtc_shared_library("network_tester_so") {
+    testonly = true
     sources = [ "jni.cc" ]
 
     deps = [
       ":network_tester",
       "../../rtc_base:logging",
       "../../rtc_base:threading",
+      "../../test:create_test_environment",
     ]
 
     suppressed_configs += [ "//build/config/android:hide_all_but_jni_onload" ]
     configs += [ "//build/config/android:hide_all_but_jni" ]
 
     output_extension = "so"
+
+    java_targets = [ ":NetworkTesterMobile" ]
   }
 }

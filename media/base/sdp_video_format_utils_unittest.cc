@@ -10,22 +10,20 @@
 
 #include "media/base/sdp_video_format_utils.h"
 
-#include <string.h>
-
 #include <map>
-#include <utility>
+#include <optional>
 
-#include "rtc_base/string_to_number.h"
+#include "api/rtp_parameters.h"
 #include "test/gtest.h"
 
 namespace webrtc {
 namespace {
 // Max frame rate for VP8 and VP9 video.
-const char kVPxFmtpMaxFrameRate[] = "max-fr";
+constexpr char kVPxFmtpMaxFrameRate[] = "max-fr";
 // Max frame size for VP8 and VP9 video.
-const char kVPxFmtpMaxFrameSize[] = "max-fs";
+constexpr char kVPxFmtpMaxFrameSize[] = "max-fs";
 // Nonstandard per-layer PLI for video.
-const char kCodecParamPerLayerPictureLossIndication[] =
+constexpr char kCodecParamPerLayerPictureLossIndication[] =
     "x-google-per-layer-pli";
 }  // namespace
 
@@ -106,7 +104,7 @@ TEST(SdpVideoFormatUtilsTest, H265GenerateProfileTierLevelNoEmpty) {
 
 TEST(SdpVideoFormatUtilsTest, MaxFrameRateIsMissingOrInvalid) {
   CodecParameterMap params;
-  absl::optional<int> empty = ParseSdpForVPxMaxFrameRate(params);
+  std::optional<int> empty = ParseSdpForVPxMaxFrameRate(params);
   EXPECT_FALSE(empty);
   params[kVPxFmtpMaxFrameRate] = "-1";
   EXPECT_FALSE(ParseSdpForVPxMaxFrameRate(params));
@@ -126,7 +124,7 @@ TEST(SdpVideoFormatUtilsTest, MaxFrameRateIsSpecified) {
 
 TEST(SdpVideoFormatUtilsTest, MaxFrameSizeIsMissingOrInvalid) {
   CodecParameterMap params;
-  absl::optional<int> empty = ParseSdpForVPxMaxFrameSize(params);
+  std::optional<int> empty = ParseSdpForVPxMaxFrameSize(params);
   EXPECT_FALSE(empty);
   params[kVPxFmtpMaxFrameSize] = "-1";
   EXPECT_FALSE(ParseSdpForVPxMaxFrameSize(params));

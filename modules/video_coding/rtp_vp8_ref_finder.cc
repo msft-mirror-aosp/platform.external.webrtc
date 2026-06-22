@@ -10,16 +10,26 @@
 
 #include "modules/video_coding/rtp_vp8_ref_finder.h"
 
+#include <cstddef>
+#include <cstdint>
+#include <memory>
 #include <utility>
 
+#include "api/video/video_codec_constants.h"
+#include "modules/rtp_rtcp/source/frame_object.h"
+#include "modules/video_coding/codecs/interface/common_constants.h"
+#include "modules/video_coding/codecs/vp8/include/vp8_globals.h"
+#include "modules/video_coding/rtp_frame_reference_finder.h"
 #include "rtc_base/logging.h"
+#include "rtc_base/numerics/mod_ops.h"
+#include "rtc_base/numerics/sequence_number_util.h"
 
 namespace webrtc {
 
 RtpFrameReferenceFinder::ReturnVector RtpVp8RefFinder::ManageFrame(
     std::unique_ptr<RtpFrameObject> frame) {
-  const RTPVideoHeaderVP8& codec_header = absl::get<RTPVideoHeaderVP8>(
-      frame->GetRtpVideoHeader().video_type_header);
+  const RTPVideoHeaderVP8& codec_header =
+      std::get<RTPVideoHeaderVP8>(frame->GetRtpVideoHeader().video_type_header);
 
   if (codec_header.temporalIdx != kNoTemporalIdx)
     frame->SetTemporalIndex(codec_header.temporalIdx);
@@ -53,7 +63,7 @@ RtpVp8RefFinder::FrameDecision RtpVp8RefFinder::ManageFrameInternal(
     const RTPVideoHeaderVP8& codec_header,
     int64_t unwrapped_tl0) {
   // Protect against corrupted packets with arbitrary large temporal idx.
-  if (codec_header.temporalIdx >= kMaxTemporalLayers)
+  if (codec_header.temporalIdx >= kMaxTemporalStreams)
     return kDrop;
 
   frame->SetSpatialIndex(0);
@@ -86,7 +96,7 @@ RtpVp8RefFinder::FrameDecision RtpVp8RefFinder::ManageFrameInternal(
   auto clean_layer_info_to = layer_info_.lower_bound(old_tl0_pic_idx);
   layer_info_.erase(layer_info_.begin(), clean_layer_info_to);
 
-  if (frame->frame_type() == VideoFrameType::kVideoFrameKey) {
+  if (frame->IsKey()) {
     if (codec_header.temporalIdx != 0) {
       return kDrop;
     }
@@ -214,7 +224,7 @@ void RtpVp8RefFinder::RetryStashedFrames(
   do {
     complete_frame = false;
     for (auto it = stashed_frames_.begin(); it != stashed_frames_.end();) {
-      const RTPVideoHeaderVP8& codec_header = absl::get<RTPVideoHeaderVP8>(
+      const RTPVideoHeaderVP8& codec_header = std::get<RTPVideoHeaderVP8>(
           it->frame->GetRtpVideoHeader().video_type_header);
       FrameDecision decision =
           ManageFrameInternal(it->frame.get(), codec_header, it->unwrapped_tl0);
