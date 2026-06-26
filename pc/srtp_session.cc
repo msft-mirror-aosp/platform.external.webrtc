@@ -37,6 +37,13 @@
 #define SRTP_SRCTP_INDEX_LEN 4
 #endif
 
+#ifndef srtp_err_status_cryptex_err
+#define srtp_err_status_cryptex_err srtp_err_status_fail
+inline int srtp_set_stream_use_cryptex(srtp_t, const srtp_ssrc_t*, int) {
+  return srtp_err_status_ok;
+}
+#endif
+
 namespace webrtc {
 
 constexpr uint16_t kRtpOneByteHeaderExtensionProfile = 0xBEDE;

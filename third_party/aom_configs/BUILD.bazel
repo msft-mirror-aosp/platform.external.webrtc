@@ -1,0 +1,169 @@
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+config_setting(
+    name = "is_windows_arm64",
+    constraint_values = [
+        "@platforms//os:windows",
+        "@platforms//cpu:aarch64",
+    ],
+)
+
+config_setting(
+    name = "is_windows_x64",
+    constraint_values = [
+        "@platforms//os:windows",
+        "@platforms//cpu:x86_64",
+    ],
+)
+
+config_setting(
+    name = "is_macos_arm64",
+    constraint_values = [
+        "@platforms//os:macos",
+        "@platforms//cpu:aarch64",
+    ],
+)
+
+config_setting(
+    name = "is_macos_x64",
+    constraint_values = [
+        "@platforms//os:macos",
+        "@platforms//cpu:x86_64",
+    ],
+)
+
+config_setting(
+    name = "is_linux_arm64",
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:aarch64",
+    ],
+)
+
+config_setting(
+    name = "is_linux_x64",
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
+)
+
+cc_library(
+    name = "aom_config_headers",
+    deps = [":aom_version"] + select({
+        ":is_windows_arm64": [":win_arm64"],
+        ":is_windows_x64": [":win_x64"],
+        ":is_macos_arm64": [":macos_arm64"],
+        ":is_macos_x64": [":macos_x64"],
+        ":is_linux_arm64": [":linux_arm64"],
+        ":is_linux_x64": [":linux_x64"],
+        "//conditions:default": [":linux_x64"],
+    }),
+)
+
+cc_library(
+    name = "aom_version",
+    hdrs = ["config/aom_version.h"],
+    include_prefix = "config",
+    strip_include_prefix = "config",
+)
+
+cc_library(
+    name = "win_x64",
+    hdrs = [
+        "win/x64/config/aom_config.h",
+        "win/x64/config/aom_dsp_rtcd.h",
+        "win/x64/config/aom_scale_rtcd.h",
+        "win/x64/config/av1_rtcd.h",
+    ],
+    include_prefix = "config",
+    strip_include_prefix = "win/x64/config",
+)
+
+cc_library(
+    name = "win_arm64",
+    hdrs = [
+        "win/arm64-cpu-detect/config/aom_config.h",
+        "win/arm64-cpu-detect/config/aom_dsp_rtcd.h",
+        "win/arm64-cpu-detect/config/aom_scale_rtcd.h",
+        "win/arm64-cpu-detect/config/av1_rtcd.h",
+    ],
+    include_prefix = "config",
+    strip_include_prefix = "win/arm64-cpu-detect/config",
+)
+
+cc_library(
+    name = "macos_x64",
+    hdrs = [
+        "macos/x64/config/aom_config.h",
+        "macos/x64/config/aom_dsp_rtcd.h",
+        "macos/x64/config/aom_scale_rtcd.h",
+        "macos/x64/config/av1_rtcd.h",
+    ],
+    include_prefix = "config",
+    strip_include_prefix = "macos/x64/config",
+)
+
+cc_library(
+    name = "macos_arm64",
+    hdrs = [
+        "macos/arm64/config/aom_config.h",
+        "macos/arm64/config/aom_dsp_rtcd.h",
+        "macos/arm64/config/aom_scale_rtcd.h",
+        "macos/arm64/config/av1_rtcd.h",
+    ],
+    include_prefix = "config",
+    strip_include_prefix = "macos/arm64/config",
+)
+
+cc_library(
+    name = "linux_x64",
+    hdrs = [
+        "linux/x64/config/aom_config.h",
+        "linux/x64/config/aom_dsp_rtcd.h",
+        "linux/x64/config/aom_scale_rtcd.h",
+        "linux/x64/config/av1_rtcd.h",
+    ],
+    include_prefix = "config",
+    strip_include_prefix = "linux/x64/config",
+)
+
+cc_library(
+    name = "linux_arm64",
+    hdrs = [
+        "linux/arm64-cpu-detect/config/aom_config.h",
+        "linux/arm64-cpu-detect/config/aom_dsp_rtcd.h",
+        "linux/arm64-cpu-detect/config/aom_scale_rtcd.h",
+        "linux/arm64-cpu-detect/config/av1_rtcd.h",
+    ],
+    include_prefix = "config",
+    strip_include_prefix = "linux/arm64-cpu-detect/config",
+)
+
+filegroup(
+    name = "aom_config_asm",
+    srcs = select({
+        ":is_windows_arm64": ["win/arm64-cpu-detect/config/aom_config.asm"],
+        ":is_windows_x64": ["win/x64/config/aom_config.asm"],
+        ":is_macos_arm64": ["macos/arm64/config/aom_config.asm"],
+        ":is_macos_x64": ["macos/x64/config/aom_config.asm"],
+        ":is_linux_arm64": ["linux/arm64-cpu-detect/config/aom_config.asm"],
+        ":is_linux_x64": ["linux/x64/config/aom_config.asm"],
+        "//conditions:default": ["linux/x64/config/aom_config.asm"],
+    }),
+)
+
+filegroup(
+    name = "aom_config_c",
+    srcs = select({
+        ":is_windows_arm64": ["win/arm64-cpu-detect/config/aom_config.c"],
+        ":is_windows_x64": ["win/x64/config/aom_config.c"],
+        ":is_macos_arm64": ["macos/arm64/config/aom_config.c"],
+        ":is_macos_x64": ["macos/x64/config/aom_config.c"],
+        ":is_linux_arm64": ["linux/arm64-cpu-detect/config/aom_config.c"],
+        ":is_linux_x64": ["linux/x64/config/aom_config.c"],
+        "//conditions:default": ["linux/x64/config/aom_config.c"],
+    }),
+)

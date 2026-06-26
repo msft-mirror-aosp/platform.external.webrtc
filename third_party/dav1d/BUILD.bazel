@@ -476,10 +476,20 @@ cc_library(
         "//conditions:default": [],
     }),
     includes = [
+        "libdav1d",
         "libdav1d/include",
         "libdav1d/include/dav1d",
         "version",
-    ],
+    ] + select({
+        ":macos_x86_64": ["config/apple/x64"],
+        ":macos_aarch64": ["config/apple/arm64"],
+        ":windows_x86_64": ["config/win/x64"],
+        ":windows_aarch64": ["config/win/arm64"],
+        ":linux_x86_32": ["config/linux/x86"],
+        ":linux_aarch64": ["config/linux/arm64"],
+        ":linux_armv7": ["config/linux/arm"],
+        "//conditions:default": ["config/linux/x64"],
+    }),
     linkstatic = 1,
 )
 

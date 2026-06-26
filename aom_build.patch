@@ -1,0 +1,50 @@
+--- BUILD.bazel	2026-06-23 20:09:07.953213737 -0700
++++ BUILD.bazel	2026-06-23 20:09:07.953660654 -0700
+@@ -2,6 +2,7 @@
+ 
+ load("@bazel_skylib//lib:selects.bzl", "selects")
+ load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
++load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
+ load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+ load("@rules_cc//cc:defs.bzl", "cc_library")
+ load("@rules_license//rules:license.bzl", "license")
+@@ -226,8 +227,9 @@
+     out = "config/aom_config.h",
+ )
+ 
+-aom_config_c(
++copy_file(
+     name = "aom_config_c",
++    src = "@@//third_party/webrtc/third_party/aom_configs:aom_config_c",
+     out = "config/aom_config.c",
+ )
+ 
+@@ -236,8 +238,9 @@
+     out = "config/aom_version.h",
+ )
+ 
+-aom_config_asm(
++copy_file(
+     name = "aom_config_asm",
++    src = "@@//third_party/webrtc/third_party/aom_configs:aom_config_asm",
+     out = "config/aom_config.asm",
+ )
+ 
+@@ -328,16 +331,10 @@
+ cc_library(
+     name = "aom_config",
+     srcs = [":aom_config_c"],
+-    hdrs = [
+-        ":aom_config_h",
+-        ":aom_version_h",
+-        ":gen_aom_dsp_rtcd_h",
+-        ":gen_aom_scale_rtcd_h",
+-        ":gen_av1_rtcd_h",
+-    ],
+     includes = ["."],
+     deps = [
+         ":aom_headers",
++        "@@//third_party/webrtc/third_party/aom_configs:aom_config_headers",
+     ],
+ )
+ 
