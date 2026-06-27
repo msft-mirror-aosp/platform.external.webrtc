@@ -212,7 +212,7 @@ cc_library(
         posix = ["WEBRTC_POSIX"],
         windows = ["WEBRTC_WIN"],
     ),
-    visibility = ["//:__subpackages__"],
+    visibility = ["//visibility:public"],
     deps = [
         "//api:media_stream_interface",
         "//api:scoped_refptr",
@@ -375,7 +375,7 @@ cc_library(
         posix = ["WEBRTC_POSIX"],
         windows = ["WEBRTC_WIN"],
     ),
-    visibility = ["//:__subpackages__"],
+    visibility = ["//visibility:public"],
     deps = [
         "//api:media_stream_interface",
         "//api:scoped_refptr",
