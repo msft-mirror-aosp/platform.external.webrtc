@@ -130,6 +130,7 @@ objc_library(
         "-Wshadow",
         "-Wstrict-overflow",
         "-fno-exceptions",
+        "-fobjc-arc",
     ],
     defines = [
         "PROTOBUF_ENABLE_DEBUG_LOGGING_MAY_LEAK_PII=0",
@@ -203,6 +204,7 @@ objc_library(
         "//tools/build_defs/kotlin/native:disable_kotlin_interop",
     ],
     copts = [
+        "-fobjc-arc",
         "-fno-rtti",
         "-Wctad-maybe-unsupported",
         "-Wimplicit-retain-self",
@@ -267,6 +269,7 @@ objc_library(
         "//tools/build_defs/swift:no_module",
     ],
     copts = [
+        "-fobjc-arc",
         "-fno-rtti",
         "-Wctad-maybe-unsupported",
         "-Wimplicit-retain-self",
@@ -330,6 +333,7 @@ objc_library(
         "-Wshadow",
         "-Wstrict-overflow",
         "-fno-exceptions",
+        "-fobjc-arc",
     ],
     defines = [
         "PROTOBUF_ENABLE_DEBUG_LOGGING_MAY_LEAK_PII=0",
@@ -384,6 +388,7 @@ objc_library(
         "-Wshadow",
         "-Wstrict-overflow",
         "-fno-exceptions",
+        "-fobjc-arc",
     ],
     defines = [
         "PROTOBUF_ENABLE_DEBUG_LOGGING_MAY_LEAK_PII=0",
@@ -439,6 +444,7 @@ objc_library(
         "-Wshadow",
         "-Wstrict-overflow",
         "-fno-exceptions",
+        "-fobjc-arc",
     ],
     defines = [
         "PROTOBUF_ENABLE_DEBUG_LOGGING_MAY_LEAK_PII=0",
@@ -484,6 +490,9 @@ objc_library(
         "//tools/build_defs/kotlin/native:disable_kotlin_interop",
         "//tools/build_defs/swift:no_module",
     ],
+    copts = [
+        "-fobjc-arc",
+    ],
     includes = [
         "objc",
         "objc/base",
@@ -526,6 +535,7 @@ objc_library(
         "-Wshadow",
         "-Wstrict-overflow",
         "-fno-exceptions",
+        "-fobjc-arc",
     ],
     defines = [
         "PROTOBUF_ENABLE_DEBUG_LOGGING_MAY_LEAK_PII=0",
@@ -602,6 +612,7 @@ objc_library(
         "-Wshadow",
         "-Wstrict-overflow",
         "-fno-exceptions",
+        "-fobjc-arc",
     ],
     defines = [
         "PROTOBUF_ENABLE_DEBUG_LOGGING_MAY_LEAK_PII=0",
@@ -661,6 +672,7 @@ objc_library(
         "-Wshadow",
         "-Wstrict-overflow",
         "-fno-exceptions",
+        "-fobjc-arc",
     ],
     defines = [
         "PROTOBUF_ENABLE_DEBUG_LOGGING_MAY_LEAK_PII=0",
@@ -725,6 +737,7 @@ objc_library(
         "//tools/build_defs/swift:no_module",
     ],
     copts = [
+        "-fobjc-arc",
         "-fno-rtti",
         "-Wctad-maybe-unsupported",
         "-Wimplicit-retain-self",
@@ -806,6 +819,7 @@ objc_library(
         "-Wshadow",
         "-Wstrict-overflow",
         "-fno-exceptions",
+        "-fobjc-arc",
     ],
     defines = [
         "PROTOBUF_ENABLE_DEBUG_LOGGING_MAY_LEAK_PII=0",
@@ -866,6 +880,7 @@ objc_library(
         "-Wshadow",
         "-Wstrict-overflow",
         "-fno-exceptions",
+        "-fobjc-arc",
     ],
     defines = [
         "PROTOBUF_ENABLE_DEBUG_LOGGING_MAY_LEAK_PII=0",
@@ -924,6 +939,7 @@ objc_library(
         "-Wshadow",
         "-Wstrict-overflow",
         "-fno-exceptions",
+        "-fobjc-arc",
     ],
     defines = [
         "PROTOBUF_ENABLE_DEBUG_LOGGING_MAY_LEAK_PII=0",
@@ -989,6 +1005,7 @@ objc_library(
         "-Wshadow",
         "-Wstrict-overflow",
         "-fno-exceptions",
+        "-fobjc-arc",
     ],
     defines = [
         "PROTOBUF_ENABLE_DEBUG_LOGGING_MAY_LEAK_PII=0",
@@ -1051,6 +1068,7 @@ objc_library(
         "-Wshadow",
         "-Wstrict-overflow",
         "-fno-exceptions",
+        "-fobjc-arc",
     ],
     defines = [
         "PROTOBUF_ENABLE_DEBUG_LOGGING_MAY_LEAK_PII=0",
@@ -1114,6 +1132,7 @@ objc_library(
         "-Wshadow",
         "-Wstrict-overflow",
         "-fno-exceptions",
+        "-fobjc-arc",
     ],
     defines = [
         "PROTOBUF_ENABLE_DEBUG_LOGGING_MAY_LEAK_PII=0",
@@ -1171,6 +1190,7 @@ objc_library(
         "-Wshadow",
         "-Wstrict-overflow",
         "-fno-exceptions",
+        "-fobjc-arc",
     ],
     defines = [
         "PROTOBUF_ENABLE_DEBUG_LOGGING_MAY_LEAK_PII=0",
@@ -1233,6 +1253,7 @@ objc_library(
         "-Wshadow",
         "-Wstrict-overflow",
         "-fno-exceptions",
+        "-fobjc-arc",
     ],
     defines = [
         "PROTOBUF_ENABLE_DEBUG_LOGGING_MAY_LEAK_PII=0",
@@ -1288,6 +1309,7 @@ objc_library(
         "-Wshadow",
         "-Wstrict-overflow",
         "-fno-exceptions",
+        "-fobjc-arc",
     ],
     defines = [
         "PROTOBUF_ENABLE_DEBUG_LOGGING_MAY_LEAK_PII=0",
@@ -1342,6 +1364,7 @@ objc_library(
         "-Wshadow",
         "-Wstrict-overflow",
         "-fno-exceptions",
+        "-fobjc-arc",
     ],
     defines = [
         "PROTOBUF_ENABLE_DEBUG_LOGGING_MAY_LEAK_PII=0",
@@ -1401,6 +1424,7 @@ objc_library(
         "-Wshadow",
         "-Wstrict-overflow",
         "-fno-exceptions",
+        "-fobjc-arc",
     ],
     defines = [
         "PROTOBUF_ENABLE_DEBUG_LOGGING_MAY_LEAK_PII=0",
@@ -1452,6 +1476,7 @@ objc_library(
         "-Wshadow",
         "-Wstrict-overflow",
         "-fno-exceptions",
+        "-fobjc-arc",
     ],
     defines = [
         "PROTOBUF_ENABLE_DEBUG_LOGGING_MAY_LEAK_PII=0",
@@ -1503,6 +1528,7 @@ objc_library(
         "-Wshadow",
         "-Wstrict-overflow",
         "-fno-exceptions",
+        "-fobjc-arc",
     ],
     defines = [
         "PROTOBUF_ENABLE_DEBUG_LOGGING_MAY_LEAK_PII=0",
@@ -1559,6 +1585,7 @@ objc_library(
         "-Wshadow",
         "-Wstrict-overflow",
         "-fno-exceptions",
+        "-fobjc-arc",
     ],
     defines = [
         "PROTOBUF_ENABLE_DEBUG_LOGGING_MAY_LEAK_PII=0",
@@ -1619,6 +1646,7 @@ objc_library(
         "-Wshadow",
         "-Wstrict-overflow",
         "-fno-exceptions",
+        "-fobjc-arc",
     ],
     defines = [
         "PROTOBUF_ENABLE_DEBUG_LOGGING_MAY_LEAK_PII=0",
@@ -1794,6 +1822,7 @@ objc_library(
         "-Wshadow",
         "-Wstrict-overflow",
         "-fno-exceptions",
+        "-fobjc-arc",
     ],
     defines = [
         "PROTOBUF_ENABLE_DEBUG_LOGGING_MAY_LEAK_PII=0",
@@ -1920,6 +1949,7 @@ objc_library(
         "-Wshadow",
         "-Wstrict-overflow",
         "-fno-exceptions",
+        "-fobjc-arc",
     ],
     defines = [
         "PROTOBUF_ENABLE_DEBUG_LOGGING_MAY_LEAK_PII=0",
@@ -1993,6 +2023,7 @@ objc_library(
         "-Wshadow",
         "-Wstrict-overflow",
         "-fno-exceptions",
+        "-fobjc-arc",
     ],
     defines = [
         "PROTOBUF_ENABLE_DEBUG_LOGGING_MAY_LEAK_PII=0",
@@ -2075,6 +2106,7 @@ objc_library(
         "-Wshadow",
         "-Wstrict-overflow",
         "-fno-exceptions",
+        "-fobjc-arc",
     ],
     defines = [
         "HAVE_WEBRTC_VIDEO",
@@ -2206,6 +2238,7 @@ objc_library(
         "-Wshadow",
         "-Wstrict-overflow",
         "-fno-exceptions",
+        "-fobjc-arc",
     ],
     defines = [
         "PROTOBUF_ENABLE_DEBUG_LOGGING_MAY_LEAK_PII=0",
