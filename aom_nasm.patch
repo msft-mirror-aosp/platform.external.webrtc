@@ -1,0 +1,11 @@
+--- BUILD.bazel	2026-06-23 20:06:45.432942755 -0700
++++ BUILD.bazel	2026-06-23 20:09:07.953213737 -0700
+@@ -319,6 +319,8 @@
+         "third_party/vector/*.h",
+         "third_party/SVT-AV1/*.h",
+     ]),
++    include_prefix = "third_party/libaom/source/libaom",
++    strip_include_prefix = "",
+ )
+ 
+ # -- Config library (generated headers + aom_config.c) ---------------------

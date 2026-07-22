@@ -10,13 +10,17 @@
 #ifndef NET_DCSCTP_TX_OUTSTANDING_DATA_H_
 #define NET_DCSCTP_TX_OUTSTANDING_DATA_H_
 
+#include <cstddef>
+#include <cstdint>
 #include <deque>
-#include <map>
+#include <functional>
+#include <optional>
 #include <set>
+#include <span>
 #include <utility>
 #include <vector>
 
-#include "absl/types/optional.h"
+#include "api/units/time_delta.h"
 #include "api/units/timestamp.h"
 #include "net/dcsctp/common/internal_types.h"
 #include "net/dcsctp/common/sequence_numbers.h"
@@ -85,10 +89,9 @@ class OutstandingData {
         last_cumulative_tsn_ack_(last_cumulative_tsn_ack),
         discard_from_send_queue_(std::move(discard_from_send_queue)) {}
 
-  AckInfo HandleSack(
-      UnwrappedTSN cumulative_tsn_ack,
-      rtc::ArrayView<const SackChunk::GapAckBlock> gap_ack_blocks,
-      bool is_in_fast_recovery);
+  AckInfo HandleSack(UnwrappedTSN cumulative_tsn_ack,
+                     std::span<const SackChunk::GapAckBlock> gap_ack_blocks,
+                     bool is_in_fast_recovery);
 
   // Returns as many of the chunks that are eligible for fast retransmissions
   // and that would fit in a single packet of `max_size`. The eligible chunks
@@ -101,7 +104,11 @@ class OutstandingData {
   // it?
   std::vector<std::pair<TSN, Data>> GetChunksToBeRetransmitted(size_t max_size);
 
-  size_t unacked_bytes() const { return unacked_bytes_; }
+  // How many inflight bytes there are, as sent on the wire as packets.
+  size_t unacked_packet_bytes() const { return unacked_packet_bytes_; }
+
+  // How many inflight bytes there are, counting only the payload.
+  size_t unacked_payload_bytes() const { return unacked_payload_bytes_; }
 
   // Returns the number of DATA chunks that are in-flight (not acked or nacked).
   size_t unacked_items() const { return unacked_items_; }
@@ -132,8 +139,8 @@ class OutstandingData {
 
   // Schedules `data` to be sent, with the provided partial reliability
   // parameters. Returns the TSN if the item was actually added and scheduled to
-  // be sent, and absl::nullopt if it shouldn't be sent.
-  absl::optional<UnwrappedTSN> Insert(
+  // be sent, and std::nullopt if it shouldn't be sent.
+  std::optional<UnwrappedTSN> Insert(
       OutgoingMessageId message_id,
       const Data& data,
       webrtc::Timestamp time_sent,
@@ -219,7 +226,9 @@ class OutstandingData {
     // Marks this item as abandoned.
     void Abandon();
 
-    bool is_outstanding() const { return ack_state_ == AckState::kUnacked; }
+    bool is_outstanding() const {
+      return ack_state_ != AckState::kAcked && lifecycle_ == Lifecycle::kActive;
+    }
     bool is_acked() const { return ack_state_ == AckState::kAcked; }
     bool is_nacked() const { return ack_state_ == AckState::kNacked; }
     bool is_abandoned() const { return lifecycle_ == Lifecycle::kAbandoned; }
@@ -305,7 +314,7 @@ class OutstandingData {
   // Will mark the chunks covered by the `gap_ack_blocks` from an incoming SACK
   // as "acked" and update `ack_info` by adding new TSNs to `added_tsns`.
   void AckGapBlocks(UnwrappedTSN cumulative_tsn_ack,
-                    rtc::ArrayView<const SackChunk::GapAckBlock> gap_ack_blocks,
+                    std::span<const SackChunk::GapAckBlock> gap_ack_blocks,
                     AckInfo& ack_info);
 
   // Mark chunks reported as "missing", as "nacked" or "to be retransmitted"
@@ -314,8 +323,9 @@ class OutstandingData {
   // nacked/retransmitted. The method will set `ack_info.has_packet_loss`.
   void NackBetweenAckBlocks(
       UnwrappedTSN cumulative_tsn_ack,
-      rtc::ArrayView<const SackChunk::GapAckBlock> gap_ack_blocks,
+      std::span<const SackChunk::GapAckBlock> gap_ack_blocks,
       bool is_in_fast_recovery,
+      bool cumulative_tsn_acked_advanced,
       OutstandingData::AckInfo& ack_info);
 
   // Process the acknowledgement of the chunk referenced by `iter` and updates
@@ -358,8 +368,10 @@ class OutstandingData {
   // `TSN=last_cumulative_tsn_ack_ + 1` and the following items are in strict
   // increasing TSN order. The last item has `TSN=highest_outstanding_tsn()`.
   std::deque<Item> outstanding_data_;
-  // The number of bytes that are in-flight (sent but not yet acked or nacked).
-  size_t unacked_bytes_ = 0;
+  // The number of bytes that are in-flight, counting only the payload.
+  size_t unacked_payload_bytes_ = 0;
+  // The number of bytes that are in-flight, as sent on the wire (as packets).
+  size_t unacked_packet_bytes_ = 0;
   // The number of DATA chunks that are in-flight (sent but not yet acked or
   // nacked).
   size_t unacked_items_ = 0;

@@ -11,21 +11,23 @@
 #ifndef API_VIDEO_CODECS_VIDEO_ENCODER_H_
 #define API_VIDEO_CODECS_VIDEO_ENCODER_H_
 
+#include <cstddef>
+#include <cstdint>
 #include <limits>
-#include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "absl/container/inlined_vector.h"
-#include "absl/types/optional.h"
 #include "api/fec_controller_override.h"
 #include "api/units/data_rate.h"
 #include "api/video/encoded_image.h"
 #include "api/video/video_bitrate_allocation.h"
 #include "api/video/video_codec_constants.h"
 #include "api/video/video_frame.h"
+#include "api/video/video_frame_buffer.h"
+#include "api/video/video_frame_type.h"
 #include "api/video_codecs/video_codec.h"
-#include "rtc_base/checks.h"
 #include "rtc_base/system/rtc_export.h"
 
 namespace webrtc {
@@ -62,25 +64,21 @@ class RTC_EXPORT EncodedImageCallback {
     bool drop_next_frame = false;
   };
 
-  // Used to signal the encoder about reason a frame is dropped.
-  // kDroppedByMediaOptimizations - dropped by MediaOptimizations (for rate
-  // limiting purposes).
-  // kDroppedByEncoder - dropped by encoder's internal rate limiter.
-  // TODO(bugs.webrtc.org/10164): Delete this enum? It duplicates the more
-  // general VideoStreamEncoderObserver::DropReason. Also,
-  // kDroppedByMediaOptimizations is not produced by any encoder, but by
-  // VideoStreamEncoder.
-  enum class DropReason : uint8_t {
-    kDroppedByMediaOptimizations,
-    kDroppedByEncoder
-  };
-
   // Callback function which is called when an image has been encoded.
   virtual Result OnEncodedImage(
       const EncodedImage& encoded_image,
       const CodecSpecificInfo* codec_specific_info) = 0;
 
-  virtual void OnDroppedFrame(DropReason reason) {}
+  // Callback function called when an encoder has decided to drop a frame.
+  // This is usually either because of rate control buffer overflow or because
+  // the rate allocation of a given spatial index is set to zero, disabling it.
+  // The `rtp_timestamp` parameter uniquely identifier the temporal unit and
+  // thus the corresponding input frame. If `is_end_of_temporal_unit` is true,
+  // it means that no further callback to neither `OnEncodedImage()` nor
+  // `OnFrameDropped()` is expected for this RTP timestamp.
+  virtual void OnFrameDropped(uint32_t rtp_timestamp,
+                              int spatial_id,
+                              bool is_end_of_temporal_unit) = 0;
 };
 
 class RTC_EXPORT VideoEncoder {
@@ -100,7 +98,7 @@ class RTC_EXPORT VideoEncoder {
     struct KOff {};
 
    public:
-    // TODO(bugs.webrtc.org/9078): Since absl::optional should be trivially copy
+    // TODO(bugs.webrtc.org/9078): Since std::optional should be trivially copy
     // constructible, this magic value can likely be replaced by a constexpr
     // ScalingSettings value.
     static constexpr KOff kOff = {};
@@ -111,7 +109,7 @@ class RTC_EXPORT VideoEncoder {
     ScalingSettings(KOff);  // NOLINT(runtime/explicit)
     ~ScalingSettings();
 
-    absl::optional<QpThresholds> thresholds;
+    std::optional<QpThresholds> thresholds;
 
     // We will never ask for a resolution lower than this.
     // TODO(kthelgason): Lower this limit when better testing
@@ -148,6 +146,12 @@ class RTC_EXPORT VideoEncoder {
     bool operator!=(const ResolutionBitrateLimits& rhs) const {
       return !(*this == rhs);
     }
+  };
+
+  struct RTC_EXPORT Resolution {
+    Resolution(int width, int height) : width(width), height(height) {}
+    int width = 0;
+    int height = 0;
   };
 
   // Struct containing metadata about the encoder implementing this interface.
@@ -209,6 +213,9 @@ class RTC_EXPORT VideoEncoder {
     // thresholds will be used in CPU adaptation.
     bool is_hardware_accelerated;
 
+    // If this field is true, this encoder opts into CPU overuse detection.
+    bool enable_cpu_overuse_detection;
+
     // For each spatial layer (simulcast stream or SVC layer), represented as an
     // element in `fps_allocation` a vector indicates how many temporal layers
     // the encoder is using for that spatial layer.
@@ -240,8 +247,8 @@ class RTC_EXPORT VideoEncoder {
 
     // Obtains the limits from `resolution_bitrate_limits` that best matches the
     // `frame_size_pixels`.
-    absl::optional<ResolutionBitrateLimits>
-    GetEncoderBitrateLimitsForResolution(int frame_size_pixels) const;
+    std::optional<ResolutionBitrateLimits> GetEncoderBitrateLimitsForResolution(
+        int frame_size_pixels) const;
 
     // If true, this encoder has internal support for generating simulcast
     // streams. Otherwise, an adapter class will be needed.
@@ -258,7 +265,20 @@ class RTC_EXPORT VideoEncoder {
 
     // Indicates whether or not QP value encoder writes into frame/slice/tile
     // header can be interpreted as average frame/slice/tile QP.
-    absl::optional<bool> is_qp_trusted;
+    std::optional<bool> is_qp_trusted;
+
+    // The minimum QP that the encoder is expected to use with the current
+    // configuration. This may be used to determine if the encoder has reached
+    // its target video quality for static screenshare content.
+    std::optional<int> min_qp;
+
+    // Maximum resolution accessed by software encoder,
+    // i.e. resolution needed for cpu readable image.
+    // This has to be set by software encoders.
+    // If it's not set, mapping will happen during the
+    // encode time, otherwise more optimal implementation
+    // specific path may be used.
+    std::optional<Resolution> mapped_resolution;
   };
 
   struct RTC_EXPORT RateControlParameters {
@@ -300,7 +320,7 @@ class RTC_EXPORT VideoEncoder {
     // all decodable.
     // `false` if some dependencies were undecodable, `true` if all dependencies
     // were decodable, and `nullopt` if the dependencies are unknown.
-    absl::optional<bool> dependencies_of_last_received_decodable;
+    std::optional<bool> dependencies_of_last_received_decodable;
     // Describes whether the received frame was decodable.
     // `false` if some dependency was undecodable or if some packet belonging
     // to the last received frame was missed.
@@ -308,7 +328,7 @@ class RTC_EXPORT VideoEncoder {
     // to the last received frame were received.
     // `nullopt` if no packet belonging to the last frame was missed, but the
     // last packet in the frame was not yet received.
-    absl::optional<bool> last_received_decodable;
+    std::optional<bool> last_received_decodable;
   };
 
   // Negotiated capabilities which the VideoEncoder may expect the other
@@ -332,7 +352,7 @@ class RTC_EXPORT VideoEncoder {
     size_t max_payload_size;
     // Experimental API - currently only supported by LibvpxVp8Encoder and
     // the OpenH264 encoder. If set, limits the number of encoder threads.
-    absl::optional<int> encoder_thread_limit;
+    std::optional<int> encoder_thread_limit;
   };
 
   static VideoCodecVP8 GetDefaultVp8Settings();

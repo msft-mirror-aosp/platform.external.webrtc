@@ -1,0 +1,31 @@
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
+cc_library(
+    name = "histogram",
+    srcs = [
+        "value/histogram.cc",
+        "value/running_statistics.cc",
+    ],
+    hdrs = [
+        "value/histogram.h",
+        "value/running_statistics.h",
+    ],
+    include_prefix = "third_party/catapult/tracing/tracing",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//third_party/catapult/tracing/tracing/proto:histogram_proto",
+        "@protobuf//:protobuf_lite",
+    ],
+)
+
+cc_library(
+    name = "reserved_infos",
+    srcs = [
+        "value/diagnostics/reserved_infos.cc",
+    ],
+    hdrs = [
+        "value/diagnostics/reserved_infos.h",
+    ],
+    include_prefix = "third_party/catapult/tracing/tracing",
+    visibility = ["//visibility:public"],
+)

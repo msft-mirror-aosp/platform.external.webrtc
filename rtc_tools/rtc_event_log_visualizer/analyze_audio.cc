@@ -13,23 +13,28 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
 #include "api/audio_codecs/audio_codec_pair_id.h"
 #include "api/audio_codecs/audio_decoder.h"
 #include "api/audio_codecs/audio_decoder_factory.h"
 #include "api/audio_codecs/audio_format.h"
+#include "api/environment/environment.h"
+#include "api/field_trials_view.h"
 #include "api/function_view.h"
 #include "api/make_ref_counted.h"
 #include "api/neteq/neteq.h"
 #include "api/scoped_refptr.h"
 #include "api/units/timestamp.h"
+#include "logging/rtc_event_log/events/logged_rtp_rtcp.h"
 #include "logging/rtc_event_log/events/rtc_event_audio_network_adaptation.h"
+#include "logging/rtc_event_log/events/rtc_event_audio_playout.h"
+#include "logging/rtc_event_log/events/rtc_event_neteq_set_minimum_delay.h"
 #include "logging/rtc_event_log/rtc_event_log_parser.h"
 #include "modules/audio_coding/neteq/tools/audio_sink.h"
 #include "modules/audio_coding/neteq/tools/fake_decode_from_file.h"
@@ -52,11 +57,11 @@ void CreateAudioEncoderTargetBitrateGraph(const ParsedRtcEventLog& parsed_log,
   TimeSeries time_series("Audio encoder target bitrate", LineStyle::kLine,
                          PointStyle::kHighlight);
   auto GetAnaBitrateBps = [](const LoggedAudioNetworkAdaptationEvent& ana_event)
-      -> absl::optional<float> {
+      -> std::optional<float> {
     if (ana_event.config.bitrate_bps)
-      return absl::optional<float>(
+      return std::optional<float>(
           static_cast<float>(*ana_event.config.bitrate_bps));
-    return absl::nullopt;
+    return std::nullopt;
   };
   auto ToCallTime = [config](const LoggedAudioNetworkAdaptationEvent& packet) {
     return config.GetCallTimeSec(packet.log_time());
@@ -79,9 +84,9 @@ void CreateAudioEncoderFrameLengthGraph(const ParsedRtcEventLog& parsed_log,
   auto GetAnaFrameLengthMs =
       [](const LoggedAudioNetworkAdaptationEvent& ana_event) {
         if (ana_event.config.frame_length_ms)
-          return absl::optional<float>(
+          return std::optional<float>(
               static_cast<float>(*ana_event.config.frame_length_ms));
-        return absl::optional<float>();
+        return std::optional<float>();
       };
   auto ToCallTime = [config](const LoggedAudioNetworkAdaptationEvent& packet) {
     return config.GetCallTimeSec(packet.log_time());
@@ -104,9 +109,9 @@ void CreateAudioEncoderPacketLossGraph(const ParsedRtcEventLog& parsed_log,
   auto GetAnaPacketLoss =
       [](const LoggedAudioNetworkAdaptationEvent& ana_event) {
         if (ana_event.config.uplink_packet_loss_fraction)
-          return absl::optional<float>(static_cast<float>(
+          return std::optional<float>(static_cast<float>(
               *ana_event.config.uplink_packet_loss_fraction));
-        return absl::optional<float>();
+        return std::optional<float>();
       };
   auto ToCallTime = [config](const LoggedAudioNetworkAdaptationEvent& packet) {
     return config.GetCallTimeSec(packet.log_time());
@@ -130,9 +135,9 @@ void CreateAudioEncoderEnableFecGraph(const ParsedRtcEventLog& parsed_log,
   auto GetAnaFecEnabled =
       [](const LoggedAudioNetworkAdaptationEvent& ana_event) {
         if (ana_event.config.enable_fec)
-          return absl::optional<float>(
+          return std::optional<float>(
               static_cast<float>(*ana_event.config.enable_fec));
-        return absl::optional<float>();
+        return std::optional<float>();
       };
   auto ToCallTime = [config](const LoggedAudioNetworkAdaptationEvent& packet) {
     return config.GetCallTimeSec(packet.log_time());
@@ -155,9 +160,9 @@ void CreateAudioEncoderEnableDtxGraph(const ParsedRtcEventLog& parsed_log,
   auto GetAnaDtxEnabled =
       [](const LoggedAudioNetworkAdaptationEvent& ana_event) {
         if (ana_event.config.enable_dtx)
-          return absl::optional<float>(
+          return std::optional<float>(
               static_cast<float>(*ana_event.config.enable_dtx));
-        return absl::optional<float>();
+        return std::optional<float>();
       };
   auto ToCallTime = [config](const LoggedAudioNetworkAdaptationEvent& packet) {
     return config.GetCallTimeSec(packet.log_time());
@@ -180,9 +185,9 @@ void CreateAudioEncoderNumChannelsGraph(const ParsedRtcEventLog& parsed_log,
   auto GetAnaNumChannels =
       [](const LoggedAudioNetworkAdaptationEvent& ana_event) {
         if (ana_event.config.num_channels)
-          return absl::optional<float>(
+          return std::optional<float>(
               static_cast<float>(*ana_event.config.num_channels));
-        return absl::optional<float>();
+        return std::optional<float>();
       };
   auto ToCallTime = [config](const LoggedAudioNetworkAdaptationEvent& packet) {
     return config.GetCallTimeSec(packet.log_time());
@@ -218,9 +223,10 @@ class ReplacementAudioDecoderFactory : public AudioDecoderFactory {
     return true;
   }
 
-  std::unique_ptr<AudioDecoder> MakeAudioDecoder(
+  std::unique_ptr<AudioDecoder> Create(
+      const Environment& env,
       const SdpAudioFormat& format,
-      absl::optional<AudioCodecPairId> codec_pair_id) override {
+      std::optional<AudioCodecPairId> codec_pair_id) override {
     auto replacement_file = std::make_unique<test::ResampleInputAudioFile>(
         replacement_file_name_, file_sample_rate_hz_);
     replacement_file->set_output_rate_hz(48000);
@@ -237,10 +243,11 @@ class ReplacementAudioDecoderFactory : public AudioDecoderFactory {
 // the test and returns the NetEqDelayAnalyzer object that was used to
 // instrument the test.
 std::unique_ptr<test::NetEqStatsGetter> CreateNetEqTestAndRun(
-    ParsedRtcEventLog parsed_log,
+    const ParsedRtcEventLog& parsed_log,
     uint32_t ssrc,
-    const std::string& replacement_file_name,
-    int file_sample_rate_hz) {
+    absl::string_view replacement_file_name,
+    int file_sample_rate_hz,
+    const FieldTrialsView* field_trials) {
   std::unique_ptr<test::NetEqInput> input =
       test::CreateNetEqEventLogInput(parsed_log, ssrc);
   if (!input) {
@@ -255,9 +262,9 @@ std::unique_ptr<test::NetEqStatsGetter> CreateNetEqTestAndRun(
 
   std::unique_ptr<test::VoidAudioSink> output(new test::VoidAudioSink());
 
-  rtc::scoped_refptr<AudioDecoderFactory> decoder_factory =
-      rtc::make_ref_counted<ReplacementAudioDecoderFactory>(
-          replacement_file_name, file_sample_rate_hz);
+  scoped_refptr<AudioDecoderFactory> decoder_factory =
+      make_ref_counted<ReplacementAudioDecoderFactory>(replacement_file_name,
+                                                       file_sample_rate_hz);
 
   test::NetEqTest::DecoderMap codecs = {
       {kReplacementPt, SdpAudioFormat("l16", 48000, 1)}};
@@ -274,8 +281,8 @@ std::unique_ptr<test::NetEqStatsGetter> CreateNetEqTestAndRun(
 
   NetEq::Config config;
   test::NetEqTest test(config, decoder_factory, codecs, /*text_log=*/nullptr,
-                       /*factory=*/nullptr, std::move(input), std::move(output),
-                       callbacks);
+                       /*neteq_factory=*/nullptr, std::move(input),
+                       std::move(output), callbacks, field_trials);
   test.Run();
   return neteq_stats_getter;
 }
@@ -283,12 +290,14 @@ std::unique_ptr<test::NetEqStatsGetter> CreateNetEqTestAndRun(
 
 NetEqStatsGetterMap SimulateNetEq(const ParsedRtcEventLog& parsed_log,
                                   const AnalyzerConfig& config,
-                                  const std::string& replacement_file_name,
-                                  int file_sample_rate_hz) {
+                                  absl::string_view replacement_file_name,
+                                  int file_sample_rate_hz,
+                                  const FieldTrialsView* field_trials) {
   NetEqStatsGetterMap neteq_stats;
   for (uint32_t ssrc : parsed_log.incoming_audio_ssrcs()) {
-    std::unique_ptr<test::NetEqStatsGetter> stats = CreateNetEqTestAndRun(
-        parsed_log, ssrc, replacement_file_name, file_sample_rate_hz);
+    std::unique_ptr<test::NetEqStatsGetter> stats =
+        CreateNetEqTestAndRun(parsed_log, ssrc, replacement_file_name,
+                              file_sample_rate_hz, field_trials);
     if (stats) {
       neteq_stats[ssrc] = std::move(stats);
     }
@@ -360,9 +369,9 @@ void CreateNetEqStatsGraphInternal(
     const ParsedRtcEventLog& parsed_log,
     const AnalyzerConfig& config,
     const NetEqStatsGetterMap& neteq_stats,
-    rtc::FunctionView<const std::vector<std::pair<int64_t, NetEqStatsType>>*(
+    FunctionView<const std::vector<std::pair<int64_t, NetEqStatsType>>*(
         const test::NetEqStatsGetter*)> data_extractor,
-    rtc::FunctionView<float(const NetEqStatsType&)> stats_extractor,
+    FunctionView<float(const NetEqStatsType&)> stats_extractor,
     const std::string& plot_name,
     Plot* plot) {
   std::map<uint32_t, TimeSeries> time_series;
@@ -395,7 +404,7 @@ void CreateNetEqNetworkStatsGraph(
     const ParsedRtcEventLog& parsed_log,
     const AnalyzerConfig& config,
     const NetEqStatsGetterMap& neteq_stats,
-    rtc::FunctionView<float(const NetEqNetworkStatistics&)> stats_extractor,
+    FunctionView<float(const NetEqNetworkStatistics&)> stats_extractor,
     const std::string& plot_name,
     Plot* plot) {
   CreateNetEqStatsGraphInternal<NetEqNetworkStatistics>(
@@ -410,7 +419,7 @@ void CreateNetEqLifetimeStatsGraph(
     const ParsedRtcEventLog& parsed_log,
     const AnalyzerConfig& config,
     const NetEqStatsGetterMap& neteq_stats,
-    rtc::FunctionView<float(const NetEqLifetimeStatistics&)> stats_extractor,
+    FunctionView<float(const NetEqLifetimeStatistics&)> stats_extractor,
     const std::string& plot_name,
     Plot* plot) {
   CreateNetEqStatsGraphInternal<NetEqLifetimeStatistics>(
@@ -419,6 +428,109 @@ void CreateNetEqLifetimeStatsGraph(
         return stats_getter->lifetime_stats();
       },
       stats_extractor, plot_name, plot);
+}
+
+// For each SSRC, plot the time between the consecutive playouts.
+void CreatePlayoutGraph(const ParsedRtcEventLog& parsed_log,
+                        const AnalyzerConfig& config,
+                        Plot* plot) {
+  for (const auto& playout_stream : parsed_log.audio_playout_events()) {
+    uint32_t ssrc = playout_stream.first;
+    if (!MatchingSsrc(ssrc, config.desired_ssrc_))
+      continue;
+    std::optional<int64_t> last_playout_ms;
+    TimeSeries time_series(SsrcToString(ssrc), LineStyle::kBar);
+    for (const auto& playout_event : playout_stream.second) {
+      float x = config.GetCallTimeSec(playout_event.log_time());
+      int64_t playout_time_ms = playout_event.log_time_ms();
+      // If there were no previous playouts, place the point on the x-axis.
+      float y = playout_time_ms - last_playout_ms.value_or(playout_time_ms);
+      time_series.points.push_back(TimeSeriesPoint(x, y));
+      last_playout_ms.emplace(playout_time_ms);
+    }
+    plot->AppendTimeSeries(std::move(time_series));
+  }
+
+  plot->SetXAxis(config.CallBeginTimeSec(), config.CallEndTimeSec(), "Time (s)",
+                 kLeftMargin, kRightMargin);
+  plot->SetSuggestedYAxis(0, 1, "Time since last playout (ms)", kBottomMargin,
+                          kTopMargin);
+  plot->SetTitle("Audio playout");
+}
+
+void CreateNetEqSetMinimumDelay(const ParsedRtcEventLog& parsed_log,
+                                const AnalyzerConfig& config,
+                                Plot* plot) {
+  for (const auto& playout_stream :
+       parsed_log.neteq_set_minimum_delay_events()) {
+    uint32_t ssrc = playout_stream.first;
+    if (!MatchingSsrc(ssrc, config.desired_ssrc_))
+      continue;
+
+    TimeSeries time_series(SsrcToString(ssrc), LineStyle::kStep,
+                           PointStyle::kHighlight);
+    for (const auto& event : playout_stream.second) {
+      float x = config.GetCallTimeSec(event.log_time());
+      float y = event.minimum_delay_ms;
+      time_series.points.push_back(TimeSeriesPoint(x, y));
+    }
+    plot->AppendTimeSeries(std::move(time_series));
+  }
+
+  plot->SetXAxis(config.CallBeginTimeSec(), config.CallEndTimeSec(), "Time (s)",
+                 kLeftMargin, kRightMargin);
+  plot->SetSuggestedYAxis(0, 1000, "Minimum Delay (ms)", kBottomMargin,
+                          kTopMargin);
+  plot->SetTitle("Set Minimum Delay");
+}
+
+// For audio SSRCs, plot the audio level.
+void CreateAudioLevelGraph(const ParsedRtcEventLog& parsed_log,
+                           const AnalyzerConfig& config,
+                           PacketDirection direction,
+                           Plot* plot) {
+  for (const auto& stream : parsed_log.rtp_packets_by_ssrc(direction)) {
+    if (!IsAudioSsrc(parsed_log, direction, stream.ssrc))
+      continue;
+    TimeSeries time_series(GetStreamName(parsed_log, direction, stream.ssrc),
+                           LineStyle::kLine);
+    for (auto& packet : stream.packet_view) {
+      if (packet.header.extension.audio_level()) {
+        float x = config.GetCallTimeSec(packet.log_time());
+        // The audio level is stored in -dBov (so e.g. -10 dBov is stored as 10)
+        // Here we convert it to dBov.
+        float y =
+            static_cast<float>(-packet.header.extension.audio_level()->level());
+        time_series.points.emplace_back(TimeSeriesPoint(x, y));
+      }
+    }
+    plot->AppendTimeSeries(std::move(time_series));
+  }
+
+  plot->SetXAxis(config.CallBeginTimeSec(), config.CallEndTimeSec(), "Time (s)",
+                 kLeftMargin, kRightMargin);
+  plot->SetYAxis(-127, 0, "Audio level (dBov)", kBottomMargin, kTopMargin);
+  plot->SetTitle(GetDirectionAsString(direction) + " audio level");
+}
+
+LazyNetEqSimulator::LazyNetEqSimulator(const ParsedRtcEventLog& parsed_log,
+                                       const AnalyzerConfig& config)
+    : parsed_log_(parsed_log), config_(config) {}
+
+void LazyNetEqSimulator::SetReplacementAudioFile(
+    absl::string_view replacement_file_name,
+    int file_sample_rate_hz) {
+  replacement_file_name_ = std::string(replacement_file_name);
+  file_sample_rate_hz_ = file_sample_rate_hz;
+}
+
+const NetEqStatsGetterMap& LazyNetEqSimulator::GetStats() const {
+  if (!neteq_stats_) {
+    neteq_stats_ =
+        SimulateNetEq(parsed_log_, config_, replacement_file_name_,
+                      file_sample_rate_hz_, &config_.env_.field_trials());
+  }
+  return *neteq_stats_;
 }
 
 }  // namespace webrtc

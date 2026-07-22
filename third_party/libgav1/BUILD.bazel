@@ -58,7 +58,6 @@ LIBGAV1_COPTS = select({
     ":windows_arm64": [],
     "//conditions:default": [
         "-fno-asynchronous-unwind-tables",
-        "-Wa,--gsframe=no",
     ],
 })
 
@@ -222,11 +221,9 @@ cc_library(
         ":x86_64": [
             "-msse4.1",
             "-fno-asynchronous-unwind-tables",
-            "-Wa,--gsframe=no",
         ],
         "//conditions:default": [
             "-fno-asynchronous-unwind-tables",
-            "-Wa,--gsframe=no",
         ],
     }),
     defines = LIBGAV1_DEFINES,
@@ -247,11 +244,9 @@ cc_library(
         ":x86_64": [
             "-mavx2",
             "-fno-asynchronous-unwind-tables",
-            "-Wa,--gsframe=no",
         ],
         "//conditions:default": [
             "-fno-asynchronous-unwind-tables",
-            "-Wa,--gsframe=no",
         ],
     }),
     defines = LIBGAV1_DEFINES,
@@ -293,11 +288,9 @@ cc_library(
         ":windows_arm64": [],
         ":arm64": [
             "-fno-asynchronous-unwind-tables",
-            "-Wa,--gsframe=no",
         ],
         "//conditions:default": [
             "-fno-asynchronous-unwind-tables",
-            "-Wa,--gsframe=no",
         ],
     }),
     defines = LIBGAV1_DEFINES,
@@ -309,12 +302,10 @@ cc_library(
     name = "libgav1",
     srcs = [
         "src/src/buffer_pool.cc",
-        "src/src/buffer_pool.h",
         "src/src/decoder.cc",
         "src/src/decoder_impl.cc",
         "src/src/decoder_impl.h",
         "src/src/decoder_settings.cc",
-        "src/src/decoder_state.h",
         "src/src/dsp/average_blend.cc",
         "src/src/dsp/cdef.cc",
         "src/src/dsp/convolve.cc",
@@ -350,7 +341,6 @@ cc_library(
         "src/src/motion_vector.cc",
         "src/src/motion_vector.h",
         "src/src/obu_parser.cc",
-        "src/src/obu_parser.h",
         "src/src/post_filter.h",
         "src/src/post_filter/cdef.cc",
         "src/src/post_filter/deblock.cc",
@@ -389,6 +379,8 @@ cc_library(
         "src/src/yuv_buffer.h",
     ],
     hdrs = [
+        "src/src/buffer_pool.h",
+        "src/src/decoder_state.h",
         "src/src/gav1/decoder.h",
         "src/src/gav1/decoder_buffer.h",
         "src/src/gav1/decoder_settings.h",
@@ -396,11 +388,12 @@ cc_library(
         "src/src/gav1/status_code.h",
         "src/src/gav1/symbol_visibility.h",
         "src/src/gav1/version.h",
+        "src/src/obu_parser.h",
     ],
     copts = LIBGAV1_COPTS,
     defines = LIBGAV1_DEFINES,
+    include_prefix = "third_party/libgav1",
     includes = LIBGAV1_INCLUDES,
-    strip_include_prefix = "src/src",
     deps = [
         ":common",
         ":dsp_avx2",

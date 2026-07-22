@@ -1,0 +1,20 @@
+load("//third_party:shims.bzl", "forwarding_shim")
+
+forwarding_shim(
+    name = "libaom",
+    backend = "@aom//:aom",
+    headers = [
+        "aom/aom.h",
+        "aom/aom_codec.h",
+        "aom/aom_decoder.h",
+        "aom/aom_encoder.h",
+        "aom/aom_external_partition.h",
+        "aom/aom_frame_buffer.h",
+        "aom/aom_image.h",
+        "aom/aom_integer.h",
+        "aom/aomcx.h",
+        "aom/aomdx.h",
+    ],
+    include_prefix = "third_party/libaom/source/libaom",
+    visibility = ["//visibility:public"],
+)

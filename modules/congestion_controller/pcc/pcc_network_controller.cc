@@ -11,9 +11,16 @@
 #include "modules/congestion_controller/pcc/pcc_network_controller.h"
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <optional>
 
-#include "absl/types/optional.h"
+#include "api/transport/network_control.h"
+#include "api/transport/network_types.h"
+#include "api/units/data_rate.h"
 #include "api/units/data_size.h"
+#include "api/units/time_delta.h"
+#include "api/units/timestamp.h"
 #include "rtc_base/checks.h"
 
 namespace webrtc {
@@ -154,7 +161,7 @@ NetworkControlUpdate PccNetworkController::OnSentPacket(SentPacket msg) {
       received_size += last_received_packets_[i].sent_packet.size;
     }
     TimeDelta sending_time = TimeDelta::Zero();
-    if (last_received_packets_.size() > 0)
+    if (!last_received_packets_.empty())
       sending_time = last_received_packets_.back().receive_time -
                      last_received_packets_.front().receive_time;
     DataRate receiving_rate = bandwidth_estimate_;
@@ -172,7 +179,7 @@ NetworkControlUpdate PccNetworkController::OnSentPacket(SentPacket msg) {
       received_size += last_received_packets_[i].sent_packet.size;
     }
     TimeDelta sending_time = TimeDelta::Zero();
-    if (last_received_packets_.size() > 0)
+    if (!last_received_packets_.empty())
       sending_time = last_received_packets_.back().receive_time -
                      last_received_packets_.front().receive_time;
     DataRate receiving_rate = bandwidth_estimate_;
@@ -339,12 +346,12 @@ void PccNetworkController::UpdateSendingRateAndMode() {
 }
 
 NetworkControlUpdate PccNetworkController::OnNetworkAvailability(
-    NetworkAvailability msg) {
+    NetworkAvailability /* msg */) {
   return NetworkControlUpdate();
 }
 
 NetworkControlUpdate PccNetworkController::OnNetworkRouteChange(
-    NetworkRouteChange msg) {
+    NetworkRouteChange /* msg */) {
   return NetworkControlUpdate();
 }
 
@@ -354,7 +361,7 @@ NetworkControlUpdate PccNetworkController::OnProcessInterval(
 }
 
 NetworkControlUpdate PccNetworkController::OnTargetRateConstraints(
-    TargetRateConstraints msg) {
+    TargetRateConstraints /* msg */) {
   return NetworkControlUpdate();
 }
 
@@ -373,17 +380,18 @@ NetworkControlUpdate PccNetworkController::OnTransportLossReport(
   return NetworkControlUpdate();
 }
 
-NetworkControlUpdate PccNetworkController::OnStreamsConfig(StreamsConfig msg) {
+NetworkControlUpdate PccNetworkController::OnStreamsConfig(
+    StreamsConfig /* msg */) {
   return NetworkControlUpdate();
 }
 
 NetworkControlUpdate PccNetworkController::OnReceivedPacket(
-    ReceivedPacket msg) {
+    ReceivedPacket /* msg */) {
   return NetworkControlUpdate();
 }
 
 NetworkControlUpdate PccNetworkController::OnNetworkStateEstimate(
-    NetworkStateEstimate msg) {
+    NetworkStateEstimate /* msg */) {
   return NetworkControlUpdate();
 }
 

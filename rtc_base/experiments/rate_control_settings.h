@@ -11,20 +11,22 @@
 #ifndef RTC_BASE_EXPERIMENTS_RATE_CONTROL_SETTINGS_H_
 #define RTC_BASE_EXPERIMENTS_RATE_CONTROL_SETTINGS_H_
 
-#include "absl/types/optional.h"
+#include <cstdint>
+#include <memory>
+#include <optional>
+
+#include "absl/strings/string_view.h"
 #include "api/field_trials_view.h"
 #include "api/units/data_size.h"
-#include "api/video_codecs/video_codec.h"
 #include "rtc_base/experiments/struct_parameters_parser.h"
-#include "video/config/video_encoder_config.h"
 
 namespace webrtc {
 
 struct CongestionWindowConfig {
   static constexpr char kKey[] = "WebRTC-CongestionWindow";
-  absl::optional<int> queue_size_ms;
-  absl::optional<int> min_bitrate_bps;
-  absl::optional<DataSize> initial_data_window;
+  std::optional<int> queue_size_ms;
+  std::optional<int> min_bitrate_bps;
+  std::optional<DataSize> initial_data_window;
   bool drop_frame_only = false;
   std::unique_ptr<StructParametersParser> Parser();
   static CongestionWindowConfig Parse(absl::string_view config);
@@ -32,10 +34,10 @@ struct CongestionWindowConfig {
 
 struct VideoRateControlConfig {
   static constexpr char kKey[] = "WebRTC-VideoRateControl";
-  absl::optional<double> pacing_factor;
+  std::optional<double> pacing_factor;
   bool alr_probing = false;
-  absl::optional<int> vp8_qp_max;
-  absl::optional<int> vp8_min_pixels;
+  std::optional<int> vp8_qp_max;
+  std::optional<int> vp8_min_pixels;
   bool trust_vp8 = true;
   bool trust_vp9 = true;
   bool bitrate_adjuster = true;
@@ -60,13 +62,13 @@ class RateControlSettings final {
   bool UseCongestionWindowPushback() const;
   bool UseCongestionWindowDropFrameOnly() const;
   uint32_t CongestionWindowMinPushbackTargetBitrateBps() const;
-  absl::optional<DataSize> CongestionWindowInitialDataWindow() const;
+  std::optional<DataSize> CongestionWindowInitialDataWindow() const;
 
-  absl::optional<double> GetPacingFactor() const;
+  std::optional<double> GetPacingFactor() const;
   bool UseAlrProbing() const;
 
-  absl::optional<int> LibvpxVp8QpMax() const;
-  absl::optional<int> LibvpxVp8MinPixels() const;
+  std::optional<int> LibvpxVp8QpMax() const;
+  std::optional<int> LibvpxVp8MinPixels() const;
   bool LibvpxVp8TrustedRateController() const;
   bool Vp8BoostBaseLayerQuality() const;
   bool Vp8DynamicRateSettings() const;

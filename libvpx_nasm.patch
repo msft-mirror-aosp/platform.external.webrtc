@@ -1,0 +1,46 @@
+--- BUILD.bazel
++++ BUILD.bazel
+@@ -235,7 +235,7 @@ nasm_library(
+     copts = select({
+         "@platforms//os:android": ["-D__ANDROID__"],
+         "@platforms//os:windows": ["-fwin32"],
+-        "//conditions:default": [],
++        "//conditions:default": ["-felf32"],
+     }),
+     includes = ["."] + select({
+         "@platforms//os:windows": ["config/generated/x86/windows"],
+@@ -351,6 +351,10 @@ nasm_library(
+     copts = select({
+         "@platforms//os:android": ["-D__ANDROID__"],
+         "//conditions:default": [],
++    }) + select({
++        "@platforms//os:windows": ["-fwin64"],
++        "@platforms//os:macos": ["-fmacho64"],
++        "//conditions:default": ["-felf64"],
+     }),
+     includes = ["."] + select({
+         "@platforms//os:windows": ["config/generated/x86_64/windows"],
+@@ -501,13 +505,22 @@
++cc_library(
++    name = "vpx_webrtc_headers",
++    hdrs = _PLATFORM_PUBLIC_HDRS,
++    include_prefix = "third_party/libvpx/source/libvpx",
++    strip_include_prefix = "",
++    visibility = ["//visibility:private"],
++)
++
+ cc_library(
+     name = "vpx",
+     srcs = _PLATFORM_BASE_SRCS + select({
+         "@platforms//cpu:x86_32": [":x86_asm"],
+         "@platforms//cpu:x86_64": [":x86_64_asm"],
+         "//conditions:default": [],
+     }),
+     hdrs = _PLATFORM_PUBLIC_HDRS,
++    includes = ["."],
+     copts = _COMMON_COPTS,
+     defines = _COMMON_DEFINES,
+     target_compatible_with = _SUPPORTED_PLATFORM,
+     visibility = ["//visibility:public"],
+-    deps = _PLATFORM_CONFIG_DEPS + select({
++    deps = _PLATFORM_CONFIG_DEPS + [":vpx_webrtc_headers"] + select({

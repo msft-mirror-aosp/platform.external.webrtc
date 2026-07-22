@@ -10,14 +10,15 @@
 
 #include "rtc_base/system/file_wrapper.h"
 
-#include <stddef.h>
-
 #include <cerrno>
+#include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <optional>
 #include <string>
+#include <utility>
 
 #include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/numerics/safe_conversions.h"
 
@@ -25,8 +26,6 @@
 #include <Windows.h>
 #else
 #endif
-
-#include <utility>
 
 namespace webrtc {
 namespace {
@@ -74,28 +73,28 @@ FileWrapper& FileWrapper::operator=(FileWrapper&& other) {
 
 bool FileWrapper::SeekRelative(int64_t offset) {
   RTC_DCHECK(file_);
-  return fseek(file_, rtc::checked_cast<long>(offset), SEEK_CUR) == 0;
+  return fseek(file_, checked_cast<long>(offset), SEEK_CUR) == 0;
 }
 
 bool FileWrapper::SeekTo(int64_t position) {
   RTC_DCHECK(file_);
-  return fseek(file_, rtc::checked_cast<long>(position), SEEK_SET) == 0;
+  return fseek(file_, checked_cast<long>(position), SEEK_SET) == 0;
 }
 
-absl::optional<size_t> FileWrapper::FileSize() {
+std::optional<size_t> FileWrapper::FileSize() {
   if (file_ == nullptr)
-    return absl::nullopt;
+    return std::nullopt;
   long original_position = ftell(file_);
   if (original_position < 0)
-    return absl::nullopt;
+    return std::nullopt;
   int seek_error = fseek(file_, 0, SEEK_END);
   if (seek_error)
-    return absl::nullopt;
+    return std::nullopt;
   long file_size = ftell(file_);
   seek_error = fseek(file_, original_position, SEEK_SET);
   if (seek_error)
-    return absl::nullopt;
-  return rtc::checked_cast<size_t>(file_size);
+    return std::nullopt;
+  return checked_cast<size_t>(file_size);
 }
 
 bool FileWrapper::Flush() {

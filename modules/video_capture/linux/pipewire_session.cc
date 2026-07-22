@@ -10,17 +10,38 @@
 
 #include "modules/video_capture/linux/pipewire_session.h"
 
+#include <pipewire/pipewire.h>
 #include <spa/monitor/device.h>
 #include <spa/param/format-utils.h>
 #include <spa/param/format.h>
+#include <spa/param/param.h>
 #include <spa/param/video/raw.h>
-#include <spa/pod/parser.h>
+#include <spa/pod/iter.h>
+#include <spa/pod/pod.h>
+#include <spa/utils/defs.h>
+#include <spa/utils/dict.h>
+#include <spa/utils/hook.h>
+#include <spa/utils/type.h>
 
+#include <algorithm>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <memory>
+#include <optional>
+#include <utility>
+
+#include "absl/strings/string_view.h"
 #include "common_video/libyuv/include/webrtc_libyuv.h"
-#include "modules/video_capture/device_info_impl.h"
+#include "modules/portal/pipewire_utils.h"
+#include "modules/portal/portal_request_response.h"
+#include "modules/video_capture/linux/camera_portal.h"
+#include "modules/video_capture/video_capture_defines.h"
+#include "modules/video_capture/video_capture_options.h"
 #include "rtc_base/logging.h"
-#include "rtc_base/string_encode.h"
+#include "rtc_base/sanitizer.h"
 #include "rtc_base/string_to_number.h"
+#include "rtc_base/synchronization/mutex.h"
 
 namespace webrtc {
 namespace videocapturemodule {
@@ -35,20 +56,46 @@ VideoType PipeWireRawFormatToVideoType(uint32_t id) {
       return VideoType::kYUY2;
     case SPA_VIDEO_FORMAT_UYVY:
       return VideoType::kUYVY;
+    case SPA_VIDEO_FORMAT_RGB16:
+      return VideoType::kRGB565;
     case SPA_VIDEO_FORMAT_RGB:
+      return VideoType::kBGR24;
+    case SPA_VIDEO_FORMAT_BGR:
       return VideoType::kRGB24;
+    case SPA_VIDEO_FORMAT_BGRA:
+      return VideoType::kARGB;
+    case SPA_VIDEO_FORMAT_RGBA:
+      return VideoType::kABGR;
+    case SPA_VIDEO_FORMAT_ARGB:
+      return VideoType::kBGRA;
     default:
       return VideoType::kUnknown;
   }
 }
 
+void PipeWireNode::PipeWireNodeDeleter::operator()(
+    PipeWireNode* node) const noexcept {
+  spa_hook_remove(&node->node_listener_);
+  spa_hook_remove(&node->proxy_listener_);
+  pw_proxy_destroy(node->proxy_);
+  pw_node_info_free(node->info_);
+}
+
+// static
+PipeWireNode::PipeWireNodePtr PipeWireNode::Create(PipeWireSession* session,
+                                                   uint32_t id,
+                                                   const spa_dict* props) {
+  return PipeWireNodePtr(new PipeWireNode(session, id, props));
+}
+
+RTC_NO_SANITIZE("cfi-icall")
 PipeWireNode::PipeWireNode(PipeWireSession* session,
                            uint32_t id,
                            const spa_dict* props)
     : session_(session),
       id_(id),
       display_name_(spa_dict_lookup(props, PW_KEY_NODE_DESCRIPTION)),
-      unique_id_(rtc::ToString(id)) {
+      unique_id_(spa_dict_lookup(props, PW_KEY_NODE_NAME)) {
   RTC_LOG(LS_VERBOSE) << "Found Camera: " << display_name_;
 
   proxy_ = static_cast<pw_proxy*>(pw_registry_bind(
@@ -60,28 +107,37 @@ PipeWireNode::PipeWireNode(PipeWireSession* session,
       .param = OnNodeParam,
   };
 
-  pw_node_add_listener(proxy_, &node_listener_, &node_events, this);
-}
+  pw_node_add_listener(reinterpret_cast<pw_node*>(proxy_), &node_listener_, &node_events, this);
 
-PipeWireNode::~PipeWireNode() {
-  pw_proxy_destroy(proxy_);
-  spa_hook_remove(&node_listener_);
+  static const pw_proxy_events proxy_events{
+      .version = PW_VERSION_PROXY_EVENTS,
+      .done = OnProxyDone,
+  };
+
+  pw_proxy_add_listener(proxy_, &proxy_listener_, &proxy_events, this);
 }
 
 // static
+RTC_NO_SANITIZE("cfi-icall")
 void PipeWireNode::OnNodeInfo(void* data, const pw_node_info* info) {
   PipeWireNode* that = static_cast<PipeWireNode*>(data);
+
+  that->info_ = pw_node_info_update(that->info_, info);
+  if (!that->info_)
+    return;
+
+  info = that->info_;
 
   if (info->change_mask & PW_NODE_CHANGE_MASK_PROPS) {
     const char* vid_str;
     const char* pid_str;
-    absl::optional<int> vid;
-    absl::optional<int> pid;
+    std::optional<int> vid;
+    std::optional<int> pid;
 
     vid_str = spa_dict_lookup(info->props, SPA_KEY_DEVICE_VENDOR_ID);
     pid_str = spa_dict_lookup(info->props, SPA_KEY_DEVICE_PRODUCT_ID);
-    vid = vid_str ? rtc::StringToNumber<int>(vid_str) : absl::nullopt;
-    pid = pid_str ? rtc::StringToNumber<int>(pid_str) : absl::nullopt;
+    vid = vid_str ? webrtc::StringToNumber<int>(vid_str) : std::nullopt;
+    pid = pid_str ? webrtc::StringToNumber<int>(pid_str) : std::nullopt;
 
     if (vid && pid) {
       char model_str[10];
@@ -89,20 +145,29 @@ void PipeWireNode::OnNodeInfo(void* data, const pw_node_info* info) {
                pid.value());
       that->model_id_ = model_str;
     }
-  } else if (info->change_mask & PW_NODE_CHANGE_MASK_PARAMS) {
+  }
+
+  if (info->change_mask & PW_NODE_CHANGE_MASK_PARAMS) {
     for (uint32_t i = 0; i < info->n_params; i++) {
+      if (info->params[i].user == 0)
+        continue;
+      info->params[i].user = 0;
+
       uint32_t id = info->params[i].id;
       if (id == SPA_PARAM_EnumFormat &&
           info->params[i].flags & SPA_PARAM_INFO_READ) {
-        pw_node_enum_params(that->proxy_, 0, id, 0, UINT32_MAX, nullptr);
+        that->pending_capabilities_.clear();
+        pw_node_enum_params(reinterpret_cast<pw_node*>(that->proxy_), 0, id, 0, UINT32_MAX, nullptr);
+        that->sync_seq_ = pw_proxy_sync(that->proxy_, that->sync_seq_);
+        that->session_->PipeWireSync();
         break;
       }
     }
-    that->session_->PipeWireSync();
   }
 }
 
 // static
+RTC_NO_SANITIZE("cfi-icall")
 void PipeWireNode::OnNodeParam(void* data,
                                int seq,
                                uint32_t id,
@@ -127,10 +192,17 @@ void PipeWireNode::OnNodeParam(void* data,
 
       fract = static_cast<spa_fraction*>(SPA_POD_BODY(val));
 
-      if (choice == SPA_CHOICE_None)
+      if (choice == SPA_CHOICE_None) {
         cap.maxFPS = 1.0 * fract[0].num / fract[0].denom;
-      else if (choice == SPA_CHOICE_Range && fract[1].num > 0)
+      } else if (choice == SPA_CHOICE_Enum) {
+        for (uint32_t i = 1; i < n_items; i++) {
+          cap.maxFPS = std::max(
+              static_cast<int32_t>(1.0 * fract[i].num / fract[i].denom),
+              cap.maxFPS);
+        }
+      } else if (choice == SPA_CHOICE_Range && fract[1].num > 0) {
         cap.maxFPS = 1.0 * fract[1].num / fract[1].denom;
+      }
     }
   }
 
@@ -158,7 +230,18 @@ void PipeWireNode::OnNodeParam(void* data,
                       << cap.width << "x" << cap.height << "@" << cap.maxFPS
                       << ")";
 
-  that->capabilities_.push_back(cap);
+  that->pending_capabilities_.push_back(cap);
+}
+
+// static
+void PipeWireNode::OnProxyDone(void* data, int seq) {
+  PipeWireNode* that = static_cast<PipeWireNode*>(data);
+
+  if (seq != that->sync_seq_)
+    return;
+
+  that->capabilities_ = std::move(that->pending_capabilities_);
+  that->pending_capabilities_.clear();
 }
 
 // static
@@ -254,8 +337,9 @@ void PipeWireSession::InitPipeWire(int fd) {
     Finish(VideoCaptureOptions::Status::ERROR);
 }
 
+RTC_NO_SANITIZE("cfi-icall")
 bool PipeWireSession::StartPipeWire(int fd) {
-  pw_init(/*argc=*/nullptr, /*argv=*/nullptr);
+  pw_initializer_ = std::make_unique<PipeWireInitializer>();
 
   pw_main_loop_ = pw_thread_loop_new("pipewire-main-loop", nullptr);
 
@@ -320,6 +404,7 @@ void PipeWireSession::StopPipeWire() {
   }
 }
 
+RTC_NO_SANITIZE("cfi-icall")
 void PipeWireSession::PipeWireSync() {
   sync_seq_ = pw_core_sync(pw_core_, PW_ID_CORE, sync_seq_);
 }
@@ -340,12 +425,20 @@ void PipeWireSession::OnCoreDone(void* data, uint32_t id, int seq) {
   if (id == PW_ID_CORE) {
     if (seq == that->sync_seq_) {
       RTC_LOG(LS_VERBOSE) << "Enumerating PipeWire camera devices complete.";
+
+      // Remove camera devices with no capabilities
+      std::erase_if(that->nodes_,
+                    [](const PipeWireNode::PipeWireNodePtr& node) {
+                      return node->capabilities().empty();
+                    });
+
       that->Finish(VideoCaptureOptions::Status::SUCCESS);
     }
   }
 }
 
 // static
+RTC_NO_SANITIZE("cfi-icall")
 void PipeWireSession::OnRegistryGlobal(void* data,
                                        uint32_t id,
                                        uint32_t permissions,
@@ -353,6 +446,13 @@ void PipeWireSession::OnRegistryGlobal(void* data,
                                        uint32_t version,
                                        const spa_dict* props) {
   PipeWireSession* that = static_cast<PipeWireSession*>(data);
+
+  // Skip already added nodes to avoid duplicate camera entries
+  if (std::find_if(that->nodes_.begin(), that->nodes_.end(),
+                   [id](const PipeWireNode::PipeWireNodePtr& node) {
+                     return node->id() == id;
+                   }) != that->nodes_.end())
+    return;
 
   if (type != absl::string_view(PW_TYPE_INTERFACE_Node))
     return;
@@ -364,7 +464,7 @@ void PipeWireSession::OnRegistryGlobal(void* data,
   if (!node_role || strcmp(node_role, "Camera"))
     return;
 
-  that->nodes_.emplace_back(that, id, props);
+  that->nodes_.push_back(PipeWireNode::Create(that, id, props));
   that->PipeWireSync();
 }
 
@@ -372,15 +472,14 @@ void PipeWireSession::OnRegistryGlobal(void* data,
 void PipeWireSession::OnRegistryGlobalRemove(void* data, uint32_t id) {
   PipeWireSession* that = static_cast<PipeWireSession*>(data);
 
-  for (auto it = that->nodes_.begin(); it != that->nodes().end(); ++it) {
-    if ((*it).id() == id) {
-      that->nodes_.erase(it);
-      break;
-    }
-  }
+  std::erase_if(that->nodes_, [id](const PipeWireNode::PipeWireNodePtr& node) {
+    return node->id() == id;
+  });
 }
 
 void PipeWireSession::Finish(VideoCaptureOptions::Status status) {
+  status_ = status;
+
   webrtc::MutexLock lock(&callback_lock_);
 
   if (callback_) {

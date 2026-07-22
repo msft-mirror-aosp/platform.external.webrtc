@@ -12,22 +12,36 @@
 
 #if RTC_LOG_ENABLED()
 
-#include <string.h>
+#include <stdlib.h>
 
-#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <cstdlib>
+#include <memory>
+#include <string>
+#include <string_view>
+#include <utility>
 
+#include "absl/cleanup/cleanup.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/strings/string_view.h"
-#include "rtc_base/arraysize.h"
+#include "api/location.h"
+#include "api/task_queue/task_queue_base.h"
+#include "api/units/time_delta.h"
+#include "api/units/timestamp.h"
 #include "rtc_base/checks.h"
-#include "rtc_base/event.h"
 #include "rtc_base/platform_thread.h"
-#include "rtc_base/time_utils.h"
+#include "rtc_base/thread.h"
+#include "system_wrappers/include/clock.h"
 #include "test/gmock.h"
 #include "test/gtest.h"
 
-namespace rtc {
+namespace webrtc {
 
 namespace {
+
+using ::testing::HasSubstr;
+using ::testing::StartsWith;
 
 #if defined(WEBRTC_WIN)
 constexpr char kFakeFilePath[] = "some\\path\\myfile.cc";
@@ -95,8 +109,8 @@ TEST(LogTest, SingleStream) {
 
   RTC_LOG(LS_INFO) << "INFO";
   RTC_LOG(LS_VERBOSE) << "VERBOSE";
-  EXPECT_NE(std::string::npos, str.find("INFO"));
-  EXPECT_EQ(std::string::npos, str.find("VERBOSE"));
+  EXPECT_THAT(str, HasSubstr("INFO"));
+  EXPECT_THAT(str, Not(HasSubstr("VERBOSE")));
 
   int i = 1;
   long l = 2l;
@@ -112,36 +126,66 @@ TEST(LogTest, SingleStream) {
   const char* null_string = nullptr;
   void* p = reinterpret_cast<void*>(0xabcd);
 
-  // Log all suported types(except doubles/floats) as a sanity-check.
+  // Log all supported types(except doubles/floats) as a sanity-check.
   RTC_LOG(LS_INFO) << "|" << i << "|" << l << "|" << ll << "|" << u << "|" << ul
                    << "|" << ull << "|" << s1.c_str() << "|" << s2 << "|"
                    << absl::string_view(s3) << "|" << p << "|" << null_string
                    << "|";
 
   // Signed integers
-  EXPECT_NE(std::string::npos, str.find("|1|"));
-  EXPECT_NE(std::string::npos, str.find("|2|"));
-  EXPECT_NE(std::string::npos, str.find("|3|"));
+  EXPECT_THAT(str, HasSubstr("|1|"));
+  EXPECT_THAT(str, HasSubstr("|2|"));
+  EXPECT_THAT(str, HasSubstr("|3|"));
 
   // Unsigned integers
-  EXPECT_NE(std::string::npos, str.find("|4|"));
-  EXPECT_NE(std::string::npos, str.find("|5|"));
-  EXPECT_NE(std::string::npos, str.find("|6|"));
+  EXPECT_THAT(str, HasSubstr("|4|"));
+  EXPECT_THAT(str, HasSubstr("|5|"));
+  EXPECT_THAT(str, HasSubstr("|6|"));
 
   // Strings
-  EXPECT_NE(std::string::npos, str.find("|char*|"));
-  EXPECT_NE(std::string::npos, str.find("|std::string|"));
-  EXPECT_NE(std::string::npos, str.find("|absl::stringview|"));
+  EXPECT_THAT(str, HasSubstr("|char*|"));
+  EXPECT_THAT(str, HasSubstr("|std::string|"));
+  EXPECT_THAT(str, HasSubstr("|absl::stringview|"));
 
   // void*
-  EXPECT_NE(std::string::npos, str.find("|abcd|"));
+  EXPECT_THAT(str, HasSubstr("|abcd|"));
 
   // null char*
-  EXPECT_NE(std::string::npos, str.find("|(null)|"));
+  EXPECT_THAT(str, HasSubstr("|(null)|"));
 
   LogMessage::RemoveLogToStream(&stream);
   EXPECT_EQ(LS_NONE, LogMessage::GetLogToStream(&stream));
   EXPECT_EQ(sev, LogMessage::GetLogToStream(nullptr));
+}
+
+TEST(LogTest, LogStdStringView) {
+  std::string str;
+  LogSinkImpl stream(&str);
+  LogMessage::AddLogToStream(&stream, LS_INFO);
+
+  constexpr std::string_view kLongPath =
+      "/a/very/long/path/string/that/exceeds/the/small/string/optimization/"
+      "buffer/size/which/is/typically/around/fifteen/to/twenty/two/characters/"
+      "and/this/is/definitely/longer/than/one/hundred/characters/to/trigger/"
+      "any/potential/asan/errors";
+  RTC_LOG(LS_INFO) << kLongPath;
+
+  EXPECT_THAT(str, HasSubstr(kLongPath));
+
+  LogMessage::RemoveLogToStream(&stream);
+}
+
+TEST(LogTest, LogLongDouble) {
+  std::string str;
+  LogSinkImpl stream(&str);
+  LogMessage::AddLogToStream(&stream, LS_INFO);
+
+  long double ld = 123.456789L;
+  RTC_LOG(LS_INFO) << ld;
+
+  EXPECT_THAT(str, HasSubstr("123.456"));
+
+  LogMessage::RemoveLogToStream(&stream);
 }
 
 TEST(LogTest, LogIfLogIfConditionIsTrue) {
@@ -150,7 +194,7 @@ TEST(LogTest, LogIfLogIfConditionIsTrue) {
   LogMessage::AddLogToStream(&stream, LS_INFO);
 
   RTC_LOG_IF(LS_INFO, true) << "Hello";
-  EXPECT_NE(std::string::npos, str.find("Hello"));
+  EXPECT_THAT(str, HasSubstr("Hello"));
 
   LogMessage::RemoveLogToStream(&stream);
 }
@@ -161,7 +205,7 @@ TEST(LogTest, LogIfDontLogIfConditionIsFalse) {
   LogMessage::AddLogToStream(&stream, LS_INFO);
 
   RTC_LOG_IF(LS_INFO, false) << "Hello";
-  EXPECT_EQ(std::string::npos, str.find("Hello"));
+  EXPECT_THAT(str, Not(HasSubstr("Hello")));
 
   LogMessage::RemoveLogToStream(&stream);
 }
@@ -172,8 +216,8 @@ TEST(LogTest, LogIfFLogIfConditionIsTrue) {
   LogMessage::AddLogToStream(&stream, LS_INFO);
 
   RTC_LOG_IF_F(LS_INFO, true) << "Hello";
-  EXPECT_NE(std::string::npos, str.find(__FUNCTION__));
-  EXPECT_NE(std::string::npos, str.find("Hello"));
+  EXPECT_THAT(str, HasSubstr(__FUNCTION__));
+  EXPECT_THAT(str, HasSubstr("Hello"));
 
   LogMessage::RemoveLogToStream(&stream);
 }
@@ -184,8 +228,8 @@ TEST(LogTest, LogIfFDontLogIfConditionIsFalse) {
   LogMessage::AddLogToStream(&stream, LS_INFO);
 
   RTC_LOG_IF_F(LS_INFO, false) << "Not";
-  EXPECT_EQ(std::string::npos, str.find(__FUNCTION__));
-  EXPECT_EQ(std::string::npos, str.find("Not"));
+  EXPECT_THAT(str, Not(HasSubstr(__FUNCTION__)));
+  EXPECT_THAT(str, Not(HasSubstr("Not")));
 
   LogMessage::RemoveLogToStream(&stream);
 }
@@ -265,10 +309,7 @@ TEST(LogTest, CheckExtraErrorField) {
                                0xD);
   log_msg.stream() << "This gets added at dtor time";
 
-  const std::string& extra = log_msg.get_extra();
-  const size_t length_to_check = arraysize("[0x12345678]") - 1;
-  ASSERT_GE(extra.length(), length_to_check);
-  EXPECT_EQ(std::string("[0x0000000D]"), extra.substr(0, length_to_check));
+  EXPECT_THAT(log_msg.get_extra(), StartsWith("[0x0000000D]"));
 }
 
 TEST(LogTest, CheckFilePathParsed) {
@@ -289,9 +330,9 @@ TEST(LogTest, CheckFilePathParsed) {
 
 #if defined(WEBRTC_ANDROID)
   EXPECT_NE(nullptr, strstr(tag, "myfile.cc"));
-  EXPECT_NE(std::string::npos, str.find("100"));
+  EXPECT_THAT(str, HasSubstr("100"));
 #else
-  EXPECT_NE(std::string::npos, str.find("(myfile.cc:100)"));
+  EXPECT_THAT(str, HasSubstr("(myfile.cc:100)"));
 #endif
   LogMessage::RemoveLogToStream(&stream);
 }
@@ -304,19 +345,25 @@ TEST(LogTest, CheckTagAddedToStringInDefaultOnLogMessageAndroid) {
   EXPECT_EQ(LS_INFO, LogMessage::GetLogToStream(&stream));
 
   RTC_LOG_TAG(LS_INFO, "my_tag") << "INFO";
-  EXPECT_NE(std::string::npos, str.find("INFO"));
-  EXPECT_NE(std::string::npos, str.find("my_tag"));
+  EXPECT_THAT(str, HasSubstr("INFO"));
+  EXPECT_THAT(str, HasSubstr("my_tag"));
+
+  LogMessage::RemoveLogToStream(&stream);
 }
 #endif
 
 // Test the time required to write 1000 80-character logs to a string.
 TEST(LogTest, Perf) {
+  // This test should probably be turned into a benchmark.
+  Clock& clock = *Clock::GetRealTimeClock();
   std::string str;
   LogSinkImpl stream(&str);
   LogMessage::AddLogToStream(&stream, LS_VERBOSE);
 
   const std::string message(80, 'X');
-  { LogMessageForTesting sanity_check_msg(__FILE__, __LINE__, LS_VERBOSE); }
+  {
+    LogMessageForTesting sanity_check_msg(__FILE__, __LINE__, LS_VERBOSE);
+  }
 
   // We now know how many bytes the logging framework will tag onto every msg.
   const size_t logging_overhead = str.size();
@@ -325,19 +372,17 @@ TEST(LogTest, Perf) {
   str.reserve(120000);
   static const int kRepetitions = 1000;
 
-  int64_t start = TimeMillis(), finish;
+  Timestamp start = clock.CurrentTime();
   for (int i = 0; i < kRepetitions; ++i) {
     LogMessageForTesting(__FILE__, __LINE__, LS_VERBOSE).stream() << message;
   }
-  finish = TimeMillis();
+  Timestamp finish = clock.CurrentTime();
 
   LogMessage::RemoveLogToStream(&stream);
 
   EXPECT_EQ(str.size(), (message.size() + logging_overhead) * kRepetitions);
-  RTC_LOG(LS_INFO) << "Total log time: " << TimeDiff(finish, start)
-                   << " ms "
-                      " total bytes logged: "
-                   << str.size();
+  RTC_LOG(LS_INFO) << "Total log time: " << (finish - start)
+                   << " total bytes logged: " << str.size();
 }
 
 TEST(LogTest, EnumsAreSupported) {
@@ -346,10 +391,10 @@ TEST(LogTest, EnumsAreSupported) {
   LogSinkImpl stream(&str);
   LogMessage::AddLogToStream(&stream, LS_INFO);
   RTC_LOG(LS_INFO) << "[" << TestEnum::kValue0 << "]";
-  EXPECT_NE(std::string::npos, str.find("[0]"));
-  EXPECT_EQ(std::string::npos, str.find("[1]"));
+  EXPECT_THAT(str, HasSubstr("[0]"));
+  EXPECT_THAT(str, Not(HasSubstr("[1]")));
   RTC_LOG(LS_INFO) << "[" << TestEnum::kValue1 << "]";
-  EXPECT_NE(std::string::npos, str.find("[1]"));
+  EXPECT_THAT(str, HasSubstr("[1]"));
   LogMessage::RemoveLogToStream(&stream);
 }
 
@@ -367,20 +412,270 @@ TEST(LogTest, NoopSeverityDoesNotRunStringFormatting) {
   EXPECT_FALSE(was_called);
 }
 
-struct TestStruct {};
-std::string ToLogString(TestStruct foo) {
-  return "bar";
-}
+struct StructWithStringfy {
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const StructWithStringfy& /*self*/) {
+    sink.Append("absl-stringify");
+  }
+};
 
-TEST(LogTest, ToLogStringUsedForUnknownTypes) {
+TEST(LogTest, UseAbslStringForCustomTypes) {
   std::string str;
   LogSinkImpl stream(&str);
   LogMessage::AddLogToStream(&stream, LS_INFO);
-  TestStruct t;
+  StructWithStringfy t;
+
   RTC_LOG(LS_INFO) << t;
-  EXPECT_THAT(str, ::testing::HasSubstr("bar"));
+
+  EXPECT_THAT(str, HasSubstr("absl-stringify"));
+
   LogMessage::RemoveLogToStream(&stream);
 }
 
-}  // namespace rtc
+enum class TestEnumStringify { kValue0 = 0, kValue1 = 1 };
+
+template <typename Sink>
+void AbslStringify(Sink& sink, TestEnumStringify value) {
+  switch (value) {
+    case TestEnumStringify::kValue0:
+      sink.Append("kValue0");
+      break;
+    case TestEnumStringify::kValue1:
+      sink.Append("kValue1");
+      break;
+  }
+}
+
+TEST(LogTest, EnumSupportsAbslStringify) {
+  std::string str;
+  LogSinkImpl stream(&str);
+  LogMessage::AddLogToStream(&stream, LS_INFO);
+  RTC_LOG(LS_INFO) << "[" << TestEnumStringify::kValue0 << "]";
+  EXPECT_THAT(str, HasSubstr("[kValue0]"));
+  EXPECT_THAT(str, Not(HasSubstr("[kValue1]")));
+  RTC_LOG(LS_INFO) << "[" << TestEnumStringify::kValue1 << "]";
+  EXPECT_THAT(str, HasSubstr("[kValue1]"));
+  LogMessage::RemoveLogToStream(&stream);
+}
+
+#if !defined(WEBRTC_CHROMIUM_BUILD)
+// Logging initialization tests require isolation because they modify global
+// state that can only be set once per process. We use EXPECT_EXIT to run
+// them in a forked child process.
+
+#if GTEST_HAS_DEATH_TEST && !defined(WEBRTC_ANDROID) && !defined(WEBRTC_IOS)
+TEST(LogTest, ExplicitInitialization) {
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
+#if defined(WEBRTC_WIN)
+  _putenv_s("WEBRTC_TEST_SKIP_LOGGING_INIT", "1");
+#else
+  setenv("WEBRTC_TEST_SKIP_LOGGING_INIT", "1", 1);
+#endif
+  EXPECT_EXIT(
+      {
+        LoggingConfig config;
+        config.set_min_severity(LS_WARNING);
+        config.set_log_prefix("TEST_PREFIX: ");
+        bool success = InitializeLogging(std::move(config));
+        if (!success) {
+          exit(1);
+        }
+
+        if (GetLoggingConfig().min_severity() != LS_WARNING) {
+          exit(2);
+        }
+
+        RTC_LOG(LS_WARNING) << "Test message";
+        exit(0);
+      },
+      ::testing::ExitedWithCode(0), "TEST_PREFIX: .*Test message");
+#if defined(WEBRTC_WIN)
+  _putenv_s("WEBRTC_TEST_SKIP_LOGGING_INIT", "");
+#else
+  unsetenv("WEBRTC_TEST_SKIP_LOGGING_INIT");
+#endif
+}
+
+TEST(LogTest, ImplicitInitialization) {
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
+  EXPECT_EXIT(
+      {
+        RTC_LOG(LS_WARNING) << "Trigger implicit init";
+        LoggingConfig config;
+        if (InitializeLogging(std::move(config))) {
+          exit(1);
+        }
+        exit(0);
+      },
+      ::testing::ExitedWithCode(0), "");
+}
+
+TEST(LogTest, DoubleExplicitInitialization) {
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
+#if defined(WEBRTC_WIN)
+  _putenv_s("WEBRTC_TEST_SKIP_LOGGING_INIT", "1");
+#else
+  setenv("WEBRTC_TEST_SKIP_LOGGING_INIT", "1", 1);
+#endif
+  EXPECT_EXIT(
+      {
+        LoggingConfig config1;
+        if (!InitializeLogging(std::move(config1))) {
+          exit(1);
+        }
+
+        LoggingConfig config2;
+        if (InitializeLogging(std::move(config2))) {
+          exit(2);
+        }
+
+        exit(0);
+      },
+      ::testing::ExitedWithCode(0), "");
+#if defined(WEBRTC_WIN)
+  _putenv_s("WEBRTC_TEST_SKIP_LOGGING_INIT", "");
+#else
+  unsetenv("WEBRTC_TEST_SKIP_LOGGING_INIT");
+#endif
+}
+
+TEST(LogTest, InitializeLoggingTransfersQueueName) {
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
+#if defined(WEBRTC_WIN)
+  _putenv_s("WEBRTC_TEST_SKIP_LOGGING_INIT", "1");
+#else
+  setenv("WEBRTC_TEST_SKIP_LOGGING_INIT", "1", 1);
+#endif
+  EXPECT_EXIT(
+      {
+        LoggingConfig config;
+        config.set_log_queue_name(true);
+
+        struct CustomSink : public LogSink {
+          void OnLogMessage(const LogLineRef& line) override {
+            queue_name = std::string(line.queue_name());
+          }
+          void OnLogMessage(const std::string& message) override {}
+          void OnLogMessage(absl::string_view message) override {}
+          std::string queue_name;
+        };
+
+        auto sink = std::make_unique<CustomSink>();
+        CustomSink* sink_ptr = sink.get();
+        config.AddSink(std::move(sink));
+
+        if (!InitializeLogging(std::move(config))) {
+          exit(2);
+        }
+
+        std::unique_ptr<Thread> thread = Thread::Create();
+        thread->SetName("TestQueue", nullptr);
+        thread->Start();
+
+        thread->BlockingCall([&]() { RTC_LOG(LS_INFO) << "Hello"; });
+
+        if (sink_ptr->queue_name != "TestQueue") {
+          exit(1);
+        }
+        exit(0);
+      },
+      ::testing::ExitedWithCode(0), "");
+#if defined(WEBRTC_WIN)
+  _putenv_s("WEBRTC_TEST_SKIP_LOGGING_INIT", "");
+#else
+  unsetenv("WEBRTC_TEST_SKIP_LOGGING_INIT");
+#endif
+}
+
+#endif  // GTEST_HAS_DEATH_TEST && !defined(WEBRTC_ANDROID) &&
+        // !defined(WEBRTC_IOS)
+
+TEST(LogTest, LogQueueNameFromThread) {
+  std::string str;
+  LogSinkImpl stream(&str);
+  LogMessage::AddLogToStream(&stream, LS_INFO);
+  LogMessage::SetLogQueueNames(true);
+
+  std::unique_ptr<Thread> thread = Thread::Create();
+  thread->SetName("TName", nullptr);
+  thread->Start();
+  thread->BlockingCall([&]() { RTC_LOG(LS_INFO) << "Hello"; });
+
+  EXPECT_THAT(str, HasSubstr("[TName]"));
+
+  LogMessage::SetLogQueueNames(false);  // Reset
+  LogMessage::RemoveLogToStream(&stream);
+}
+
+class LogTestWithParam : public testing::TestWithParam<bool> {};
+
+TEST_P(LogTestWithParam, LogQueueNameFromTaskQueueOverridingThread) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+  bool prev_log_threads = LogMessage::LogThreads(GetParam());
+#pragma clang diagnostic pop
+  bool prev_log_queue_names = LogMessage::SetLogQueueNames(true);
+
+  std::string str;
+  LogSinkImpl stream(&str);
+  LogMessage::AddLogToStream(&stream, LS_INFO);
+  absl::Cleanup cleanup = [&] {
+    LogMessage::RemoveLogToStream(&stream);
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    LogMessage::LogThreads(prev_log_threads);
+#pragma clang diagnostic pop
+    LogMessage::SetLogQueueNames(prev_log_queue_names);
+  };
+
+  std::unique_ptr<Thread> thread = Thread::Create();
+  thread->SetName("TName", nullptr);
+  thread->Start();
+
+  class CustomTaskQueue : public TaskQueueBase {
+   public:
+    explicit CustomTaskQueue(absl::string_view name) : name_(name) {}
+    void Delete() override {}
+    void PostTaskImpl(absl::AnyInvocable<void() &&> task,
+                      const PostTaskTraits& traits,
+                      const Location& location) override {
+      CurrentTaskQueueSetter set_current(this);
+      std::move(task)();
+    }
+    void PostDelayedTaskImpl(absl::AnyInvocable<void() &&> task,
+                             TimeDelta delay,
+                             const PostDelayedTaskTraits& traits,
+                             const Location& location) override {
+      RTC_DCHECK_NOTREACHED();
+    }
+    absl::string_view queue_name() const override { return name_; }
+
+   private:
+    std::string name_;
+  };
+
+  thread->BlockingCall([&]() {
+    // 1. Verify thread name is printed first.
+    RTC_LOG(LS_INFO) << "Prints the name of the thread.";
+    EXPECT_THAT(str, HasSubstr("TName]"));
+    str.clear();
+
+    // 2. Set custom task queue.
+    CustomTaskQueue custom_tq("QName");
+    custom_tq.PostTask(
+        [&]() { RTC_LOG(LS_INFO) << "Prints the name of the task queue."; });
+    EXPECT_THAT(str, HasSubstr("QName]"));
+    EXPECT_THAT(str, Not(HasSubstr("TName]")));
+    str.clear();
+
+    // 3. Verify fallback to thread name.
+    RTC_LOG(LS_INFO) << "Prints the name of the thread again.";
+    EXPECT_THAT(str, HasSubstr("TName]"));
+  });
+}
+
+INSTANTIATE_TEST_SUITE_P(All, LogTestWithParam, ::testing::Bool());
+#endif  // !defined(WEBRTC_CHROMIUM_BUILD)
+
+}  // namespace webrtc
 #endif  // RTC_LOG_ENABLED()

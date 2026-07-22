@@ -11,10 +11,9 @@
 #ifndef API_CALL_TRANSPORT_H_
 #define API_CALL_TRANSPORT_H_
 
-#include <stddef.h>
 #include <stdint.h>
 
-#include "api/array_view.h"
+#include <span>
 
 namespace webrtc {
 
@@ -28,10 +27,12 @@ struct PacketOptions {
   // Negative ids are invalid and should be interpreted
   // as packet_id not being set.
   int64_t packet_id = -1;
-  // Whether this is a retransmission of an earlier packet.
-  bool is_retransmit = false;
+  // Whether this is an audio or video packet, excluding retransmissions.
+  // Defaults to `false` which is the more common case.
+  bool is_media = false;
   bool included_in_feedback = false;
   bool included_in_allocation = false;
+  bool send_as_ect1 = false;
   // Whether this packet can be part of a packet batch at lower levels.
   bool batchable = false;
   // Whether this packet is the last of a batch.
@@ -40,12 +41,13 @@ struct PacketOptions {
 
 class Transport {
  public:
-  virtual bool SendRtp(rtc::ArrayView<const uint8_t> packet,
+  virtual bool SendRtp(std::span<const uint8_t> packet,
                        const PacketOptions& options) = 0;
-  virtual bool SendRtcp(rtc::ArrayView<const uint8_t> packet) = 0;
+  virtual bool SendRtcp(std::span<const uint8_t> packet,
+                        const PacketOptions& options) = 0;
 
  protected:
-  virtual ~Transport() {}
+  virtual ~Transport() = default;
 };
 
 }  // namespace webrtc

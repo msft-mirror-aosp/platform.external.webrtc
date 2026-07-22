@@ -12,13 +12,15 @@
 #define API_VIDEO_CODECS_VIDEO_ENCODER_FACTORY_TEMPLATE_H_
 
 #include <memory>
+#include <optional>
+#include <span>
 #include <string>
-#include <type_traits>
 #include <vector>
 
 #include "absl/algorithm/container.h"
-#include "api/array_view.h"
 #include "api/environment/environment.h"
+#include "api/video/resolution.h"
+#include "api/video_codecs/scalability_mode.h"
 #include "api/video_codecs/sdp_video_format.h"
 #include "api/video_codecs/video_encoder.h"
 #include "api/video_codecs/video_encoder_factory.h"
@@ -49,6 +51,7 @@ namespace webrtc {
 template <typename... Ts>
 class VideoEncoderFactoryTemplate : public VideoEncoderFactory {
  public:
+  using VideoEncoderFactory::QueryCodecSupport;
   std::vector<SdpVideoFormat> GetSupportedFormats() const override {
     return GetSupportedFormatsInternal<Ts...>();
   }
@@ -62,21 +65,22 @@ class VideoEncoderFactoryTemplate : public VideoEncoderFactory {
     // recognize the parameter. The not so valid reason is that we have started
     // adding parameters completely unrelated to the SDP to the SdpVideoFormat.
     // TODO: bugs.webrtc.org/13868 - Remove FuzzyMatchSdpVideoFormat
-    absl::optional<SdpVideoFormat> matched =
+    std::optional<SdpVideoFormat> matched =
         FuzzyMatchSdpVideoFormat(GetSupportedFormats(), format);
     return CreateInternal<Ts...>(env, matched.value_or(format));
   }
 
   CodecSupport QueryCodecSupport(
       const SdpVideoFormat& format,
-      absl::optional<std::string> scalability_mode) const override {
-    return QueryCodecSupportInternal<Ts...>(format, scalability_mode);
+      std::optional<std::string> scalability_mode,
+      std::optional<Resolution> resolution) const override {
+    return QueryCodecSupportInternal<Ts...>(format, scalability_mode,
+                                            resolution);
   }
 
  private:
-  bool IsFormatInList(
-      const SdpVideoFormat& format,
-      rtc::ArrayView<const SdpVideoFormat> supported_formats) const {
+  bool IsFormatInList(const SdpVideoFormat& format,
+                      std::span<const SdpVideoFormat> supported_formats) const {
     return absl::c_any_of(
         supported_formats, [&](const SdpVideoFormat& supported_format) {
           return supported_format.name == format.name &&
@@ -86,11 +90,11 @@ class VideoEncoderFactoryTemplate : public VideoEncoderFactory {
 
   template <typename V>
   bool IsScalabilityModeSupported(
-      const absl::optional<std::string>& scalability_mode_string) const {
+      const std::optional<std::string>& scalability_mode_string) const {
     if (!scalability_mode_string.has_value()) {
       return true;
     }
-    absl::optional<ScalabilityMode> scalability_mode =
+    std::optional<ScalabilityMode> scalability_mode =
         ScalabilityModeFromString(*scalability_mode_string);
     return scalability_mode.has_value() &&
            V::IsScalabilityModeSupported(*scalability_mode);
@@ -130,13 +134,15 @@ class VideoEncoderFactoryTemplate : public VideoEncoderFactory {
   template <typename V, typename... Vs>
   CodecSupport QueryCodecSupportInternal(
       const SdpVideoFormat& format,
-      const absl::optional<std::string>& scalability_mode) const {
+      const std::optional<std::string>& scalability_mode,
+      const std::optional<Resolution>& resolution) const {
     if (IsFormatInList(format, V::SupportedFormats())) {
       return {.is_supported = IsScalabilityModeSupported<V>(scalability_mode)};
     }
 
     if constexpr (sizeof...(Vs) > 0) {
-      return QueryCodecSupportInternal<Vs...>(format, scalability_mode);
+      return QueryCodecSupportInternal<Vs...>(format, scalability_mode,
+                                              resolution);
     }
 
     return {.is_supported = false};

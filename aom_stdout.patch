@@ -1,0 +1,9 @@
+--- bazel/BUILD.bazel
++++ bazel/BUILD.bazel
+@@ -3,5 +3,6 @@
+ cc_binary(
+     name = "stdout_to_file",
+     srcs = ["stdout_to_file.cc"],
++    data = ["//:rtcd_pl"],
+     visibility = ["//:__subpackages__"],
+ )
