@@ -11,18 +11,22 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "api/jsep_session_description.h"
+#include <memory>
+#include <string>
+
+#include "api/jsep.h"
+#include "test/fuzzers/fuzz_data_helper.h"
 
 namespace webrtc {
-void FuzzOneInput(const uint8_t* data, size_t size) {
-  if (size > 16384) {
+void FuzzOneInput(FuzzDataHelper fuzz_data) {
+  if (fuzz_data.size() > 16384) {
     return;
   }
-  std::string message(reinterpret_cast<const char*>(data), size);
+  std::string message(fuzz_data.ReadString());
   webrtc::SdpParseError error;
 
-  std::unique_ptr<webrtc::SessionDescriptionInterface> sdp(
-      CreateSessionDescription("offer", message, &error));
+  std::unique_ptr<webrtc::SessionDescriptionInterface> sdp =
+      CreateSessionDescription(SdpType::kOffer, message, &error);
 }
 
 }  // namespace webrtc

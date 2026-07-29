@@ -1,7 +1,6 @@
-"""WebRTC Skylark macros and constants."""
+"""WebRTC Starlark macros and constants."""
 
-load("@com_github_grpc_grpc//bazel:cc_grpc_library.bzl", "cc_grpc_library")
-load("@rules_cc//cc:defs.bzl", "cc_proto_library")
+load("@protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
 load("@rules_proto//proto:defs.bzl", "proto_library")
 load("@rules_python//python:proto.bzl", "py_proto_library")
 
@@ -30,7 +29,9 @@ def platform_select(
         windows = None,
         intel_cpu = None,
         armv7 = None,
-        arm64 = None):
+        arm64 = None,
+        linux_arm64 = None,
+        windows_arm64 = None):
     """Generates a Bazel `select` for each platform by collapsing categories of dependencies.
 
     Inputs to this function represent the dependencies associated with each category.
@@ -85,6 +86,7 @@ def platform_select(
     for condition, lists in {
         # Keep this synced with generate_project.cfg - collapse_categories
         "//configs:linux": [_all, posix, linux_kernel, intel_cpu, linux, linux_x64],
+        "//configs:linux_arm64": [_all, posix, linux_kernel, arm64, linux, linux_arm64],
         "//configs:android_arm": [_all, posix, linux_kernel, android, armv7, android_armv7],
         "//configs:android_arm64": [_all, posix, linux_kernel, android, arm64, android_arm64],
         "//configs:android_x86": [_all, posix, linux_kernel, android, intel_cpu, android_x86],
@@ -97,18 +99,30 @@ def platform_select(
         "//configs:darwin_arm64": [_all, posix, apple, arm64, mac, mac_arm64],
         "//configs:windows_x86": [_all, windows, intel_cpu, windows_x86],
         "//configs:windows_x86_64": [_all, windows, intel_cpu, windows_x64],
+        "//configs:windows_arm64": [_all, windows, arm64, windows_arm64],
     }.items():
         for lst in lists:
             # Branches that are not covered by any category will not be in the select.
             if lst != None:
                 result.setdefault(condition, []).extend(lst)
 
-    return select(result)
+    clean_result = {}
+    for condition, items in result.items():
+        unique_items = []
+        for x in items:
+            if x not in unique_items:
+                unique_items.append(x)
+        clean_result[condition] = unique_items
+    clean_result["//conditions:default"] = []
+
+    return select(clean_result)
 
 def webrtc_proto_library(
         name,
         srcs,
         deps = [],
+        strip_import_prefix = None,
+        import_prefix = None,
         visibility = ["//:__subpackages__"]):
     if not name.endswith("_proto"):
         fail("The target name must end with '_proto'.")
@@ -117,6 +131,8 @@ def webrtc_proto_library(
         srcs = srcs,
         visibility = visibility,
         deps = deps,
+        strip_import_prefix = strip_import_prefix,
+        import_prefix = import_prefix,
     )
 
     cc_proto_library(
@@ -138,35 +154,4 @@ def webrtc_grpc_library(
         srcs,
         deps = [],
         visibility = ["//:__subpackages__"]):
-    """Generates targets for grpc_library.
-
-    Generates the proto_library, cc_proto_library and cc_grpc_library targets
-    for the matching srcs proto files.
-
-    Args:
-      name: The name of the library.
-      srcs: The list of proto files.
-      deps: Optional dependencies for the proto files.
-      visibility: Visibility of the library.
-    """
-    proto_library(
-        name = "%s_proto" % name,
-        srcs = srcs,
-        cc_api_version = 2,
-        has_services = True,
-        visibility = visibility,
-        deps = deps,
-    )
-
-    cc_proto_library(
-        name = "%s_cc_proto" % name,
-        visibility = visibility,
-        deps = ["%s_proto" % name],
-    )
-
-    cc_grpc_library(
-        name = name,
-        srcs = ["%s_proto" % name],
-        visibility = visibility,
-        deps = ["%s_cc_proto" % name],
-    )
+    native.filegroup(name = name, srcs = srcs, visibility = visibility)

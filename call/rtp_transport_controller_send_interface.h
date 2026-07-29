@@ -15,31 +15,33 @@
 
 #include <map>
 #include <memory>
-#include <string>
-#include <vector>
+#include <optional>
 
 #include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
 #include "api/crypto/crypto_options.h"
 #include "api/fec_controller.h"
 #include "api/frame_transformer_interface.h"
+#include "api/rtp_packet_sender.h"
+#include "api/rtp_parameters.h"
+#include "api/scoped_refptr.h"
 #include "api/transport/bandwidth_estimation_settings.h"
 #include "api/transport/bitrate_settings.h"
+#include "api/transport/network_control.h"
+#include "api/transport/network_types.h"
+#include "api/units/data_size.h"
 #include "api/units/timestamp.h"
 #include "call/rtp_config.h"
 #include "common_video/frame_counts.h"
+#include "modules/congestion_controller/rtp/congestion_controller_feedback_stats.h"
 #include "modules/rtp_rtcp/include/report_block_data.h"
 #include "modules/rtp_rtcp/include/rtcp_statistics.h"
-#include "modules/rtp_rtcp/include/rtp_packet_sender.h"
 #include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
-#include "modules/rtp_rtcp/source/rtp_packet_received.h"
+#include "rtc_base/containers/flat_map.h"
+#include "rtc_base/network_route.h"
 
-namespace rtc {
-struct SentPacket;
-struct NetworkRoute;
-}  // namespace rtc
 namespace webrtc {
 
+struct SentPacketInfo;
 class FrameEncryptorInterface;
 class TargetTransferRateObserver;
 class Transport;
@@ -103,7 +105,7 @@ class RtpTransportControllerSendInterface {
       const RtpSenderObservers& observers,
       std::unique_ptr<FecController> fec_controller,
       const RtpSenderFrameEncryptionConfig& frame_encryption_config,
-      rtc::scoped_refptr<FrameTransformerInterface> frame_transformer) = 0;
+      scoped_refptr<FrameTransformerInterface> frame_transformer) = 0;
   virtual void DestroyRtpVideoSender(
       RtpVideoSenderInterface* rtp_video_sender) = 0;
 
@@ -131,20 +133,19 @@ class RtpTransportControllerSendInterface {
   virtual StreamFeedbackProvider* GetStreamFeedbackProvider() = 0;
   virtual void RegisterTargetTransferRateObserver(
       TargetTransferRateObserver* observer) = 0;
-  virtual void OnNetworkRouteChanged(
-      absl::string_view transport_name,
-      const rtc::NetworkRoute& network_route) = 0;
+  virtual void OnNetworkRouteChanged(absl::string_view transport_name,
+                                     const NetworkRoute& network_route) = 0;
   virtual void OnNetworkAvailability(bool network_available) = 0;
   virtual NetworkLinkRtcpObserver* GetRtcpObserver() = 0;
   virtual int64_t GetPacerQueuingDelayMs() const = 0;
-  virtual absl::optional<Timestamp> GetFirstPacketTime() const = 0;
+  virtual std::optional<Timestamp> GetFirstPacketTime() const = 0;
   virtual void EnablePeriodicAlrProbing(bool enable) = 0;
 
   // Called when a packet has been sent.
   // The call should arrive on the network thread, but may not in all cases
   // (some tests don't adhere to this). Implementations today should not block
   // the calling thread or make assumptions about the thread context.
-  virtual void OnSentPacket(const rtc::SentPacket& sent_packet) = 0;
+  virtual void OnSentPacket(const SentPacketInfo& sent_packet) = 0;
 
   virtual void OnReceivedPacket(const ReceivedPacket& received_packet) = 0;
 
@@ -160,6 +161,18 @@ class RtpTransportControllerSendInterface {
   virtual void IncludeOverheadInPacedSender() = 0;
 
   virtual void EnsureStarted() = 0;
+  virtual NetworkControllerInterface* GetNetworkController() = 0;
+
+  // Called once it's known that the remote end supports RFC 8888.
+  virtual void SetPreferredRtcpCcAckType(
+      RtcpFeedbackType preferred_rtcp_cc_ack_type) = 0;
+  // Count of RFC8888 feedback reports received
+  virtual std::optional<int> ReceivedCongestionControlFeedbackCount() const = 0;
+  virtual flat_map<uint32_t, ReceivedCongestionControlFeedbackStats>
+  GetCongestionControlFeedbackStatsPerSsrc() const = 0;
+  // Count of transport-cc feedback reports received
+  virtual std::optional<int> ReceivedTransportCcFeedbackCount() const = 0;
+  virtual DataSize GetTransportOverhead() const = 0;
 };
 
 }  // namespace webrtc

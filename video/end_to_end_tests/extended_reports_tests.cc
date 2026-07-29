@@ -8,36 +8,30 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include <stddef.h>
-#include <stdint.h>
-
-#include <memory>
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <span>
 #include <string>
-#include <utility>
 #include <vector>
 
-#include "absl/types/optional.h"
+#include "api/rtp_header_extension_id.h"
 #include "api/rtp_headers.h"
-#include "api/task_queue/task_queue_base.h"
+#include "api/rtp_parameters.h"
 #include "api/test/simulated_network.h"
 #include "api/units/data_rate.h"
+#include "api/units/time_delta.h"
+#include "api/video/video_codec_type.h"
 #include "api/video_codecs/sdp_video_format.h"
-#include "call/call.h"
-#include "call/fake_network_pipe.h"
 #include "call/rtp_config.h"
-#include "call/simulated_packet_receiver.h"
 #include "call/video_receive_stream.h"
 #include "call/video_send_stream.h"
-#include "modules/rtp_rtcp/source/rtcp_packet/dlrr.h"
 #include "modules/rtp_rtcp/source/rtcp_packet/target_bitrate.h"
 #include "rtc_base/event.h"
 #include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/thread_annotations.h"
-#include "system_wrappers/include/clock.h"
 #include "test/call_test.h"
-#include "test/field_trial.h"
 #include "test/gtest.h"
-#include "test/network/simulated_network.h"
 #include "test/rtcp_packet_parser.h"
 #include "test/rtp_rtcp_observer.h"
 #include "test/video_test_constants.h"
@@ -45,11 +39,7 @@
 
 namespace webrtc {
 namespace {
-enum : int {  // The first valid value is 1.
-  kColorSpaceExtensionId = 1,
-  kTransportSequenceNumberExtensionId,
-};
-}  // namespace
+constexpr RtpHeaderExtensionId kTransportSequenceNumberExtensionId(2);
 
 class ExtendedReportsEndToEndTest : public test::CallTest {
  public:
@@ -64,8 +54,9 @@ class RtcpXrObserver : public test::EndToEndTest {
   RtcpXrObserver(bool enable_rrtr,
                  bool expect_target_bitrate,
                  bool enable_zero_target_bitrate,
-                 VideoEncoderConfig::ContentType content_type)
-      : EndToEndTest(test::VideoTestConstants::kDefaultTimeout),
+                 VideoEncoderConfig::ContentType content_type,
+                 TimeDelta timeout = test::VideoTestConstants::kDefaultTimeout)
+      : EndToEndTest(timeout),
         enable_rrtr_(enable_rrtr),
         expect_target_bitrate_(expect_target_bitrate),
         enable_zero_target_bitrate_(enable_zero_target_bitrate),
@@ -84,7 +75,7 @@ class RtcpXrObserver : public test::EndToEndTest {
 
  private:
   // Receive stream should send RR packets (and RRTR packets if enabled).
-  Action OnReceiveRtcp(rtc::ArrayView<const uint8_t> packet) override {
+  Action OnReceiveRtcp(std::span<const uint8_t> packet) override {
     MutexLock lock(&mutex_);
     test::RtcpPacketParser parser;
     EXPECT_TRUE(parser.Parse(packet));
@@ -101,7 +92,7 @@ class RtcpXrObserver : public test::EndToEndTest {
     return SEND_PACKET;
   }
   // Send stream should send SR packets (and DLRR packets if enabled).
-  Action OnSendRtcp(rtc::ArrayView<const uint8_t> packet) override {
+  Action OnSendRtcp(std::span<const uint8_t> packet) override {
     MutexLock lock(&mutex_);
     test::RtcpPacketParser parser;
     EXPECT_TRUE(parser.Parse(packet));
@@ -248,8 +239,7 @@ TEST_F(ExtendedReportsEndToEndTest,
 
 TEST_F(ExtendedReportsEndToEndTest,
        TestExtendedReportsWithoutRrtrWithTargetBitrateExplicitlySet) {
-  test::ScopedKeyValueConfig field_trials(
-      field_trials_, "WebRTC-Target-Bitrate-Rtcp/Enabled/");
+  field_trials().Set("WebRTC-Target-Bitrate-Rtcp", "Enabled");
   RtcpXrObserver test(/*enable_rrtr=*/false, /*expect_target_bitrate=*/true,
                       /*enable_zero_target_bitrate=*/false,
                       VideoEncoderConfig::ContentType::kRealtimeVideo);
@@ -260,7 +250,9 @@ TEST_F(ExtendedReportsEndToEndTest,
        TestExtendedReportsCanSignalZeroTargetBitrate) {
   RtcpXrObserver test(/*enable_rrtr=*/false, /*expect_target_bitrate=*/true,
                       /*enable_zero_target_bitrate=*/true,
-                      VideoEncoderConfig::ContentType::kScreen);
+                      VideoEncoderConfig::ContentType::kScreen,
+                      test::VideoTestConstants::kLongTimeout);
   RunBaseTest(&test);
 }
+}  // namespace
 }  // namespace webrtc

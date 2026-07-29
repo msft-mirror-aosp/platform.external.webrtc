@@ -15,24 +15,40 @@
 #ifdef RTC_ENABLE_VP9
 
 #include <array>
+#include <cstddef>
+#include <cstdint>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "api/environment/environment.h"
 #include "api/fec_controller_override.h"
 #include "api/field_trials_view.h"
+#include "api/scoped_refptr.h"
+#include "api/video/encoded_image.h"
+#include "api/video/video_bitrate_allocation.h"
+#include "api/video/video_frame.h"
+#include "api/video/video_frame_buffer.h"
+#include "api/video/video_frame_type.h"
 #include "api/video_codecs/scalability_mode.h"
+#include "api/video_codecs/video_codec.h"
 #include "api/video_codecs/video_encoder.h"
 #include "api/video_codecs/vp9_profile.h"
-#include "common_video/include/video_frame_buffer_pool.h"
 #include "modules/video_coding/codecs/interface/libvpx_interface.h"
 #include "modules/video_coding/codecs/vp9/include/vp9.h"
-#include "modules/video_coding/codecs/vp9/vp9_frame_buffer_pool.h"
+#include "modules/video_coding/codecs/vp9/include/vp9_globals.h"
+#include "modules/video_coding/include/video_codec_interface.h"
 #include "modules/video_coding/svc/scalable_video_controller.h"
+#include "modules/video_coding/svc/simulcast_to_svc_converter.h"
+#include "modules/video_coding/utility/frame_sampler.h"
 #include "modules/video_coding/utility/framerate_controller_deprecated.h"
 #include "rtc_base/containers/flat_map.h"
 #include "rtc_base/experiments/encoder_info_settings.h"
-#include "vpx/vp8cx.h"
+#include "rtc_base/experiments/psnr_experiment.h"
+#include "third_party/libvpx/source/libvpx/vpx/vp8cx.h"
+#include "third_party/libvpx/source/libvpx/vpx/vpx_codec.h"
+#include "third_party/libvpx/source/libvpx/vpx/vpx_encoder.h"
+#include "third_party/libvpx/source/libvpx/vpx/vpx_image.h"
 
 namespace webrtc {
 
@@ -66,11 +82,11 @@ class LibvpxVp9Encoder : public VideoEncoder {
   int NumberOfThreads(int width, int height, int number_of_cores);
 
   // Call encoder initialize function and set control settings.
-  int InitAndSetControlSettings(const VideoCodec* inst);
+  int InitAndSetControlSettings();
 
   bool PopulateCodecSpecific(CodecSpecificInfo* codec_specific,
-                             absl::optional<int>* spatial_idx,
-                             absl::optional<int>* temporal_idx,
+                             std::optional<int>* spatial_idx,
+                             std::optional<int>* temporal_idx,
                              const vpx_codec_cx_pkt& pkt);
   void FillReferenceIndices(const vpx_codec_cx_pkt& pkt,
                             size_t pic_num,
@@ -82,6 +98,10 @@ class LibvpxVp9Encoder : public VideoEncoder {
 
   bool ExplicitlyConfiguredSpatialLayers() const;
   bool SetSvcRates(const VideoBitrateAllocation& bitrate_allocation);
+
+  // Adjust sclaing factors assuming that the top active SVC layer
+  // will be the input resolution.
+  void AdjustScalingFactorsForTopActiveLayer();
 
   // Configures which spatial layers libvpx should encode according to
   // configuration provided by svc_controller_.
@@ -109,14 +129,17 @@ class LibvpxVp9Encoder : public VideoEncoder {
 
   size_t SteadyStateSize(int sid, int tid);
 
-  void MaybeRewrapRawWithFormat(vpx_img_fmt fmt);
+  void MaybeRewrapRawWithFormat(const vpx_img_fmt fmt,
+                                unsigned int width,
+                                unsigned int height);
   // Prepares `raw_` to reference image data of `buffer`, or of mapped or scaled
   // versions of `buffer`. Returns the buffer that got referenced as a result,
   // allowing the caller to keep a reference to it until after encoding has
   // finished. On failure to convert the buffer, null is returned.
-  rtc::scoped_refptr<VideoFrameBuffer> PrepareBufferForProfile0(
-      rtc::scoped_refptr<VideoFrameBuffer> buffer);
+  scoped_refptr<VideoFrameBuffer> PrepareBufferForProfile0(
+      scoped_refptr<VideoFrameBuffer> buffer);
 
+  const Environment env_;
   const std::unique_ptr<LibvpxInterface> libvpx_;
   EncodedImage encoded_image_;
   CodecSpecificInfo codec_specific_;
@@ -143,7 +166,6 @@ class LibvpxVp9Encoder : public VideoEncoder {
   bool layer_deactivation_requires_key_frame_;
   bool is_svc_;
   InterLayerPredMode inter_layer_pred_;
-  bool external_ref_control_;
   const bool trusted_rate_controller_;
   vpx_svc_frame_drop_t svc_drop_frame_;
   bool first_frame_in_picture_;
@@ -151,8 +173,11 @@ class LibvpxVp9Encoder : public VideoEncoder {
   bool ss_info_needed_;
   bool force_all_active_layers_;
 
+  const bool enable_svc_for_simulcast_;
+  std::optional<SimulcastToSvcConverter> simulcast_to_svc_converter_;
+
   std::unique_ptr<ScalableVideoController> svc_controller_;
-  absl::optional<ScalabilityMode> scalability_mode_;
+  std::optional<ScalabilityMode> scalability_mode_;
   std::vector<FramerateControllerDeprecated> framerate_controller_;
 
   // Used for flexible mode.
@@ -172,6 +197,10 @@ class LibvpxVp9Encoder : public VideoEncoder {
 
   FramerateControllerDeprecated variable_framerate_controller_;
 
+  // Original scaling factors for all configured layers active and inactive.
+  // `svc_config_` stores factors ignoring top inactive layers.
+  std::vector<int> scaling_factors_num_, scaling_factors_den_;
+
   const struct QualityScalerExperiment {
     int low_qp;
     int high_qp;
@@ -179,7 +208,6 @@ class LibvpxVp9Encoder : public VideoEncoder {
   } quality_scaler_experiment_;
   static QualityScalerExperiment ParseQualityScalerConfig(
       const FieldTrialsView& trials);
-  const bool external_ref_ctrl_;
 
   // Flags that can affect speed vs quality tradeoff, and are configureable per
   // resolution ranges.
@@ -223,13 +251,13 @@ class LibvpxVp9Encoder : public VideoEncoder {
 
   const LibvpxVp9EncoderInfoSettings encoder_info_override_;
 
-  const struct SvcFrameDropConfig {
-    bool enabled;
-    int layer_drop_mode;  // SVC_LAYER_DROP_MODE
-    int max_consec_drop;
-  } svc_frame_drop_config_;
-  static SvcFrameDropConfig ParseSvcFrameDropConfig(
-      const FieldTrialsView& trials);
+  // Determine whether the frame should be sampled for PSNR.
+  // TODO(webrtc:388070060): Remove after rollout.
+  const PsnrExperiment psnr_experiment_;
+  FrameSampler psnr_frame_sampler_;
+
+  // TODO(webrtc:500517546): Remove once the feature is fully deployed.
+  const bool post_encode_frame_drop_;
 };
 
 }  // namespace webrtc

@@ -1,0 +1,14 @@
+load("//third_party:shims.bzl", "forwarding_shim")
+
+forwarding_shim(
+    name = "opus",
+    backend = "@opus",
+    headers = [
+        "opus.h",
+        "opus_defines.h",
+        "opus_multistream.h",
+        "opus_types.h",
+    ],
+    include_prefix = "third_party/opus/src/include",
+    visibility = ["//visibility:public"],
+)

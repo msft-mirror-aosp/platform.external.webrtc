@@ -23,7 +23,6 @@ import android.os.Build;
 import android.os.Process;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
-import java.lang.System;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Iterator;
@@ -36,6 +35,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import org.jni_zero.NativeMethods;
 import org.webrtc.CalledByNative;
 import org.webrtc.Logging;
 import org.webrtc.ThreadUtils;
@@ -130,7 +130,6 @@ class WebRtcAudioRecord {
       // Audio recording has started and the client is informed about it.
       doAudioRecordStateCallback(AUDIO_RECORD_START);
 
-      long lastTime = System.nanoTime();
       AudioTimestamp audioTimestamp = null;
       if (Build.VERSION.SDK_INT >= 24) {
         audioTimestamp = new AudioTimestamp();
@@ -153,7 +152,9 @@ class WebRtcAudioRecord {
                 captureTimeNs = audioTimestamp.nanoTime;
               }
             }
-            nativeDataIsRecorded(nativeAudioRecord, bytesRead, captureTimeNs);
+            WebRtcAudioRecordJni.get()
+                .dataIsRecorded(
+                    nativeAudioRecord, WebRtcAudioRecord.this, bytesRead, captureTimeNs);
           }
           if (audioSamplesReadyCallback != null) {
             // Copy the entire byte buffer array. The start of the byteBuffer is not necessarily
@@ -282,8 +283,13 @@ class WebRtcAudioRecord {
     }
     final int bytesPerFrame = channels * getBytesPerSample(audioFormat);
     final int framesPerBuffer = sampleRate / BUFFERS_PER_SECOND;
-    byteBuffer = ByteBuffer.allocateDirect(bytesPerFrame * framesPerBuffer);
-    if (!(byteBuffer.hasArray())) {
+    try {
+      byteBuffer = ByteBuffer.allocateDirect(bytesPerFrame * framesPerBuffer);
+    } catch (OutOfMemoryError | RuntimeException e) {
+      reportWebRtcAudioRecordInitError("allocateDirect failed: " + e.getMessage());
+      return -1;
+    }
+    if (!byteBuffer.hasArray()) {
       reportWebRtcAudioRecordInitError("ByteBuffer does not have backing array.");
       return -1;
     }
@@ -292,7 +298,7 @@ class WebRtcAudioRecord {
     // Rather than passing the ByteBuffer with every callback (requiring
     // the potentially expensive GetDirectBufferAddress) we simply have the
     // the native class cache the address to the memory once.
-    nativeCacheDirectBufferAddress(nativeAudioRecord, byteBuffer);
+    WebRtcAudioRecordJni.get().cacheDirectBufferAddress(nativeAudioRecord, this, byteBuffer);
 
     // Get the minimum buffer size required for the successful creation of
     // an AudioRecord object, in byte units.
@@ -330,6 +336,11 @@ class WebRtcAudioRecord {
     } catch (IllegalArgumentException | UnsupportedOperationException e) {
       // Report of exception message is sufficient. Example: "Cannot create AudioRecord".
       reportWebRtcAudioRecordInitError(e.getMessage());
+      releaseAudioResources();
+      return -1;
+    } catch (Throwable t) {
+      reportWebRtcAudioRecordInitError("InitRecording error: " +
+                                       t.getClass().getSimpleName() + ": " + t.getMessage());
       releaseAudioResources();
       return -1;
     }
@@ -499,10 +510,14 @@ class WebRtcAudioRecord {
     return (channels == 1 ? AudioFormat.CHANNEL_IN_MONO : AudioFormat.CHANNEL_IN_STEREO);
   }
 
-  private native void nativeCacheDirectBufferAddress(
-      long nativeAudioRecordJni, ByteBuffer byteBuffer);
-  private native void nativeDataIsRecorded(
-      long nativeAudioRecordJni, int bytes, long captureTimestampNs);
+  @NativeMethods
+  interface Natives {
+    void cacheDirectBufferAddress(
+        long nativeAudioRecordJni, WebRtcAudioRecord caller, ByteBuffer byteBuffer);
+
+    void dataIsRecorded(
+        long nativeAudioRecordJni, WebRtcAudioRecord caller, int bytes, long captureTimestampNs);
+  }
 
   // Sets all recorded samples to zero if `mute` is true, i.e., ensures that
   // the microphone is muted.
@@ -721,7 +736,7 @@ class WebRtcAudioRecord {
   // Returns true if device A parameters matches those of device B.
   // TODO(henrika): can be improved by adding AudioDeviceInfo#getAddress() but it requires API 29.
   private static boolean checkDeviceMatch(AudioDeviceInfo devA, AudioDeviceInfo devB) {
-    return ((devA.getId() == devB.getId() && (devA.getType() == devB.getType())));
+    return (devA.getId() == devB.getId() && (devA.getType() == devB.getType()));
   }
 
   private static String audioStateToString(int state) {

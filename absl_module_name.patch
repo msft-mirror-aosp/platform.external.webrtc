@@ -1,0 +1,9 @@
+--- MODULE.bazel
++++ MODULE.bazel
+@@ -1,5 +1,5 @@
+ module(
+-    name = "abseil-cpp",
++    name = "com_google_absl",
+     version = "20260107.0",
+     compatibility_level = 1,
+ )

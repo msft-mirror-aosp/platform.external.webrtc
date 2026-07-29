@@ -11,22 +11,28 @@
 #ifndef TEST_VIDEO_CODEC_TESTER_H_
 #define TEST_VIDEO_CODEC_TESTER_H_
 
+#include <cstdint>
 #include <limits>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
-#include "absl/types/optional.h"
+#include "absl/strings/string_view.h"
 #include "api/environment/environment.h"
 #include "api/numerics/samples_stats_counter.h"
-#include "api/test/metrics/metric.h"
 #include "api/test/metrics/metrics_logger.h"
 #include "api/units/data_rate.h"
 #include "api/units/data_size.h"
 #include "api/units/frequency.h"
+#include "api/units/time_delta.h"
+#include "api/units/timestamp.h"
 #include "api/video/encoded_image.h"
 #include "api/video/resolution.h"
+#include "api/video_codecs/scalability_mode.h"
+#include "api/video_codecs/sdp_video_format.h"
+#include "api/video_codecs/video_codec.h"
 #include "api/video_codecs/video_decoder_factory.h"
 #include "api/video_codecs/video_encoder_factory.h"
 
@@ -68,7 +74,7 @@ class VideoCodecTester {
     struct Filter {
       uint32_t min_timestamp_rtp = std::numeric_limits<uint32_t>::min();
       uint32_t max_timestamp_rtp = std::numeric_limits<uint32_t>::max();
-      absl::optional<LayerId> layer_id;
+      std::optional<LayerId> layer_id;
     };
 
     struct Frame {
@@ -80,20 +86,20 @@ class VideoCodecTester {
       int height = 0;
       DataSize frame_size = DataSize::Zero();
       bool keyframe = false;
-      absl::optional<int> qp;
+      std::optional<int> qp;
       Timestamp encode_start = Timestamp::Zero();
       TimeDelta encode_time = TimeDelta::Zero();
       Timestamp decode_start = Timestamp::Zero();
       TimeDelta decode_time = TimeDelta::Zero();
-      absl::optional<DataRate> target_bitrate;
-      absl::optional<Frequency> target_framerate;
+      std::optional<DataRate> target_bitrate;
+      std::optional<Frequency> target_framerate;
 
       struct Psnr {
         double y = 0.0;
         double u = 0.0;
         double v = 0.0;
       };
-      absl::optional<Psnr> psnr;
+      std::optional<Psnr> psnr;
     };
 
     struct Stream {
@@ -102,15 +108,15 @@ class VideoCodecTester {
       SamplesStatsCounter frame_size_bytes;
       SamplesStatsCounter keyframe;
       SamplesStatsCounter qp;
-      SamplesStatsCounter encode_time_ms;
-      SamplesStatsCounter decode_time_ms;
+      SamplesStatsCounter encode_time_us;
+      SamplesStatsCounter decode_time_us;
       SamplesStatsCounter target_bitrate_kbps;
       SamplesStatsCounter target_framerate_fps;
       SamplesStatsCounter encoded_bitrate_kbps;
       SamplesStatsCounter encoded_framerate_fps;
       SamplesStatsCounter bitrate_mismatch_pct;
       SamplesStatsCounter framerate_mismatch_pct;
-      SamplesStatsCounter transmission_time_ms;
+      SamplesStatsCounter buffer_delay_ms;
 
       struct Psnr {
         SamplesStatsCounter y;
@@ -166,14 +172,16 @@ class VideoCodecTester {
 
   struct DecoderSettings {
     PacingSettings pacing_settings;
-    absl::optional<std::string> decoder_input_base_path;
-    absl::optional<std::string> decoder_output_base_path;
+    std::optional<std::string> decoder_input_base_path;
+    std::optional<std::string> decoder_output_base_path;
+    int num_cores = 1;
   };
 
   struct EncoderSettings {
     PacingSettings pacing_settings;
-    absl::optional<std::string> encoder_input_base_path;
-    absl::optional<std::string> encoder_output_base_path;
+    std::optional<std::string> encoder_input_base_path;
+    std::optional<std::string> encoder_output_base_path;
+    int num_cores = 1;
   };
 
   virtual ~VideoCodecTester() = default;
@@ -183,10 +191,10 @@ class VideoCodecTester {
    public:
     virtual ~CodedVideoSource() = default;
 
-    // Returns next frame. Returns `absl::nullopt` if the end-of-stream is
+    // Returns next frame. Returns `std::nullopt` if the end-of-stream is
     // reached. Frames should have RTP timestamps representing desired frame
     // rate.
-    virtual absl::optional<EncodedImage> PullFrame() = 0;
+    virtual std::optional<EncodedImage> PullFrame() = 0;
   };
 
   // A helper function that creates `EncodingSettings` from the given

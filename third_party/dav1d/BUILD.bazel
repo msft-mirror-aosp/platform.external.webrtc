@@ -1,0 +1,606 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+load("@rules_license//rules:license.bzl", "license")
+load("@rules_nasm//nasm:defs.bzl", "nasm_library")
+
+package(
+    default_applicable_licenses = [":license"],
+    default_visibility = ["//visibility:public"],
+)
+
+license(
+    name = "license",
+    package_name = "dav1d",
+    license_kinds = ["@rules_license//licenses/spdx:BSD-2-Clause"],
+    license_text = "libdav1d/COPYING",
+)
+
+config_setting(
+    name = "cpu_aarch64",
+    constraint_values = ["@platforms//cpu:aarch64"],
+)
+
+config_setting(
+    name = "cpu_armv7",
+    constraint_values = ["@platforms//cpu:armv7"],
+)
+
+config_setting(
+    name = "cpu_x86_32",
+    constraint_values = ["@platforms//cpu:x86_32"],
+)
+
+config_setting(
+    name = "cpu_x86_64",
+    constraint_values = ["@platforms//cpu:x86_64"],
+)
+
+config_setting(
+    name = "os_windows",
+    constraint_values = ["@platforms//os:windows"],
+)
+
+config_setting(
+    name = "os_macos",
+    constraint_values = ["@platforms//os:macos"],
+)
+
+config_setting(
+    name = "os_linux",
+    constraint_values = ["@platforms//os:linux"],
+)
+
+config_setting(
+    name = "macos_x86_64",
+    constraint_values = [
+        "@platforms//os:macos",
+        "@platforms//cpu:x86_64",
+    ],
+)
+
+config_setting(
+    name = "macos_aarch64",
+    constraint_values = [
+        "@platforms//os:macos",
+        "@platforms//cpu:aarch64",
+    ],
+)
+
+config_setting(
+    name = "windows_x86_64",
+    constraint_values = [
+        "@platforms//os:windows",
+        "@platforms//cpu:x86_64",
+    ],
+)
+
+config_setting(
+    name = "windows_aarch64",
+    constraint_values = [
+        "@platforms//os:windows",
+        "@platforms//cpu:aarch64",
+    ],
+)
+
+config_setting(
+    name = "linux_x86_32",
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_32",
+    ],
+)
+
+config_setting(
+    name = "linux_x86_64",
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
+)
+
+config_setting(
+    name = "linux_aarch64",
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:aarch64",
+    ],
+)
+
+config_setting(
+    name = "linux_armv7",
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:armv7",
+    ],
+)
+
+x86_asm_srcs = [
+    "libdav1d/src/x86/cdef16_avx2.asm",
+    "libdav1d/src/x86/cdef16_avx512.asm",
+    "libdav1d/src/x86/cdef16_sse.asm",
+    "libdav1d/src/x86/cdef_avx2.asm",
+    "libdav1d/src/x86/cdef_avx512.asm",
+    "libdav1d/src/x86/cdef_sse.asm",
+    "libdav1d/src/x86/cpuid.asm",
+    "libdav1d/src/x86/filmgrain16_avx2.asm",
+    "libdav1d/src/x86/filmgrain16_avx512.asm",
+    "libdav1d/src/x86/filmgrain16_sse.asm",
+    "libdav1d/src/x86/filmgrain_avx2.asm",
+    "libdav1d/src/x86/filmgrain_avx512.asm",
+    "libdav1d/src/x86/filmgrain_sse.asm",
+    "libdav1d/src/x86/ipred16_avx2.asm",
+    "libdav1d/src/x86/ipred16_avx512.asm",
+    "libdav1d/src/x86/ipred16_sse.asm",
+    "libdav1d/src/x86/ipred_avx2.asm",
+    "libdav1d/src/x86/ipred_avx512.asm",
+    "libdav1d/src/x86/ipred_sse.asm",
+    "libdav1d/src/x86/itx16_avx2.asm",
+    "libdav1d/src/x86/itx16_avx512.asm",
+    "libdav1d/src/x86/itx16_sse.asm",
+    "libdav1d/src/x86/itx_avx2.asm",
+    "libdav1d/src/x86/itx_avx512.asm",
+    "libdav1d/src/x86/itx_sse.asm",
+    "libdav1d/src/x86/loopfilter16_avx2.asm",
+    "libdav1d/src/x86/loopfilter16_avx512.asm",
+    "libdav1d/src/x86/loopfilter16_sse.asm",
+    "libdav1d/src/x86/loopfilter_avx2.asm",
+    "libdav1d/src/x86/loopfilter_avx512.asm",
+    "libdav1d/src/x86/loopfilter_sse.asm",
+    "libdav1d/src/x86/looprestoration16_avx2.asm",
+    "libdav1d/src/x86/looprestoration16_avx512.asm",
+    "libdav1d/src/x86/looprestoration16_sse.asm",
+    "libdav1d/src/x86/looprestoration_avx2.asm",
+    "libdav1d/src/x86/looprestoration_avx512.asm",
+    "libdav1d/src/x86/looprestoration_sse.asm",
+    "libdav1d/src/x86/mc16_avx2.asm",
+    "libdav1d/src/x86/mc16_avx512.asm",
+    "libdav1d/src/x86/mc16_sse.asm",
+    "libdav1d/src/x86/mc_avx2.asm",
+    "libdav1d/src/x86/mc_avx512.asm",
+    "libdav1d/src/x86/mc_sse.asm",
+    "libdav1d/src/x86/msac.asm",
+    "libdav1d/src/x86/pal.asm",
+    "libdav1d/src/x86/refmvs.asm",
+]
+
+armv7_asm_srcs = [
+    "libdav1d/src/arm/32/cdef.S",
+    "libdav1d/src/arm/32/cdef16.S",
+    "libdav1d/src/arm/32/filmgrain.S",
+    "libdav1d/src/arm/32/filmgrain16.S",
+    "libdav1d/src/arm/32/ipred.S",
+    "libdav1d/src/arm/32/ipred16.S",
+    "libdav1d/src/arm/32/itx.S",
+    "libdav1d/src/arm/32/itx16.S",
+    "libdav1d/src/arm/32/loopfilter.S",
+    "libdav1d/src/arm/32/loopfilter16.S",
+    "libdav1d/src/arm/32/looprestoration.S",
+    "libdav1d/src/arm/32/looprestoration16.S",
+    "libdav1d/src/arm/32/looprestoration_common.S",
+    "libdav1d/src/arm/32/mc.S",
+    "libdav1d/src/arm/32/mc16.S",
+    "libdav1d/src/arm/32/msac.S",
+    "libdav1d/src/arm/32/refmvs.S",
+]
+
+arm64_asm_srcs = [
+    "libdav1d/src/arm/64/cdef.S",
+    "libdav1d/src/arm/64/cdef16.S",
+    "libdav1d/src/arm/64/filmgrain.S",
+    "libdav1d/src/arm/64/filmgrain16.S",
+    "libdav1d/src/arm/64/ipred.S",
+    "libdav1d/src/arm/64/ipred16.S",
+    "libdav1d/src/arm/64/itx.S",
+    "libdav1d/src/arm/64/itx16.S",
+    "libdav1d/src/arm/64/loopfilter.S",
+    "libdav1d/src/arm/64/loopfilter16.S",
+    "libdav1d/src/arm/64/looprestoration.S",
+    "libdav1d/src/arm/64/looprestoration16.S",
+    "libdav1d/src/arm/64/looprestoration_common.S",
+    "libdav1d/src/arm/64/mc.S",
+    "libdav1d/src/arm/64/mc16.S",
+    "libdav1d/src/arm/64/mc16_sve.S",
+    "libdav1d/src/arm/64/mc_dotprod.S",
+    "libdav1d/src/arm/64/msac.S",
+    "libdav1d/src/arm/64/refmvs.S",
+]
+
+tmpl_srcs = [
+    "libdav1d/src/cdef_apply_tmpl.c",
+    "libdav1d/src/cdef_tmpl.c",
+    "libdav1d/src/fg_apply_tmpl.c",
+    "libdav1d/src/filmgrain_tmpl.c",
+    "libdav1d/src/ipred_prepare_tmpl.c",
+    "libdav1d/src/ipred_tmpl.c",
+    "libdav1d/src/itx_tmpl.c",
+    "libdav1d/src/lf_apply_tmpl.c",
+    "libdav1d/src/loopfilter_tmpl.c",
+    "libdav1d/src/looprestoration_tmpl.c",
+    "libdav1d/src/lr_apply_tmpl.c",
+    "libdav1d/src/mc_tmpl.c",
+    "libdav1d/src/recon_tmpl.c",
+]
+
+x86_dav1d_srcs = [
+    "libdav1d/src/x86/cpu.c",
+]
+
+arm_dav1d_srcs = [
+    "libdav1d/src/arm/cpu.c",
+]
+
+dav1d_srcs = [
+    "libdav1d/src/cdf.c",
+    "libdav1d/src/cpu.c",
+    "libdav1d/src/ctx.c",
+    "libdav1d/src/data.c",
+    "libdav1d/src/decode.c",
+    "libdav1d/src/dequant_tables.c",
+    "libdav1d/src/getbits.c",
+    "libdav1d/src/intra_edge.c",
+    "libdav1d/src/itx_1d.c",
+    "libdav1d/src/lf_mask.c",
+    "libdav1d/src/lib.c",
+    "libdav1d/src/log.c",
+    "libdav1d/src/mem.c",
+    "libdav1d/src/msac.c",
+    "libdav1d/src/obu.c",
+    "libdav1d/src/pal.c",
+    "libdav1d/src/picture.c",
+    "libdav1d/src/qm.c",
+    "libdav1d/src/ref.c",
+    "libdav1d/src/refmvs.c",
+    "libdav1d/src/scan.c",
+    "libdav1d/src/tables.c",
+    "libdav1d/src/thread_task.c",
+    "libdav1d/src/warpmv.c",
+    "libdav1d/src/wedge.c",
+] + select({
+    ":cpu_aarch64": arm_dav1d_srcs + arm64_asm_srcs,
+    ":cpu_armv7": arm_dav1d_srcs + armv7_asm_srcs,
+    ":cpu_x86_32": x86_dav1d_srcs,
+    ":cpu_x86_64": x86_dav1d_srcs,
+    "//conditions:default": [],
+}) + select({
+    ":os_windows": ["libdav1d/src/win32/thread.c"],
+    "//conditions:default": [],
+})
+
+nasm_library(
+    name = "x86_asm",
+    srcs = x86_asm_srcs,
+    hdrs = [
+        "libdav1d/src/ext/x86/x86inc.asm",
+        "libdav1d/src/x86/filmgrain_common.asm",
+    ] + select({
+        ":macos_x86_64": ["config/apple/x64/config.asm"],
+        ":windows_x86_64": ["config/win/x64/config.asm"],
+        ":linux_x86_32": ["config/linux/x86/config.asm"],
+        "//conditions:default": ["config/linux/x64/config.asm"],
+    }),
+    copts = select({
+        ":macos_x86_64": [
+            "-f",
+            "macho64",
+            "-DPIC",
+        ],
+        ":windows_x86_64": [
+            "-f",
+            "win64",
+            "-DPIC",
+        ],
+        ":linux_x86_32": [
+            "-f",
+            "elf32",
+            "-DPIC",
+        ],
+        "//conditions:default": [
+            "-f",
+            "elf64",
+            "-DPIC",
+        ],
+    }),
+    includes = [
+        ".",
+        "libdav1d/src",
+    ] + select({
+        ":macos_x86_64": ["config/apple/x64"],
+        ":windows_x86_64": ["config/win/x64"],
+        ":linux_x86_32": ["config/linux/x86"],
+        "//conditions:default": ["config/linux/x64"],
+    }),
+    target_compatible_with = [
+        "@platforms//cpu:x86_64",
+    ],
+)
+
+shared_copts = [
+    "-D_FILE_OFFSET_BITS=64",
+    "-D_ISOC99_SOURCE",
+    "-Wall",
+    "-Winvalid-pch",
+    "-Wextra",
+    "-std=c99",
+    "-I.",
+    "-Ilibdav1d",
+    "-Ilibdav1d/include",
+    "-Ilibdav1d/include/dav1d",
+    "-Iversion",
+    "-Wundef",
+    "-Wno-unused-parameter",
+    "-Wno-undef",
+    "-Wno-frame-larger-than",
+    "-fomit-frame-pointer",
+    "-ffast-math",
+    "-fvisibility=hidden",
+] + select({
+    ":os_windows": [],
+    "//conditions:default": ["-fPIC"],
+}) + select({
+    ":macos_x86_64": ["-Iconfig/apple/x64"],
+    ":macos_aarch64": ["-Iconfig/apple/arm64"],
+    ":windows_x86_64": ["-Iconfig/win/x64"],
+    ":windows_aarch64": ["-Iconfig/win/arm64"],
+    ":linux_x86_32": [
+        "-D_GNU_SOURCE",
+        "-Iconfig/linux/x86",
+    ],
+    ":linux_aarch64": [
+        "-D_GNU_SOURCE",
+        "-Iconfig/linux/arm64",
+    ],
+    ":linux_armv7": [
+        "-D_GNU_SOURCE",
+        "-Iconfig/linux/arm",
+    ],
+    "//conditions:default": [
+        "-D_GNU_SOURCE",
+        "-Iconfig/linux/x64",
+    ],
+})
+
+common_hdrs = [
+    "libdav1d/include/common/attributes.h",
+    "libdav1d/include/common/bitdepth.h",
+    "libdav1d/include/common/dump.h",
+    "libdav1d/include/common/frame.h",
+    "libdav1d/include/common/intops.h",
+    "libdav1d/include/common/validate.h",
+    "libdav1d/include/dav1d/common.h",
+    "libdav1d/include/dav1d/data.h",
+    "libdav1d/include/dav1d/dav1d.h",
+    "libdav1d/include/dav1d/headers.h",
+    "libdav1d/include/dav1d/picture.h",
+    "libdav1d/include/dav1d/version.h",
+    "libdav1d/src/cdef.h",
+    "libdav1d/src/cdef_apply.h",
+    "libdav1d/src/cdf.h",
+    "libdav1d/src/cpu.h",
+    "libdav1d/src/ctx.h",
+    "libdav1d/src/data.h",
+    "libdav1d/src/decode.h",
+    "libdav1d/src/dequant_tables.h",
+    "libdav1d/src/env.h",
+    "libdav1d/src/fg_apply.h",
+    "libdav1d/src/filmgrain.h",
+    "libdav1d/src/getbits.h",
+    "libdav1d/src/internal.h",
+    "libdav1d/src/intra_edge.h",
+    "libdav1d/src/ipred.h",
+    "libdav1d/src/ipred_prepare.h",
+    "libdav1d/src/itx.h",
+    "libdav1d/src/itx_1d.h",
+    "libdav1d/src/levels.h",
+    "libdav1d/src/lf_apply.h",
+    "libdav1d/src/lf_mask.h",
+    "libdav1d/src/log.h",
+    "libdav1d/src/loopfilter.h",
+    "libdav1d/src/looprestoration.h",
+    "libdav1d/src/lr_apply.h",
+    "libdav1d/src/mc.h",
+    "libdav1d/src/mem.h",
+    "libdav1d/src/msac.h",
+    "libdav1d/src/obu.h",
+    "libdav1d/src/pal.h",
+    "libdav1d/src/picture.h",
+    "libdav1d/src/qm.h",
+    "libdav1d/src/recon.h",
+    "libdav1d/src/ref.h",
+    "libdav1d/src/refmvs.h",
+    "libdav1d/src/scan.h",
+    "libdav1d/src/tables.h",
+    "libdav1d/src/thread.h",
+    "libdav1d/src/thread_data.h",
+    "libdav1d/src/thread_task.h",
+    "libdav1d/src/warpmv.h",
+    "libdav1d/src/wedge.h",
+    "version/vcs_version.h",
+]
+
+x86_hdrs = [
+    "libdav1d/src/x86/cdef.h",
+    "libdav1d/src/x86/cpu.h",
+    "libdav1d/src/x86/filmgrain.h",
+    "libdav1d/src/x86/ipred.h",
+    "libdav1d/src/x86/itx.h",
+    "libdav1d/src/x86/loopfilter.h",
+    "libdav1d/src/x86/looprestoration.h",
+    "libdav1d/src/x86/mc.h",
+    "libdav1d/src/x86/msac.h",
+    "libdav1d/src/x86/pal.h",
+    "libdav1d/src/x86/refmvs.h",
+]
+
+arm_hdrs = [
+    "libdav1d/src/arm/arm-arch.h",
+    "libdav1d/src/arm/asm-offsets.h",
+    "libdav1d/src/arm/cdef.h",
+    "libdav1d/src/arm/cpu.h",
+    "libdav1d/src/arm/filmgrain.h",
+    "libdav1d/src/arm/ipred.h",
+    "libdav1d/src/arm/itx.h",
+    "libdav1d/src/arm/loopfilter.h",
+    "libdav1d/src/arm/looprestoration.h",
+    "libdav1d/src/arm/mc.h",
+    "libdav1d/src/arm/msac.h",
+    "libdav1d/src/arm/refmvs.h",
+]
+
+arm32_tmpl_hdrs = [
+    "libdav1d/src/arm/asm.S",
+    "libdav1d/src/arm/32/util.S",
+    "libdav1d/src/arm/32/cdef_tmpl.S",
+    "libdav1d/src/arm/32/looprestoration_tmpl.S",
+]
+
+arm64_tmpl_hdrs = [
+    "libdav1d/src/arm/asm.S",
+    "libdav1d/src/arm/64/util.S",
+    "libdav1d/src/arm/64/cdef_tmpl.S",
+    "libdav1d/src/arm/64/looprestoration_tmpl.S",
+]
+
+cc_library(
+    name = "dav1d_hdrs",
+    hdrs = common_hdrs + select({
+        ":macos_x86_64": ["config/apple/x64/config.h"] + x86_hdrs,
+        ":macos_aarch64": ["config/apple/arm64/config.h"] + arm_hdrs,
+        ":windows_x86_64": ["config/win/x64/config.h"] + x86_hdrs,
+        ":windows_aarch64": ["config/win/arm64/config.h"] + arm_hdrs,
+        ":linux_x86_32": ["config/linux/x86/config.h"] + x86_hdrs,
+        ":linux_aarch64": ["config/linux/arm64/config.h"] + arm_hdrs,
+        ":linux_armv7": ["config/linux/arm/config.h"] + arm_hdrs,
+        "//conditions:default": ["config/linux/x64/config.h"] + x86_hdrs,
+    }) + select({
+        ":cpu_armv7": arm32_tmpl_hdrs,
+        ":cpu_aarch64": arm64_tmpl_hdrs,
+        "//conditions:default": [],
+    }),
+    includes = [
+        "libdav1d",
+        "libdav1d/include",
+        "libdav1d/include/dav1d",
+        "version",
+    ] + select({
+        ":macos_x86_64": ["config/apple/x64"],
+        ":macos_aarch64": ["config/apple/arm64"],
+        ":windows_x86_64": ["config/win/x64"],
+        ":windows_aarch64": ["config/win/arm64"],
+        ":linux_x86_32": ["config/linux/x86"],
+        ":linux_aarch64": ["config/linux/arm64"],
+        ":linux_armv7": ["config/linux/arm"],
+        "//conditions:default": ["config/linux/x64"],
+    }),
+    linkstatic = 1,
+)
+
+cc_library(
+    name = "dav1d_lib_8bit",
+    srcs = tmpl_srcs,
+    copts = shared_copts + [
+        "-DBITDEPTH=8",
+    ],
+    linkstatic = 1,
+    deps = [
+        ":dav1d_hdrs",
+    ],
+    alwayslink = 1,
+)
+
+cc_library(
+    name = "dav1d_lib_16bit",
+    srcs = tmpl_srcs,
+    copts = shared_copts + [
+        "-DBITDEPTH=16",
+    ],
+    linkstatic = 1,
+    deps = [
+        ":dav1d_hdrs",
+    ],
+    alwayslink = 1,
+)
+
+cc_library(
+    name = "dav1d_lib",
+    srcs = dav1d_srcs + select({
+        ":cpu_x86_32": [":x86_asm"],
+        ":cpu_x86_64": [":x86_asm"],
+        "//conditions:default": [],
+    }),
+    hdrs = [
+        "libdav1d/include/dav1d/common.h",
+        "libdav1d/include/dav1d/data.h",
+        "libdav1d/include/dav1d/dav1d.h",
+        "libdav1d/include/dav1d/headers.h",
+        "libdav1d/include/dav1d/picture.h",
+        "libdav1d/include/dav1d/version.h",
+    ],
+    copts = shared_copts,
+    linkopts = select({
+        ":os_macos": [],
+        ":os_windows": [],
+        "//conditions:default": ["-ldl"],
+    }),
+    linkstatic = 1,
+    visibility = ["//visibility:public"],
+    deps = [
+        ":dav1d_hdrs",
+        ":dav1d_lib_16bit",
+        ":dav1d_lib_8bit",
+    ],
+    alwayslink = 1,
+)
+
+cc_binary(
+    name = "dav1d",
+    srcs = [
+        "libdav1d/tools/dav1d.c",
+        "libdav1d/tools/dav1d_cli_parse.c",
+        "libdav1d/tools/dav1d_cli_parse.h",
+        "libdav1d/tools/input/annexb.c",
+        "libdav1d/tools/input/demuxer.h",
+        "libdav1d/tools/input/input.c",
+        "libdav1d/tools/input/input.h",
+        "libdav1d/tools/input/ivf.c",
+        "libdav1d/tools/input/parse.h",
+        "libdav1d/tools/input/section5.c",
+        "libdav1d/tools/output/md5.c",
+        "libdav1d/tools/output/muxer.h",
+        "libdav1d/tools/output/null.c",
+        "libdav1d/tools/output/output.c",
+        "libdav1d/tools/output/output.h",
+        "libdav1d/tools/output/xxhash.c",
+        "libdav1d/tools/output/y4m2.c",
+        "libdav1d/tools/output/yuv.c",
+    ],
+    copts = shared_copts + [
+        "-Ilibdav1d/tools",
+    ],
+    defines = [
+        "HAVE_XXHASH_H",
+        "XXH_STATIC_LINKING_ONLY",
+    ],
+    deps = [
+        ":dav1d_hdrs",
+        ":dav1d_lib",
+        "@xxhash",
+    ],
+)
+
+[
+    cc_test(
+        name = "header_test_{}".format(hdr.replace(".h", "")),
+        srcs = ["libdav1d/tests/header_test.c"],
+        copts = shared_copts + [
+            '-DDAV1D_TEST_HEADER=\\"dav1d/{}\\"'.format(hdr),
+        ],
+        deps = [":dav1d_lib"],
+    )
+    for hdr in [
+        "common.h",
+        "data.h",
+        "dav1d.h",
+        "headers.h",
+        "picture.h",
+        "version.h",
+    ]
+]

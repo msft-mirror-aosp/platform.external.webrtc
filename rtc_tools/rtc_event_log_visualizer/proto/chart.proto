@@ -3,7 +3,7 @@ syntax = "proto3";
 option optimize_for = LITE_RUNTIME;
 package webrtc.analytics;
 
-import "chart_enums.proto";
+import "rtc_tools/rtc_event_log_visualizer/proto/chart_enums.proto";
 
 message DataSet {
   repeated float x_values = 1;

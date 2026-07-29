@@ -11,6 +11,10 @@
 #ifndef MODULES_AUDIO_DEVICE_INCLUDE_MOCK_AUDIO_TRANSPORT_H_
 #define MODULES_AUDIO_DEVICE_INCLUDE_MOCK_AUDIO_TRANSPORT_H_
 
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+
 #include "api/audio/audio_device_defines.h"
 #include "test/gmock.h"
 
@@ -20,7 +24,7 @@ namespace test {
 class MockAudioTransport : public AudioTransport {
  public:
   MockAudioTransport() {}
-  ~MockAudioTransport() {}
+  ~MockAudioTransport() override {}
 
   MOCK_METHOD(int32_t,
               RecordedDataIsAvailable,
@@ -48,7 +52,7 @@ class MockAudioTransport : public AudioTransport {
                uint32_t currentMicLevel,
                bool keyPressed,
                uint32_t& newMicLevel,
-               absl::optional<int64_t> estimated_capture_time_ns),
+               std::optional<int64_t> estimated_capture_time_ns),
               (override));
 
   MOCK_METHOD(int32_t,

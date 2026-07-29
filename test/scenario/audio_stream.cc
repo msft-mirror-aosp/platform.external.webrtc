@@ -9,8 +9,28 @@
  */
 #include "test/scenario/audio_stream.h"
 
-#include "absl/memory/memory.h"
-#include "test/call_test.h"
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <vector>
+
+#include "api/audio_codecs/audio_decoder_factory.h"
+#include "api/audio_codecs/audio_encoder_factory.h"
+#include "api/call/transport.h"
+#include "api/media_types.h"
+#include "api/rtp_header_extension_id.h"
+#include "api/rtp_headers.h"
+#include "api/rtp_parameters.h"
+#include "api/scoped_refptr.h"
+#include "api/units/data_rate.h"
+#include "api/units/time_delta.h"
+#include "call/audio_receive_stream.h"
+#include "call/audio_send_stream.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/strings/string_builder.h"
+#include "test/scenario/call_client.h"
+#include "test/scenario/column_printer.h"
+#include "test/scenario/scenario_config.h"
 #include "test/video_test_constants.h"
 
 #if WEBRTC_ENABLE_PROTOBUF
@@ -24,12 +44,10 @@
 namespace webrtc {
 namespace test {
 namespace {
-enum : int {  // The first valid value is 1.
-  kTransportSequenceNumberExtensionId = 1,
-  kAbsSendTimeExtensionId
-};
+constexpr RtpHeaderExtensionId kTransportSequenceNumberExtensionId(1);
+constexpr RtpHeaderExtensionId kAbsSendTimeExtensionId(2);
 
-absl::optional<std::string> CreateAdaptationString(
+std::optional<std::string> CreateAdaptationString(
     AudioStreamConfig::NetworkAdaptation config) {
 #if WEBRTC_ENABLE_PROTOBUF
 
@@ -61,7 +79,7 @@ absl::optional<std::string> CreateAdaptationString(
   RTC_LOG(LS_ERROR) << "audio_network_adaptation is enabled"
                        " but WEBRTC_ENABLE_PROTOBUF is false.\n"
                        "Ignoring settings.";
-  return absl::nullopt;
+  return std::nullopt;
 #endif  // WEBRTC_ENABLE_PROTOBUF
 }
 }  // namespace
@@ -70,12 +88,12 @@ std::vector<RtpExtension> GetAudioRtpExtensions(
     const AudioStreamConfig& config) {
   std::vector<RtpExtension> extensions;
   if (config.stream.in_bandwidth_estimation) {
-    extensions.push_back({RtpExtension::kTransportSequenceNumberUri,
-                          kTransportSequenceNumberExtensionId});
+    extensions.push_back(RtpExtension(RtpExtension::kTransportSequenceNumberUri,
+                                      kTransportSequenceNumberExtensionId));
   }
   if (config.stream.abs_send_time) {
     extensions.push_back(
-        {RtpExtension::kAbsSendTimeUri, kAbsSendTimeExtensionId});
+        RtpExtension(RtpExtension::kAbsSendTimeUri, kAbsSendTimeExtensionId));
   }
   return extensions;
 }
@@ -83,7 +101,7 @@ std::vector<RtpExtension> GetAudioRtpExtensions(
 SendAudioStream::SendAudioStream(
     CallClient* sender,
     AudioStreamConfig config,
-    rtc::scoped_refptr<AudioEncoderFactory> encoder_factory,
+    scoped_refptr<AudioEncoderFactory> encoder_factory,
     Transport* send_transport)
     : sender_(sender), config_(config) {
   AudioSendStream::Config send_config(send_transport);
@@ -132,10 +150,9 @@ SendAudioStream::SendAudioStream(
     send_config.max_bitrate_bps = max_rate.bps();
   }
 
-  if (config.stream.in_bandwidth_estimation) {
-    send_config.send_codec_spec->transport_cc_enabled = true;
-  }
   send_config.rtp.extensions = GetAudioRtpExtensions(config);
+  send_config.include_in_congestion_control_allocation =
+      config.stream.in_bandwidth_estimation;
 
   sender_->SendTask([&] {
     send_stream_ = sender_->call_->CreateAudioSendStream(send_config);
@@ -167,7 +184,7 @@ void SendAudioStream::SetMuted(bool mute) {
 ColumnPrinter SendAudioStream::StatsPrinter() {
   return ColumnPrinter::Lambda(
       "audio_target_rate",
-      [this](rtc::SimpleStringBuilder& sb) {
+      [this](StringBuilder& sb) {
         sender_->SendTask([this, &sb] {
           AudioSendStream::Stats stats = send_stream_->GetStats();
           sb.AppendFormat("%.0lf", stats.target_bitrate_bps / 8.0);
@@ -180,11 +197,10 @@ ReceiveAudioStream::ReceiveAudioStream(
     CallClient* receiver,
     AudioStreamConfig config,
     SendAudioStream* send_stream,
-    rtc::scoped_refptr<AudioDecoderFactory> decoder_factory,
+    scoped_refptr<AudioDecoderFactory> decoder_factory,
     Transport* feedback_transport)
     : receiver_(receiver), config_(config) {
   AudioReceiveStreamInterface::Config recv_config;
-  recv_config.rtp.local_ssrc = receiver_->GetNextAudioLocalSsrc();
   recv_config.rtcp_send_transport = feedback_transport;
   recv_config.rtp.remote_ssrc = send_stream->ssrc_;
   receiver->ssrc_media_types_[recv_config.rtp.remote_ssrc] = MediaType::AUDIO;
@@ -224,9 +240,9 @@ AudioStreamPair::~AudioStreamPair() = default;
 
 AudioStreamPair::AudioStreamPair(
     CallClient* sender,
-    rtc::scoped_refptr<AudioEncoderFactory> encoder_factory,
+    scoped_refptr<AudioEncoderFactory> encoder_factory,
     CallClient* receiver,
-    rtc::scoped_refptr<AudioDecoderFactory> decoder_factory,
+    scoped_refptr<AudioDecoderFactory> decoder_factory,
     AudioStreamConfig config)
     : config_(config),
       send_stream_(sender, config, encoder_factory, sender->transport_.get()),

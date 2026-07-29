@@ -13,9 +13,10 @@ package org.webrtc;
 import android.content.Context;
 import android.os.Build;
 import androidx.annotation.Nullable;
+import androidx.annotation.VisibleForTesting;
 import java.util.ArrayList;
 import java.util.List;
-import org.webrtc.NetworkChangeDetector;
+import org.jni_zero.NativeMethods;
 
 /**
  * Borrowed from Chromium's
@@ -230,7 +231,7 @@ public class NetworkMonitor {
 
     synchronized (nativeNetworkObservers) {
       for (Long nativeObserver : nativeNetworkObservers) {
-        nativeNotifyConnectionTypeChanged(nativeObserver);
+        NetworkMonitorJni.get().notifyConnectionTypeChanged(nativeObserver);
       }
     }
 
@@ -248,7 +249,7 @@ public class NetworkMonitor {
       NetworkChangeDetector.NetworkInformation networkInfo) {
     synchronized (nativeNetworkObservers) {
       for (Long nativeObserver : nativeNetworkObservers) {
-        nativeNotifyOfNetworkConnect(nativeObserver, networkInfo);
+        NetworkMonitorJni.get().notifyOfNetworkConnect(nativeObserver, networkInfo);
       }
     }
   }
@@ -256,7 +257,7 @@ public class NetworkMonitor {
   private void notifyObserversOfNetworkDisconnect(long networkHandle) {
     synchronized (nativeNetworkObservers) {
       for (Long nativeObserver : nativeNetworkObservers) {
-        nativeNotifyOfNetworkDisconnect(nativeObserver, networkHandle);
+        NetworkMonitorJni.get().notifyOfNetworkDisconnect(nativeObserver, networkHandle);
       }
     }
   }
@@ -266,7 +267,7 @@ public class NetworkMonitor {
     synchronized(nativeNetworkObservers) {
       for (NetworkChangeDetector.ConnectionType type : types) {
         for (Long nativeObserver : nativeNetworkObservers) {
-          nativeNotifyOfNetworkPreference(nativeObserver, type, preference);
+          NetworkMonitorJni.get().notifyOfNetworkPreference(nativeObserver, type, preference);
         }
       }
     }
@@ -285,7 +286,7 @@ public class NetworkMonitor {
     NetworkChangeDetector.NetworkInformation[] networkInfos =
         new NetworkChangeDetector.NetworkInformation[networkInfoList.size()];
     networkInfos = networkInfoList.toArray(networkInfos);
-    nativeNotifyOfActiveNetworkList(nativeObserver, networkInfos);
+    NetworkMonitorJni.get().notifyOfActiveNetworkList(nativeObserver, networkInfos);
   }
 
   /**
@@ -326,19 +327,23 @@ public class NetworkMonitor {
     return connectionType != NetworkChangeDetector.ConnectionType.CONNECTION_NONE;
   }
 
-  private native void nativeNotifyConnectionTypeChanged(long nativeAndroidNetworkMonitor);
+  @NativeMethods
+  interface Natives {
+    void notifyConnectionTypeChanged(long nativeAndroidNetworkMonitor);
 
-  private native void nativeNotifyOfNetworkConnect(
-      long nativeAndroidNetworkMonitor, NetworkChangeDetector.NetworkInformation networkInfo);
+    void notifyOfNetworkConnect(
+        long nativeAndroidNetworkMonitor, NetworkChangeDetector.NetworkInformation networkInfo);
 
-  private native void nativeNotifyOfNetworkDisconnect(
-      long nativeAndroidNetworkMonitor, long networkHandle);
+    void notifyOfNetworkDisconnect(long nativeAndroidNetworkMonitor, long networkHandle);
 
-  private native void nativeNotifyOfActiveNetworkList(
-      long nativeAndroidNetworkMonitor, NetworkChangeDetector.NetworkInformation[] networkInfos);
+    void notifyOfActiveNetworkList(
+        long nativeAndroidNetworkMonitor, NetworkChangeDetector.NetworkInformation[] networkInfos);
 
-  private native void nativeNotifyOfNetworkPreference(
-      long nativeAndroidNetworkMonitor, NetworkChangeDetector.ConnectionType type, int preference);
+    void notifyOfNetworkPreference(
+        long nativeAndroidNetworkMonitor,
+        NetworkChangeDetector.ConnectionType type,
+        int preference);
+  }
 
   // For testing only.
   @Nullable
@@ -349,7 +354,8 @@ public class NetworkMonitor {
   }
 
   // For testing only.
-  int getNumObservers() {
+  @VisibleForTesting
+  public int getNumObservers() {
     synchronized (networkChangeDetectorLock) {
       return numObservers;
     }

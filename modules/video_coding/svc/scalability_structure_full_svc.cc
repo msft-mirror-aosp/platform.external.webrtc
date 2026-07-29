@@ -9,20 +9,19 @@
  */
 #include "modules/video_coding/svc/scalability_structure_full_svc.h"
 
-#include <utility>
+#include <cstdint>
+#include <optional>
 #include <vector>
 
 #include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
 #include "api/transport/rtp/dependency_descriptor.h"
+#include "api/video/video_bitrate_allocation.h"
+#include "common_video/generic_frame_descriptor/generic_frame_info.h"
+#include "modules/video_coding/svc/scalable_video_controller.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
 
 namespace webrtc {
-
-constexpr int ScalabilityStructureFullSvc::kMaxNumSpatialLayers;
-constexpr int ScalabilityStructureFullSvc::kMaxNumTemporalLayers;
-constexpr absl::string_view ScalabilityStructureFullSvc::kFramePatternNames[];
 
 ScalabilityStructureFullSvc::ScalabilityStructureFullSvc(
     int num_spatial_layers,
@@ -142,7 +141,7 @@ ScalabilityStructureFullSvc::NextFrameConfig(bool restart) {
   }
   FramePattern current_pattern = NextPattern();
 
-  absl::optional<int> spatial_dependency_buffer_id;
+  std::optional<int> spatial_dependency_buffer_id;
   switch (current_pattern) {
     case kDeltaT0:
     case kKey:

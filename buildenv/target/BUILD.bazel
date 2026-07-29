@@ -1,0 +1,11 @@
+package(default_visibility = ["//visibility:public"])
+
+environment_group(
+    name = "target_envs",
+    defaults = [":non_prod"],
+    environments = [":non_prod"],
+)
+
+environment(
+    name = "non_prod",
+)

@@ -10,16 +10,19 @@
 
 #include "modules/rtp_rtcp/source/rtcp_packet/congestion_control_feedback.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <utility>
 #include <vector>
 
-#include "api/array_view.h"
+#include "api/transport/ecn_marking.h"
 #include "api/units/time_delta.h"
 #include "api/units/timestamp.h"
 #include "modules/rtp_rtcp/source/byte_io.h"
-#include "rtc_base/network/ecn_marking.h"
+#include "modules/rtp_rtcp/source/rtcp_packet/common_header.h"
+#include "rtc_base/checks.h"
 
 namespace webrtc {
 namespace rtcp {
@@ -99,31 +102,31 @@ TimeDelta AtoToTimeDelta(uint16_t receive_info) {
   return TimeDelta::Seconds(ato) / 1024;
 }
 
-uint16_t To2BitEcn(rtc::EcnMarking ecn_marking) {
+uint16_t To2BitEcn(EcnMarking ecn_marking) {
   switch (ecn_marking) {
-    case rtc::EcnMarking::kNotEct:
+    case EcnMarking::kNotEct:
       return 0;
-    case rtc::EcnMarking::kEct1:
+    case EcnMarking::kEct1:
       return kEcnEct1 << 13;
-    case rtc::EcnMarking::kEct0:
+    case EcnMarking::kEct0:
       return kEcnEct0 << 13;
-    case rtc::EcnMarking::kCe:
+    case EcnMarking::kCe:
       return kEcnCe << 13;
   }
 }
 
-rtc::EcnMarking ToEcnMarking(uint16_t receive_info) {
+EcnMarking ToEcnMarking(uint16_t receive_info) {
   const uint16_t ecn = (receive_info >> 13) & 0b11;
   if (ecn == kEcnEct1) {
-    return rtc::EcnMarking::kEct1;
+    return EcnMarking::kEct1;
   }
   if (ecn == kEcnEct0) {
-    return rtc::EcnMarking::kEct0;
+    return EcnMarking::kEct0;
   }
   if (ecn == kEcnCe) {
-    return rtc::EcnMarking::kCe;
+    return EcnMarking::kCe;
   }
-  return rtc::EcnMarking::kNotEct;
+  return EcnMarking::kNotEct;
 }
 
 }  // namespace
@@ -163,7 +166,7 @@ bool CongestionControlFeedback::Create(uint8_t* buffer,
   //   |R|ECN|  Arrival time offset    | ...                           .
   //   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
   //   .                                                               .
-  auto write_report_for_ssrc = [&](rtc::ArrayView<const PacketInfo> packets) {
+  auto write_report_for_ssrc = [&](std::span<const PacketInfo> packets) {
     // SSRC of nth RTP stream.
     ByteWriter<uint32_t>::WriteBigEndian(&buffer[*position], packets[0].ssrc);
     *position += 4;
@@ -173,12 +176,17 @@ bool CongestionControlFeedback::Create(uint8_t* buffer,
                                          packets[0].sequence_number);
     *position += 2;
     // num_reports
-    uint16_t num_reports = packets[packets.size() - 1].sequence_number -
-                           packets[0].sequence_number + 1;
+    uint16_t num_reports = packets.size();
+    RTC_DCHECK_EQ(static_cast<uint16_t>(
 
-    // Each report block MUST NOT include more than 16384 packet metric blocks
-    // (i.e., it MUST NOT report on more than one quarter of the sequence number
-    // space in a single report).
+                      packets[packets.size() - 1].sequence_number -
+                      packets[0].sequence_number + 1),
+                  packets.size())
+        << "Expected continous rtp sequence numbers.";
+
+    // Each report block MUST NOT include more than 16384 packet metric
+    // blocks (i.e., it MUST NOT report on more than one quarter of the
+    // sequence number space in a single report).
     if (num_reports > 16384) {
       RTC_DCHECK_NOTREACHED() << "Unexpected number of reports:" << num_reports;
       return;
@@ -186,18 +194,12 @@ bool CongestionControlFeedback::Create(uint8_t* buffer,
     ByteWriter<uint16_t>::WriteBigEndian(&buffer[*position], num_reports);
     *position += 2;
 
-    int packet_index = 0;
-    for (int i = 0; i < num_reports; ++i) {
-      uint16_t sequence_number = packets[0].sequence_number + i;
-
-      bool received = sequence_number == packets[packet_index].sequence_number;
-
+    for (const PacketInfo& packet : packets) {
+      bool received = packet.arrival_time_offset.IsFinite();
       uint16_t packet_info = 0;
       if (received) {
-        packet_info = 0x8000 | To2BitEcn(packets[packet_index].ecn) |
-                      To13bitAto(packets[packet_index].arrival_time_offset);
-
-        ++packet_index;
+        packet_info = 0x8000 | To2BitEcn(packet.ecn) |
+                      To13bitAto(packet.arrival_time_offset);
       }
       ByteWriter<uint16_t>::WriteBigEndian(&buffer[*position], packet_info);
       *position += 2;
@@ -209,7 +211,7 @@ bool CongestionControlFeedback::Create(uint8_t* buffer,
     }
   };
 
-  rtc::ArrayView<const PacketInfo> remaining(packets_);
+  std::span<const PacketInfo> remaining(packets_);
   while (!remaining.empty()) {
     int number_of_packets_for_ssrc = 0;
     uint32_t ssrc = remaining[0].ssrc;
@@ -219,8 +221,8 @@ bool CongestionControlFeedback::Create(uint8_t* buffer,
       }
       ++number_of_packets_for_ssrc;
     }
-    write_report_for_ssrc(remaining.subview(0, number_of_packets_for_ssrc));
-    remaining = remaining.subview(number_of_packets_for_ssrc);
+    write_report_for_ssrc(remaining.subspan(0, number_of_packets_for_ssrc));
+    remaining = remaining.subspan(number_of_packets_for_ssrc);
   }
 
   //   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -303,12 +305,12 @@ bool CongestionControlFeedback::Parse(const rtcp::CommonHeader& packet) {
 
       uint16_t seq_no = base_seqno + i;
       bool received = (packet_info & 0x8000);
-      if (received) {
-        packets_.push_back({.ssrc = ssrc,
-                            .sequence_number = seq_no,
-                            .arrival_time_offset = AtoToTimeDelta(packet_info),
-                            .ecn = ToEcnMarking(packet_info)});
-      }
+      packets_.push_back(
+          {.ssrc = ssrc,
+           .sequence_number = seq_no,
+           .arrival_time_offset = received ? AtoToTimeDelta(packet_info)
+                                           : TimeDelta::MinusInfinity(),
+           .ecn = ToEcnMarking(packet_info)});
     }
     if (num_reports % 2) {
       // 2 bytes padding

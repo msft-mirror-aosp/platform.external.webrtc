@@ -16,17 +16,18 @@
 #include "api/network_state_predictor.h"
 #include "api/transport/network_control.h"
 #include "api/units/time_delta.h"
+#include "rtc_base/system/rtc_export.h"
 
 namespace webrtc {
 
 struct GoogCcFactoryConfig {
+  bool rfc_8888_feedback_negotiated = false;
   std::unique_ptr<NetworkStateEstimatorFactory> network_state_estimator_factory;
   NetworkStatePredictorFactoryInterface* network_state_predictor_factory =
       nullptr;
-  bool feedback_only = false;
 };
 
-class GoogCcNetworkControllerFactory
+class RTC_EXPORT GoogCcNetworkControllerFactory
     : public NetworkControllerFactoryInterface {
  public:
   GoogCcNetworkControllerFactory() = default;

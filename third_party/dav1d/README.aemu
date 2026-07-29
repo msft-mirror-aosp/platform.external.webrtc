@@ -1,0 +1,23 @@
+Name: dav1d is an AV1 decoder :)
+Short Name: dav1d
+URL: https://code.videolan.org/videolan/dav1d
+Version: master
+Update Mechanism: Manual
+License: BSD-2-Clause
+License File: LICENSE
+Security Critical: yes
+Shipped: yes
+CPEPrefix: cpe:/a:videolan:dav1d
+Source: https://code.videolan.org/videolan/dav1d
+
+--[ DESCRIPTION ] ------------------
+This contains the source to the dav1d video decoder; used for AV1 decoding in
+Chromium. This copy was taken from the webrtc checkout of chromium (chromium webrtc).
+The LICENSE file is copied from libdav1d/COPYING.
+
+
+--[ UPDATING ] ------------------
+This repository should be updated by taking a clean snapshot from the webrtc checkout
+of chromium. Details on how to obtain webrtc can be found here:
+https://webrtc.github.io/webrtc-org/native-code/development/
+

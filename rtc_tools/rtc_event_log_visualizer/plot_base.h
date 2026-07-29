@@ -12,13 +12,12 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include "absl/base/attributes.h"
 #include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
 
 // Generated at build-time by the protobuf compiler.
 #include "rtc_tools/rtc_event_log_visualizer/proto/chart.pb.h"
@@ -45,11 +44,7 @@ struct TimeSeriesPoint {
 
 struct TimeSeries {
   TimeSeries() = default;  // TODO(terelius): Remove the default constructor.
-  TimeSeries(const char* label,
-             LineStyle line_style,
-             PointStyle point_style = PointStyle::kNone)
-      : label(label), line_style(line_style), point_style(point_style) {}
-  TimeSeries(const std::string& label,
+  TimeSeries(absl::string_view label,
              LineStyle line_style,
              PointStyle point_style = PointStyle::kNone)
       : label(label), line_style(line_style), point_style(point_style) {}
@@ -96,15 +91,9 @@ struct IntervalSeries {
 };
 
 // A container that represents a general graph, with axes, title and one or
-// more data series. A subclass should define the output format by overriding
-// the Draw() method.
+// more data series.
 class Plot {
  public:
-  virtual ~Plot() {}
-
-  ABSL_DEPRECATED("Use PrintPythonCode() or ExportProtobuf() instead.")
-  virtual void Draw() {}
-
   // Sets the lower x-axis limit to min_value (if left_margin == 0).
   // Sets the upper x-axis limit to max_value (if right_margin == 0).
   // The margins are measured as fractions of the interval
@@ -167,12 +156,11 @@ class Plot {
   // Otherwise, the call has no effect and the timeseries is destroyed.
   void AppendTimeSeriesIfNotEmpty(TimeSeries&& time_series);
 
-  // Replaces PythonPlot::Draw()
   void PrintPythonCode(
+      bool show_grid = false,
       absl::string_view figure_output_path = absl::string_view()) const;
 
-  // Replaces ProtobufPlot::Draw()
-  void ExportProtobuf(webrtc::analytics::Chart* chart) const;
+  void ExportProtobuf(analytics::Chart* chart) const;
 
  protected:
   float xaxis_min_;
@@ -190,30 +178,24 @@ class Plot {
 
 class PlotCollection {
  public:
-  virtual ~PlotCollection() {}
+  Plot* AppendNewPlot();
 
-  ABSL_DEPRECATED("Use PrintPythonCode() or ExportProtobuf() instead.")
-  virtual void Draw() {}
-
-  virtual Plot* AppendNewPlot();
-
-  virtual Plot* AppendNewPlot(absl::string_view);
+  Plot* AppendNewPlot(absl::string_view);
 
   void SetCallTimeToUtcOffsetMs(int64_t calltime_to_utc_ms) {
     calltime_to_utc_ms_ = calltime_to_utc_ms;
   }
 
-  // Replaces PythonPlotCollection::Draw()
   void PrintPythonCode(
       bool shared_xaxis,
+      bool show_grid_on_all_plots,
       absl::string_view figure_output_path = absl::string_view()) const;
 
-  // Replaces ProtobufPlotCollections::Draw()
-  void ExportProtobuf(webrtc::analytics::ChartCollection* collection) const;
+  void ExportProtobuf(analytics::ChartCollection* collection) const;
 
  protected:
   std::vector<std::unique_ptr<Plot>> plots_;
-  absl::optional<int64_t> calltime_to_utc_ms_;
+  std::optional<int64_t> calltime_to_utc_ms_;
 };
 
 }  // namespace webrtc

@@ -11,16 +11,15 @@
 #ifndef VIDEO_ADAPTATION_OVERUSE_FRAME_DETECTOR_H_
 #define VIDEO_ADAPTATION_OVERUSE_FRAME_DETECTOR_H_
 
-#include <list>
+#include <cstdint>
 #include <memory>
+#include <optional>
 
-#include "absl/types/optional.h"
 #include "api/environment/environment.h"
-#include "api/field_trials_view.h"
 #include "api/sequence_checker.h"
 #include "api/task_queue/task_queue_base.h"
+#include "api/units/time_delta.h"
 #include "rtc_base/experiments/field_trial_parser.h"
-#include "rtc_base/numerics/exp_filter.h"
 #include "rtc_base/system/no_unique_address.h"
 #include "rtc_base/task_utils/repeating_task.h"
 #include "rtc_base/thread_annotations.h"
@@ -105,7 +104,7 @@ class OveruseFrameDetector {
   void FrameSent(uint32_t timestamp,
                  int64_t time_sent_in_us,
                  int64_t capture_time_us,
-                 absl::optional<int> encode_duration_us);
+                 std::optional<int> encode_duration_us);
 
   // Interface for cpu load estimation. Intended for internal use only.
   class ProcessingUsage {
@@ -116,13 +115,13 @@ class OveruseFrameDetector {
                                int64_t time_when_first_seen_us,
                                int64_t last_capture_time_us) = 0;
     // Returns encode_time in us, if there's a new measurement.
-    virtual absl::optional<int> FrameSent(
+    virtual std::optional<int> FrameSent(
         // These two argument used by old estimator.
         uint32_t timestamp,
         int64_t time_sent_in_us,
         // And these two by the new estimator.
         int64_t capture_time_us,
-        absl::optional<int> encode_duration_us) = 0;
+        std::optional<int> encode_duration_us) = 0;
 
     virtual int Value() = 0;
     virtual ~ProcessingUsage() = default;
@@ -145,10 +144,6 @@ class OveruseFrameDetector {
 
   void ResetAll(int num_pixels);
 
-  static std::unique_ptr<ProcessingUsage> CreateProcessingUsage(
-      const FieldTrialsView& field_trials,
-      const CpuOveruseOptions& options);
-
   const Environment env_;
   RTC_NO_UNIQUE_ADDRESS SequenceChecker task_checker_;
   // Owned by the task queue from where StartCheckForOveruse is called.
@@ -156,7 +151,7 @@ class OveruseFrameDetector {
 
   // Stats metrics.
   CpuOveruseMetricsObserver* const metrics_observer_;
-  absl::optional<int> encode_usage_percent_ RTC_GUARDED_BY(task_checker_);
+  std::optional<int> encode_usage_percent_ RTC_GUARDED_BY(task_checker_);
 
   int64_t num_process_times_ RTC_GUARDED_BY(task_checker_);
 

@@ -11,10 +11,11 @@
 #ifndef COMMON_VIDEO_H265_H265_COMMON_H_
 #define COMMON_VIDEO_H265_H265_COMMON_H_
 
-#include <memory>
+#include <cstddef>
+#include <cstdint>
+#include <span>
 #include <vector>
 
-#include "common_video/h265/h265_inline.h"
 #include "rtc_base/buffer.h"
 #include "rtc_base/system/rtc_export.h"
 
@@ -50,6 +51,7 @@ enum NaluType : uint8_t {
   kIdrNLp = 20,
   kCra = 21,
   kRsvIrapVcl23 = 23,
+  kRsvVcl31 = 31,
   kVps = 32,
   kSps = 33,
   kPps = 34,
@@ -77,8 +79,14 @@ struct NaluIndex {
 };
 
 // Returns a vector of the NALU indices in the given buffer.
-RTC_EXPORT std::vector<NaluIndex> FindNaluIndices(const uint8_t* buffer,
-                                                  size_t buffer_size);
+RTC_EXPORT std::vector<NaluIndex> FindNaluIndices(
+    std::span<const uint8_t> buffer);
+
+// TODO: bugs.webrtc.org/42225170 - Deprecate.
+inline std::vector<NaluIndex> FindNaluIndices(const uint8_t* buffer,
+                                              size_t buffer_size) {
+  return FindNaluIndices(std::span(buffer, buffer_size));
+}
 
 // Get the NAL type from the header byte immediately following start sequence.
 RTC_EXPORT NaluType ParseNaluType(uint8_t data);
@@ -97,12 +105,24 @@ RTC_EXPORT NaluType ParseNaluType(uint8_t data);
 // the 03 emulation byte.
 
 // Parse the given data and remove any emulation byte escaping.
-std::vector<uint8_t> ParseRbsp(const uint8_t* data, size_t length);
+std::vector<uint8_t> ParseRbsp(std::span<const uint8_t> data);
+
+// TODO: bugs.webrtc.org/42225170 - Deprecate.
+inline std::vector<uint8_t> ParseRbsp(const uint8_t* data, size_t length) {
+  return ParseRbsp(std::span(data, length));
+}
 
 // Write the given data to the destination buffer, inserting and emulation
 // bytes in order to escape any data the could be interpreted as a start
 // sequence.
-void WriteRbsp(const uint8_t* bytes, size_t length, rtc::Buffer* destination);
+void WriteRbsp(std::span<const uint8_t> bytes, Buffer* destination);
+
+// TODO: bugs.webrtc.org/42225170 -  Deprecate.
+inline void WriteRbsp(const uint8_t* bytes,
+                      size_t length,
+                      Buffer* destination) {
+  WriteRbsp(std::span(bytes, length), destination);
+}
 
 uint32_t Log2Ceiling(uint32_t value);
 

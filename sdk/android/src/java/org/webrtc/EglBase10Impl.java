@@ -22,6 +22,7 @@ import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.egl.EGLContext;
 import javax.microedition.khronos.egl.EGLDisplay;
 import javax.microedition.khronos.egl.EGLSurface;
+import org.jni_zero.NativeMethods;
 
 /**
  * Holds EGL state and utility methods for handling an egl 1.0 EGLContext, an EGLDisplay,
@@ -71,7 +72,7 @@ class EglBase10Impl implements EglBase10 {
           }
         }
 
-        return nativeGetCurrentNativeEGLContext();
+        return EglBase10ImplJni.get().getCurrentNativeEGLContext();
       } finally {
         if (tempEglSurface != null) {
           egl.eglMakeCurrent(
@@ -193,11 +194,9 @@ class EglBase10Impl implements EglBase10 {
 
   @Override
   public void createSurface(Surface surface) {
-    /**
-     * We have to wrap Surface in a SurfaceHolder because for some reason eglCreateWindowSurface
-     * couldn't actually take a Surface object until API 17. Older versions fortunately just call
-     * SurfaceHolder.getSurface(), so we'll do that. No other methods are relevant.
-     */
+    // We have to wrap Surface in a SurfaceHolder because for some reason eglCreateWindowSurface
+    // couldn't actually take a Surface object until API 17. Older versions fortunately just call
+    // SurfaceHolder.getSurface(), so we'll do that. No other methods are relevant.
     class FakeSurfaceHolder implements SurfaceHolder {
       private final Surface surface;
 
@@ -444,5 +443,8 @@ class EglBase10Impl implements EglBase10 {
     return eglContext;
   }
 
-  private static native long nativeGetCurrentNativeEGLContext();
+  @NativeMethods
+  interface Natives {
+    long getCurrentNativeEGLContext();
+  }
 }

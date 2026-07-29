@@ -11,21 +11,16 @@
 #include "modules/congestion_controller/goog_cc/congestion_window_pushback_controller.h"
 
 #include <cstdint>
-#include <memory>
 
 #include "api/units/data_size.h"
-#include "test/explicit_key_value_config.h"
-#include "test/gmock.h"
+#include "test/create_test_field_trials.h"
 #include "test/gtest.h"
 
 namespace webrtc {
 namespace test {
 
-using ::testing::_;
-
 TEST(CongestionWindowPushbackControllerTest, FullCongestionWindow) {
-  CongestionWindowPushbackController cwnd_controller(
-      ExplicitKeyValueConfig(""));
+  CongestionWindowPushbackController cwnd_controller(CreateTestFieldTrials());
 
   cwnd_controller.UpdateOutstandingData(100000);
   cwnd_controller.SetDataWindow(DataSize::Bytes(50000));
@@ -40,8 +35,7 @@ TEST(CongestionWindowPushbackControllerTest, FullCongestionWindow) {
 }
 
 TEST(CongestionWindowPushbackControllerTest, NormalCongestionWindow) {
-  CongestionWindowPushbackController cwnd_controller(
-      ExplicitKeyValueConfig(""));
+  CongestionWindowPushbackController cwnd_controller(CreateTestFieldTrials());
 
   cwnd_controller.UpdateOutstandingData(199999);
   cwnd_controller.SetDataWindow(DataSize::Bytes(200000));
@@ -52,8 +46,7 @@ TEST(CongestionWindowPushbackControllerTest, NormalCongestionWindow) {
 }
 
 TEST(CongestionWindowPushbackControllerTest, LowBitrate) {
-  CongestionWindowPushbackController cwnd_controller(
-      ExplicitKeyValueConfig(""));
+  CongestionWindowPushbackController cwnd_controller(CreateTestFieldTrials());
 
   cwnd_controller.UpdateOutstandingData(100000);
   cwnd_controller.SetDataWindow(DataSize::Bytes(50000));
@@ -68,8 +61,7 @@ TEST(CongestionWindowPushbackControllerTest, LowBitrate) {
 }
 
 TEST(CongestionWindowPushbackControllerTest, NoPushbackOnDataWindowUnset) {
-  CongestionWindowPushbackController cwnd_controller(
-      ExplicitKeyValueConfig(""));
+  CongestionWindowPushbackController cwnd_controller(CreateTestFieldTrials());
 
   cwnd_controller.UpdateOutstandingData(1e8);  // Large number
 
@@ -80,7 +72,7 @@ TEST(CongestionWindowPushbackControllerTest, NoPushbackOnDataWindowUnset) {
 
 TEST(CongestionWindowPushbackControllerTest, PushbackOnInititialDataWindow) {
   CongestionWindowPushbackController cwnd_controller(
-      ExplicitKeyValueConfig("WebRTC-CongestionWindow/InitWin:100000/"));
+      CreateTestFieldTrials("WebRTC-CongestionWindow/InitWin:100000/"));
 
   cwnd_controller.UpdateOutstandingData(1e8);  // Large number
 
@@ -91,7 +83,7 @@ TEST(CongestionWindowPushbackControllerTest, PushbackOnInititialDataWindow) {
 
 TEST(CongestionWindowPushbackControllerTest, PushbackDropFrame) {
   CongestionWindowPushbackController cwnd_controller(
-      ExplicitKeyValueConfig("WebRTC-CongestionWindow/DropFrame:true/"));
+      CreateTestFieldTrials("WebRTC-CongestionWindow/DropFrame:true/"));
 
   cwnd_controller.UpdateOutstandingData(1e8);  // Large number
   cwnd_controller.SetDataWindow(DataSize::Bytes(50000));
