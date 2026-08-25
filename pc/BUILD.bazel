@@ -1528,6 +1528,7 @@ cc_library(
         "//pc:proxy",
         "//rtc_base:threading",
     ],
+    alwayslink = True,
 )
 
 cc_library(

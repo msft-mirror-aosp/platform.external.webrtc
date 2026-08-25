@@ -212,6 +212,7 @@ cc_library(
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
     ],
+    alwayslink = True,
 )
 
 cc_library(
@@ -308,6 +309,7 @@ cc_library(
         "//media:rtc_internal_video_codecs",
         "//rtc_base/system:rtc_export",
     ],
+    alwayslink = True,
 )
 
 cc_library(
@@ -356,6 +358,7 @@ cc_library(
         "//media:rtc_simulcast_encoder_adapter",
         "//rtc_base/system:rtc_export",
     ],
+    alwayslink = True,
 )
 
 cc_library(
