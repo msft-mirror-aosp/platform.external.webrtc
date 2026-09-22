@@ -157,8 +157,9 @@ AsyncDnsResolver::AsyncDnsResolver() = default;
 AsyncDnsResolver::~AsyncDnsResolver() {
   if (state_) {
 #if defined(WEBRTC_WIN)
-    RTC_DCHECK(cancel_);
-    GetAddrInfoExCancel(&cancel_);
+    if (cancel_) {
+      GetAddrInfoExCancel(&cancel_);
+    }
 #endif
     state_->Cancel();
   }
