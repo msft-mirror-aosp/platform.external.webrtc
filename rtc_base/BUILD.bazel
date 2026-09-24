@@ -4065,7 +4065,7 @@ cc_library(
         posix = ["WEBRTC_POSIX"],
         windows = ["WEBRTC_WIN"],
     ),
-    visibility = ["//:__subpackages__"],
+    visibility = ["//visibility:public"],
     deps = [
         "//api:make_ref_counted",
         "//api:refcountedbase",
